@@ -1,0 +1,592 @@
+Sure! Below is a **sample HTTP request** you can use to test the `createCompanyProfile` endpoint. Since this controller uses **`req.files`** (i.e., expects file uploads like `logo` and `coverImage`), you'll need to send a `multipart/form-data` request.
+
+---
+
+### ✅ Sample `POST` Request (via Postman or cURL)
+
+#### **Request URL**:
+
+```
+POST http://localhost:3000/api/v1/employer-dashboard/company-profile
+```
+
+#### **Headers**:
+
+```
+Content-Type: multipart/form-data
+Authorization: Bearer <your_access_token>
+```
+
+> Replace `<your_access_token>` with a real JWT if auth is required.
+
+---
+
+### 📦 **Body (multipart/form-data)**
+
+| Key              | Value (Type)       | Example / Notes                                    |
+| ---------------- | ------------------ | -------------------------------------------------- |
+| companyName      | Text               | `Tech Solutions`                                   |
+| email            | Text               | `info@techsolutions.com`                           |
+| phone            | Text               | `1234567890`                                       |
+| website          | Text               | `https://techsolutions.com`                        |
+| establishedSince | Text/Date          | `2010`                                             |
+| teamSize         | Text/Number        | `50-100`                                           |
+| categories       | Text or Array      | `["Software", "AI"]` or `Software` (single string) |
+| allowInSearch    | Boolean (Text)     | `true` or `false`                                  |
+| description      | Text               | `We build enterprise AI solutions.`                |
+| socialMedia      | Text (JSON string) | `{"linkedin":"https://linkedin.com/company/tech"}` |
+| location         | Text (JSON string) | `{"city":"San Francisco","country":"USA"}`         |
+| industry         | Text               | `Information Technology`                           |
+| companyType      | Text               | `Private`                                          |
+| culture          | Text (JSON array)  | `["Innovative", "Diverse"]`                        |
+| revenue          | Text               | `$1M - $5M`                                        |
+| founders         | Text (JSON array)  | `[{"name":"Jane Doe","title":"CEO"}]`              |
+| branches         | Text (JSON array)  | `[{"city":"NYC","employees":50}]`                  |
+| isHiring         | Boolean (Text)     | `true` or `false`                                  |
+| logo             | **File**           | Upload a logo image                                |
+| coverImage       | **File**           | Upload a cover image                               |
+
+---
+
+### 🧪 Example using Postman
+
+1. Go to the **Body** tab → select **form-data**
+2. Add the fields above (use raw JSON strings where needed)
+3. For `logo` and `coverImage`, change the type from "Text" to "File" and upload an image
+4. Add the **Authorization** header if your route requires it
+
+---
+
+### 🧵 Example cURL Request (for testing in terminal)
+
+```bash
+curl -X POST http://localhost:3000/api/v1/employer-dashboard/company-profile \
+  -H "Authorization: Bearer <your_access_token>" \
+  -F "companyName=Tech Solutions" \
+  -F "email=info@techsolutions.com" \
+  -F "phone=1234567890" \
+  -F "website=https://techsolutions.com" \
+  -F "establishedSince=2010" \
+  -F "teamSize=50-100" \
+  -F "categories=Software" \
+  -F "allowInSearch=true" \
+  -F "description=We build enterprise AI solutions." \
+  -F 'socialMedia={"linkedin":"https://linkedin.com/company/tech"}' \
+  -F 'location={"city":"San Francisco","country":"USA"}' \
+  -F "industry=Information Technology" \
+  -F "companyType=Private" \
+  -F 'culture=["Innovative","Diverse"]' \
+  -F "revenue=$1M - $5M" \
+  -F 'founders=[{"name":"Jane Doe","title":"CEO"}]' \
+  -F 'branches=[{"city":"NYC","employees":50}]' \
+  -F "isHiring=true" \
+  -F "logo=@./logo.png" \
+  -F "coverImage=@./cover.jpg"
+```
+
+> Make sure `logo.png` and `cover.jpg` exist in your local directory before running this.
+
+---
+
+//Jobs Test:
+
+
+
+### Sample Request
+
+To test the `POST /api/v1/job-posts` endpoint, here’s a sample request using `multipart/form-data` (since the frontend form may send arrays like `specialisms` as strings).
+
+#### Endpoint
+```
+POST /api/v1/job-posts
+```
+
+#### Headers
+- **Authorization**: `Bearer <token>` (JWT token from `/auth/sign-in`)
+- **Content-Type**: `multipart/form-data`
+
+#### Request Body (Form Fields)
+```json
+{
+  "title": "Senior Software Engineer",
+  "description": "Responsible for developing and maintaining web applications.",
+  "contactEmail": "hr@company.com",
+  "contactUsername": "hr_team",
+  "specialisms": "[\"Digital\", \"Technology\"]",
+  "jobType": "Full-time",
+  "offeredSalary": "$4500",
+  "careerLevel": "Senior Level",
+  "experience": "5-10 years",
+  "gender": "No Preference",
+  "industry": "Software Development",
+  "qualification": "Bachelor’s Degree",
+  "applicationDeadline": "2025-08-15",
+  "location": {
+    "country": "Australia",
+    "city": "Melbourne",
+    "completeAddress": "329 Queensberry Street, North Melbourne VIC 3051, Australia",
+    "coordinates": {
+      "latitude": -37.8041,
+      "longitude": 144.9496
+    }
+  }
+}
+```
+
+#### Example Using cURL
+```bash
+curl -X POST http://localhost:5000/api/v1/job-posts \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -H "Content-Type: multipart/form-data" \
+  -F "title=Senior Software Engineer" \
+  -F "description=Responsible for developing and maintaining web applications." \
+  -F "contactEmail=hr@company.com" \
+  -F "contactUsername=hr_team" \
+  -F "specialisms=[\"Digital\", \"Technology\"]" \
+  -F "jobType=Full-time" \
+  -F "offeredSalary=$4500" \
+  -F "careerLevel=Senior Level" \
+  -F "experience=5-10 years" \
+  -F "gender=No Preference" \
+  -F "industry=Software Development" \
+  -F "qualification=Bachelor’s Degree" \
+  -F "applicationDeadline=2025-08-15" \
+  -F "location={\"country\": \"Australia\", \"city\": \"Melbourne\", \"completeAddress\": \"329 Queensberry Street, North Melbourne VIC 3051, Australia\", \"coordinates\": {\"latitude\": -37.8041, \"longitude\": 144.9496}}"
+```
+
+#### Expected Success Response
+```json
+{
+  "success": true,
+  "message": "Job post created successfully",
+  "jobPost": {
+    "_id": "60d21b4667d0d8992e610c86",
+    "employer": "60d21b4667d0d8992e610c84",
+    "companyProfile": "60d21b4667d0d8992e610c85",
+    "title": "Senior Software Engineer",
+    "description": "Responsible for developing and maintaining web applications.",
+    "contactEmail": "hr@company.com",
+    "contactUsername": "hr_team",
+    "specialisms": ["Digital", "Technology"],
+    "jobType": "Full-time",
+    "offeredSalary": "$4500",
+    "careerLevel": "Senior Level",
+    "experience": "5-10 years",
+    "gender": "No Preference",
+    "industry": "Software Development",
+    "qualification": "Bachelor’s Degree",
+    "applicationDeadline": "2025-08-15T00:00:00.000Z",
+    "location": {
+      "country": "Australia",
+      "city": "Melbourne",
+      "completeAddress": "329 Queensberry Street, North Melbourne VIC 3051, Australia",
+      "coordinates": {
+        "latitude": -37.8041,
+        "longitude": 144.9496
+      }
+    },
+    "status": "Published",
+    "createdAt": "2025-07-26T10:47:00.000Z",
+    "updatedAt": "2025-07-26T10:47:00.000Z"
+  }
+}
+```
+
+#### Possible Error Responses
+- **400 Bad Request** (missing fields):
+  ```json
+  {
+    "success": false,
+    "message": "Missing required fields: title, description"
+  }
+  ```
+- **404 Not Found** (no company profile):
+  ```json
+  {
+    "success": false,
+    "message": "Company profile not found. Please create a company profile first."
+  }
+  ```
+- **400 Validation Error** (invalid email):
+  ```json
+  {
+    "success": false,
+    "message": "Validation failed",
+    "errors": ["Please enter a valid email address"]
+  }
+  ```
+
+---
+
+### Notes
+- **Integration with Company Profile**: The API requires the employer to have a company profile, ensuring job posts are linked to a valid company.
+- **Frontend Alignment**: The `specialisms` field is handled as a JSON string or array to match the `react-select` component’s output.
+- **Coordinates**: The frontend’s map component (likely Google Maps or similar) should provide `latitude` and `longitude`. Ensure these are sent as numbers.
+- **Extensibility**: You can add endpoints for updating, deleting, or listing job posts by extending `jobPost.routes.js` and `jobPost.controller.js`.
+
+This implementation provides a secure, validated, and professional backend API for your job posting form. Let me know if you need additional endpoints (e.g., update, delete) or help integrating with Next.js!
+
+=============================================
+
+Dec-27-12-2025
+
+Great question 👍
+These **two methods are core analytics APIs** for a *modern employer dashboard*. I’ll explain them **line-by-line, purpose-first**, and **how data flows from MongoDB → chart UI**.
+
+I’ll also relate them to **real job portals** so the intent is very clear.
+
+---
+
+# 1️⃣ `getApplicationTrends`
+
+### 📊 *“How are applications changing over time?”*
+
+## 🔹 Purpose (Business Meaning)
+
+This API answers questions like:
+
+* Are applications increasing or decreasing?
+* Which days/weeks/months are strong?
+* How many are **Pending vs Accepted vs Rejected** over time?
+
+👉 This is the **line / area chart** you see in dashboards (CanvasJS / Chart.js).
+
+---
+
+## 🔹 Endpoint
+
+```
+GET /api/v1/employer-dashboard/application-trends?period=monthly
+```
+
+Supported:
+
+* `daily` → last 30 days
+* `weekly` → last 12 weeks
+* `monthly` → last 12 months
+
+---
+
+## 🔹 Step-by-step Code Explanation
+
+### 1️⃣ Read employer and period
+
+```js
+const employerId = req.user.id;
+const { period = 'monthly' } = req.query;
+```
+
+* Dashboard is **per employer**
+* Default view = monthly (best UX)
+
+---
+
+### 2️⃣ Get employer’s job IDs
+
+```js
+const employerJobs = await JobPost.find({ employer: employerId }).select('_id');
+const jobIds = employerJobs.map(job => job._id);
+```
+
+Why?
+
+* Applications belong to **jobs**
+* Jobs belong to **employer**
+* This ensures **data isolation & security**
+
+---
+
+### 3️⃣ Decide date range + grouping logic
+
+```js
+const startDate = new Date();
+```
+
+Depending on `period`, we decide:
+
+* **How far back to look**
+* **How to group data**
+
+#### Daily (last 30 days)
+
+```js
+groupByFormat = {
+  year: { $year: '$createdAt' },
+  month: { $month: '$createdAt' },
+  day: { $dayOfMonth: '$createdAt' },
+};
+```
+
+→ Groups data per **day**
+
+---
+
+#### Weekly (last 12 weeks)
+
+```js
+groupByFormat = {
+  year: { $year: '$createdAt' },
+  week: { $week: '$createdAt' },
+};
+```
+
+→ Groups data per **week**
+
+---
+
+#### Monthly (last 12 months)
+
+```js
+groupByFormat = {
+  year: { $year: '$createdAt' },
+  month: { $month: '$createdAt' },
+};
+```
+
+→ Groups data per **month**
+✅ This is what LinkedIn / Naukri default to
+
+---
+
+### 4️⃣ MongoDB Aggregation Pipeline
+
+#### `$match` – Filter relevant data
+
+```js
+{
+  $match: {
+    jobPost: { $in: jobIds },
+    createdAt: { $gte: startDate },
+  },
+}
+```
+
+✔ Only employer’s jobs
+✔ Only within selected time range
+
+---
+
+#### `$group` – Count totals & statuses
+
+```js
+{
+  $group: {
+    _id: groupByFormat,
+    count: { $sum: 1 },
+    pending: { $sum: { $cond: [{ $eq: ['$status', 'Pending'] }, 1, 0] } },
+    accepted:{ $sum: { $cond: [{ $eq: ['$status', 'Accepted'] }, 1, 0] } },
+    rejected:{ $sum: { $cond: [{ $eq: ['$status', 'Rejected'] }, 1, 0] } },
+  },
+}
+```
+
+This creates data like:
+
+```json
+{
+  "2025-01": {
+    "total": 42,
+    "pending": 20,
+    "accepted": 12,
+    "rejected": 10
+  }
+}
+```
+
+📌 **One query → multiple metrics** (very efficient)
+
+---
+
+#### `$sort` – Chronological order
+
+```js
+{ $sort: { '_id.year': 1, '_id.month': 1 } }
+```
+
+Charts **must be ordered**, otherwise lines jump around.
+
+---
+
+### 5️⃣ Format for frontend charts
+
+```js
+const formattedData = trends.map(item => ({
+  date: formatTrendDate(item._id, period),
+  total: item.count,
+  pending: item.pending,
+  accepted: item.accepted,
+  rejected: item.rejected,
+}));
+```
+
+Final output (CanvasJS-ready):
+
+```json
+{
+  "date": "2025-01",
+  "total": 42,
+  "pending": 20,
+  "accepted": 12,
+  "rejected": 10
+}
+```
+
+---
+
+## 🔹 What Chart Uses This?
+
+✔ Line chart
+✔ Stacked area chart
+✔ Multi-line chart (Pending vs Accepted vs Rejected)
+
+---
+
+# 2️⃣ `getJobStatusDistribution`
+
+### 🥧 *“What is the current state of my jobs?”*
+
+## 🔹 Purpose (Business Meaning)
+
+This answers:
+
+* How many jobs are **Published / Draft / Closed**?
+* Which job status dominates?
+* How many applications per status?
+
+👉 Used for **Pie / Donut chart**
+
+---
+
+## 🔹 Endpoint
+
+```
+GET /api/v1/employer-dashboard/job-status-distribution
+```
+
+---
+
+## 🔹 Step-by-step Code Explanation
+
+### 1️⃣ Match employer jobs
+
+```js
+{
+  $match: { employer: new mongoose.Types.ObjectId(employerId) }
+}
+```
+
+✔ Only this employer’s jobs
+✔ Prevents data leakage
+
+---
+
+### 2️⃣ Group by job status
+
+```js
+{
+  $group: {
+    _id: '$status',
+    count: { $sum: 1 },
+    totalApplications: { $sum: '$applicantCount' },
+  }
+}
+```
+
+Creates:
+
+```json
+{
+  "Published": { "jobs": 6, "applications": 120 },
+  "Draft": { "jobs": 2, "applications": 0 }
+}
+```
+
+---
+
+### 3️⃣ Calculate percentages
+
+```js
+const totalJobs = distribution.reduce((sum, item) => sum + item.count, 0);
+```
+
+```js
+percentage = (item.count / totalJobs) * 100
+```
+
+Used in **donut chart labels**
+
+---
+
+### 4️⃣ Final formatted response
+
+```js
+{
+  "status": "Published",
+  "count": 6,
+  "percentage": 75,
+  "totalApplications": 120
+}
+```
+
+---
+
+## 🔹 What Chart Uses This?
+
+✔ Pie chart
+✔ Donut chart
+✔ Status cards
+
+---
+
+# 3️⃣ Why These Two APIs Are Important Together
+
+| API                       | Shows              | Chart Type  |
+| ------------------------- | ------------------ | ----------- |
+| `application-trends`      | Growth over time   | Line / Area |
+| `job-status-distribution` | Current job health | Pie / Donut |
+
+👉 This combo = **complete hiring analytics**
+
+---
+
+# 4️⃣ Real-World Mapping
+
+| Platform           | Similar Feature  |
+| ------------------ | ---------------- |
+| LinkedIn Recruiter | Applicant trends |
+| Naukri RMS         | Job status donut |
+| Indeed Employer    | Application flow |
+| Greenhouse         | Hiring funnel    |
+
+---
+
+# 5️⃣ Summary (In Simple Words)
+
+* **`getApplicationTrends`**
+
+  * Time-based analytics
+  * Used for growth & performance tracking
+
+* **`getJobStatusDistribution`**
+
+  * Snapshot analytics
+  * Used for job health & planning
+
+---
+
+## 🚀 Next I Can Help You With
+
+* CanvasJS chart config for both APIs
+* Application funnel (Views → Apply → Shortlist)
+* Real-time trend updates (Socket.IO)
+* Redis caching for heavy dashboards
+
+Just tell me what’s next 👌
+
+
+Portal,Candidates Save Jobs?,Candidates Save Employers?,Employers Save Candidates?
+LinkedIn,Yes (Save Job),No (but can Follow Company),Yes (Save to Project/Folder)
+Naukri,Yes (Save Job),No,Yes (Save to Folder in Resdex)
+Indeed,Yes (Save Job),No,Yes (Saved Candidates)
+Glassdoor,Yes (Save Job),No (can Follow Company),Limited (via recruiter tools)
+Monster,Yes (Save Job),No,Yes

@@ -1,0 +1,2299 @@
+//jobapply
+/jobs/apply/:jobId
+localhost:5000/api/v1/candidate-dashboard/jobs/apply/68973adae4a9452631e9fbd2 -POST
+
+payload:
+description : "Applying for the job"
+resume : file
+
+
+//response
+{
+    "success": true,
+    "message": "Application submitted successfully",
+    "application": {
+        "jobPost": "68973adae4a9452631e9fbd2",
+        "candidate": "687b3ab5745d8f29bb6a1496",
+        "resume": "/uploads/candidate/0932ccf7-091f-4534-acc0-939fbd99d70d.docx",
+        "description": "i am interested to apply the job",
+        "status": "Pending",
+        "_id": "68a9da566d2e69bfd7cd1aca",
+        "createdAt": "2025-08-23T15:12:22.515Z",
+        "updatedAt": "2025-08-23T15:12:22.515Z",
+        "__v": 0
+    }
+}
+
+//jobsave
+/jobs/save/:jobId'
+localhost:5000/api/v1/candidate-dashboard/jobs/save/68973adae4a9452631e9fbd2  - POST 
+
+No payload 
+
+response:
+{
+    "success": true,
+    "message": "Job saved successfully",
+    "savedJob": {
+        "jobPost": "68973adae4a9452631e9fbd2",
+        "candidate": "687b3ab5745d8f29bb6a1496",
+        "_id": "68a9e004f6a58ce8451e4743",
+        "createdAt": "2025-08-23T15:36:36.214Z",
+        "updatedAt": "2025-08-23T15:36:36.214Z",
+        "__v": 0
+    }
+}
+
+//get applied job
+api/v1/candidate-dashboard/applied-jobs  -> GET
+
+response:
+
+{
+    "success": true,
+    "appliedJobs": [
+        {
+            "_id": "68a9df31f6a58ce8451e4739",
+            "jobPost": {
+                "location": {
+                    "country": "India",
+                    "city": "Coimbatore",
+                    "completeAddress": "NRMlayout,avarankudithoppu"
+                },
+                "_id": "68973adae4a9452631e9fbd2",
+                "employer": "686eb2200d0b5472f9a6c996",
+                "companyProfile": {
+                    "_id": "6894ec6b55908eb75da0745f",
+                    "companyName": "National Employment Board",
+                    "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png",
+                    "id": "6894ec6b55908eb75da0745f"
+                },
+                "title": "DevOps Engineer",
+                "description": "We need a DevOps engineer with AWS experience.",
+                "contactEmail": "hr@techfirm.com",
+                "contactUsername": "techfirmHR",
+                "specialisms": [
+                    "Digital & Creative"
+                ],
+                "jobType": "Part-time",
+                "offeredSalary": "$3500",
+                "careerLevel": "Intermediate",
+                "experience": "1-3 years",
+                "gender": "Male",
+                "industry": "Information Technology",
+                "qualification": "Associate Degree",
+                "applicationDeadline": "2025-08-06T00:00:00.000Z",
+                "applicantCount": 1,
+                "remoteWork": "On-site",
+                "status": "Published",
+                "createdAt": "2025-08-09T12:11:06.245Z",
+                "updatedAt": "2025-08-23T15:33:05.675Z"
+            },
+            "candidate": "687b3ab5745d8f29bb6a1496",
+            "resume": "/uploads/candidate/be6756d9-d6e7-4bb1-9d8b-d7576b220001.docx",
+            "description": "i am interested to apply the job",
+            "status": "Pending",
+            "createdAt": "2025-08-23T15:33:05.646Z",
+            "updatedAt": "2025-08-23T15:33:05.646Z"
+        }
+    ]
+}
+
+
+//saved jobs
+api/v1/candidate-dashboard/saved-jobs  -> GET
+
+response:
+
+{
+    "success": true,
+    "savedJobs": [
+        {
+            "_id": "68a9e004f6a58ce8451e4743",
+            "jobPost": {
+                "location": {
+                    "country": "India",
+                    "city": "Coimbatore",
+                    "completeAddress": "NRMlayout,avarankudithoppu"
+                },
+                "_id": "68973adae4a9452631e9fbd2",
+                "employer": "686eb2200d0b5472f9a6c996",
+                "companyProfile": {
+                    "_id": "6894ec6b55908eb75da0745f",
+                    "companyName": "National Employment Board",
+                    "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png",
+                    "id": "6894ec6b55908eb75da0745f"
+                },
+                "title": "DevOps Engineer",
+                "description": "We need a DevOps engineer with AWS experience.",
+                "contactEmail": "hr@techfirm.com",
+                "contactUsername": "techfirmHR",
+                "specialisms": [
+                    "Digital & Creative"
+                ],
+                "jobType": "Part-time",
+                "offeredSalary": "$3500",
+                "careerLevel": "Intermediate",
+                "experience": "1-3 years",
+                "gender": "Male",
+                "industry": "Information Technology",
+                "qualification": "Associate Degree",
+                "applicationDeadline": "2025-08-06T00:00:00.000Z",
+                "applicantCount": 1,
+                "remoteWork": "On-site",
+                "status": "Published",
+                "createdAt": "2025-08-09T12:11:06.245Z",
+                "updatedAt": "2025-08-23T15:33:05.675Z"
+            },
+            "candidate": "687b3ab5745d8f29bb6a1496",
+            "createdAt": "2025-08-23T15:36:36.214Z",
+            "updatedAt": "2025-08-23T15:36:36.214Z"
+        }
+    ]
+}
+
+
+//delete saved job
+/saved-jobs/:savedJobId
+api/v1/candidate-dashboard/saved-jobs/68a9e004f6a58ce8451e4743  -> DELETE
+
+response:
+{
+    "success": true,
+    "message": "Saved job removed successfully"
+}
+
+//delete applied job 
+
+/applied-jobs/:applicationId
+api/v1/candidate-dashboard/saved-jobs/68a9e004f6a58ce8451e4743  -> DELETE
+
+response:
+{
+    "success": true,
+    "message": "Applied job removed successfully"
+}
+
+
+========
+
+Job Alerts:
+
+create job alert:
+
+LOCALHOST:5000/api/v1/notification/job-alerts  - POST 
+
+payload:
+{
+  "criteria": {
+    "categories": ["Digital", "Technology"],
+    "location": { "city": "Chennai" },
+    "salaryRange": { "min": 1500, "max": 5000 },
+    "jobType": "Full-time",
+    "experience": "2-5 years",
+    "keywords": ["Data Analyst", "Python"]
+  },
+  "frequency": "Instant"
+}
+
+Response:
+
+{
+    "success": true,
+    "message": "Job alert created successfully",
+    "alert": {
+        "candidate": "687b3ab5745d8f29bb6a1496",
+        "criteria": {
+            "categories": [
+                "Digital",
+                "Technology"
+            ],
+            "location": {
+                "city": "Chennai",
+                "country": "India"
+            },
+            "salaryRange": {
+                "min": 1500,
+                "max": 5000
+            },
+            "jobType": "Full-time",
+            "experience": "2-5 years",
+            "keywords": [
+                "Data Analyst",
+                "Python"
+            ]
+        },
+        "frequency": "Instant",
+        "isActive": true,
+        "_id": "68ab1cf3987d057081529ca3",
+        "createdAt": "2025-08-24T14:08:51.762Z",
+        "updatedAt": "2025-08-24T14:08:51.762Z",
+        "__v": 0
+    }
+}
+
+=================================
+//resume builder:
+
+{{local}}api/v1/candidate-dashboard/resumes/create - POST 
+
+Payload: (form-data)
+
+title:My Professional Resume
+template:modern
+personalInfo:{"fullName":"Aravind Kumar","professionalTitle":"Senior Software Engineer","email":"aravind@example.com","phone":"+919876543210","location":{"city":"Chennai","country":"India"},"linkedInUrl":"https://linkedin.com/in/aravind","githubUrl":"https://github.com/aravind","summary":"Experienced software engineer with expertise in full-stack development."}
+education:[{"institution":"IIT Madras","degree":"Bachelor’s Degree","fieldOfStudy":"Computer Science","startDate":"2018-06-01","endDate":"2022-05-31","current":false,"grade":"8.5 CGPA","description":"Specialized in algorithms and web development."}]
+experience:[{"company":"Tech Corp","position":"Software Engineer","employmentType":"Full-time","location":"Chennai","startDate":"2022-06-01","endDate":null,"current":true,"description":"Developed scalable web applications.","achievements":["Led a team of 5 developers","Increased app performance by 30%"],"skills":["React","Node.js"]}]
+awards:[{"title":"Best Project Award","issuer":"Tech Corp","date":"2023-12-01","description":"Awarded for innovative web app."}]
+skills:["JavaScript","React","Node.js","Python"]
+//preferences: JSON string with job preferences
+portfolioTitle_portfolio0:Project Presentation
+portfolioDesc_portfolio0:{"visibility":"public","jobTypes":["Full-time","Remote"],"locations":["Chennai","Bangalore"],"salaryExpectation":{"min":50000,"max":100000,"currency":"INR"}}
+isPrimary:true
+description:mine new resume
+
+
+Payload2: 
+
+
+{
+  "title": "Professional Resume",
+  "description": "Full-stack developer with 5+ years experience in React and Node.js",
+  "template": "professional",
+  "personalInfo": {
+    "fullName": "ARAVI",
+    "professionalTitle": "Senior Full Stack Developer",
+    "email": "saravind406@gmail.com",
+    "phone": "+91 9876543210",
+    "location": { "city": "Chennai", "country": "India" },
+    "linkedInUrl": "https://linkedin.com/in/aravindkumar",
+    "githubUrl": "https://github.com/aravindkumar",
+    "summary": "Experienced in building scalable web applications using React, Node, and MongoDB."
+  },
+  "education": [
+    {
+      "institution": "Anna University",
+      "degree": "Bachelor",
+      "fieldOfStudy": "Computer Science",
+      "startDate": "2014-06-01",
+      "endDate": "2018-05-31"
+    }
+  ],
+  "experience": [
+    {
+      "company": "TechNova",
+      "position": "Full Stack Developer",
+      "employmentType": "Full-time",
+      "location": "Chennai",
+      "startDate": "2019-01-01",
+      "endDate": "2023-12-31",
+      "current": false,
+      "description": "Developed scalable MERN apps and REST APIs.",
+      "skills": ["React", "Node.js", "MongoDB", "AWS"]
+    }
+  ],
+  "skills": ["React", "Node.js", "MongoDB", "AWS", "JavaScript"],
+  "awards": [
+    {
+      "title": "Employee of the Year",
+      "issuer": "TechNova",
+      "date": "2021-03-15",
+      "description": "Recognized for leading multiple successful projects."
+    }
+  ],
+  "preferences": {
+    "jobTypes": ["Full-time"],
+    "locations": ["Chennai", "Remote"]
+  },
+  "isPrimary": true,
+  "isActive": true
+}
+
+
+Response:
+
+{
+    "success": true,
+    "message": "Resume created successfully",
+    "resume": {
+        "candidate": "68ac9967d0d12b78d128cc96",
+        "title": "My Professional Resume",
+        "description": "mine new resume",
+        "template": "modern",
+        "personalInfo": {
+            "fullName": "Aravind Kumar",
+            "professionalTitle": "Senior Software Engineer",
+            "email": "aravind@example.com",
+            "phone": "+919876543210",
+            "location": {
+                "city": "Chennai",
+                "country": "India"
+            },
+            "linkedInUrl": "https://linkedin.com/in/aravind",
+            "githubUrl": "https://github.com/aravind",
+            "summary": "Experienced software engineer with expertise in full-stack development."
+        },
+        "education": [
+            {
+                "institution": "IIT Madras",
+                "degree": "Bachelor’s Degree",
+                "fieldOfStudy": "Computer Science",
+                "startDate": "2018-06-01T00:00:00.000Z",
+                "endDate": "2022-05-31T00:00:00.000Z",
+                "current": false,
+                "grade": "8.5 CGPA",
+                "description": "Specialized in algorithms and web development."
+            }
+        ],
+        "experience": [
+            {
+                "company": "Tech Corp",
+                "position": "Software Engineer",
+                "employmentType": "Full-time",
+                "location": "Chennai",
+                "startDate": "2022-06-01T00:00:00.000Z",
+                "endDate": null,
+                "current": true,
+                "description": "Developed scalable web applications.",
+                "achievements": [
+                    "Led a team of 5 developers",
+                    "Increased app performance by 30%"
+                ],
+                "skills": [
+                    "React",
+                    "Node.js"
+                ]
+            }
+        ],
+        "awards": [
+            {
+                "title": "Best Project Award",
+                "issuer": "Tech Corp",
+                "date": "2023-12-01T00:00:00.000Z",
+                "description": "Awarded for innovative web app."
+            }
+        ],
+        "skills": [
+            "JavaScript",
+            "React",
+            "Node.js",
+            "Python"
+        ],
+        "portfolio": [],
+        "preferences": {
+            "salaryExpectation": {
+                "currency": "INR"
+            },
+            "jobTypes": [],
+            "locations": []
+        },
+        "atsScore": 80,
+        "isActive": true,
+        "isPrimary": false,
+        "_id": "68d7da74a9dc39a5b8a63fa0",
+        "createdAt": "2025-09-27T12:37:08.284Z",
+        "updatedAt": "2025-09-27T12:37:08.685Z",
+        "__v": 0
+    }
+}
+
+//update resume 
+
+{{local}}api/v1/candidate-dashboard/resumes/update/68d7da74a9dc39a5b8a63fa0 - PUT
+
+Payload :
+
+title:My Professional Resume-updated
+template:modern
+personalInfo:{"fullName":"Aravind Kumar","professionalTitle":"Senior Software Engineer","email":"aravind@example.com","phone":"+919876543210","location":{"city":"Chennai","country":"India"},"linkedInUrl":"https://linkedin.com/in/aravind","githubUrl":"https://github.com/aravind","summary":"Experienced software engineer with expertise in full-stack development."}
+education:[{"institution":"IIT Madras","degree":"Bachelor’s Degree","fieldOfStudy":"Computer Science","startDate":"2018-06-01","endDate":"2022-05-31","current":false,"grade":"8.5 CGPA","description":"Specialized in algorithms and web development."}]
+experience:[{"company":"Tech Corp","position":"Software Engineer","employmentType":"Full-time","location":"Chennai","startDate":"2022-06-01","endDate":null,"current":true,"description":"Developed scalable web applications.","achievements":["Led a team of 5 developers","Increased app performance by 30%"],"skills":["React","Node.js"]}]
+awards:[{"title":"Best Project Award","issuer":"Tech Corp","date":"2023-12-01","description":"Awarded for innovative web app."}]
+skills:["JavaScript","React","Node.js","Python"]
+preferences:{"jobTypes":["Full-time","Remote"],"locations":["Chennai","Bangalore"]}
+portfolioTitle_portfolio0:Project Presentation
+portfolioDesc_portfolio0:A presentation on my latest project
+isPrimary:1
+description:mine new updated resume
+isActive:0
+
+
+payload2:
+
+{
+  "title": "Professional Resume",
+  "description": "Full-stack developer with 5+ years experience in React and Node.js",
+  "template": "professional",
+  "personalInfo": {
+    "fullName": "ARAVI S",
+    "professionalTitle": "Senior Full Stack Developer",
+    "email": "saravind406@gmail.com",
+    "phone": "+91 9876543210",
+    "location": { "city": "Chennai", "country": "India" },
+    "linkedInUrl": "https://linkedin.com/in/aravindkumar",
+    "githubUrl": "https://github.com/aravindkumar",
+    "summary": "Experienced in building scalable web applications using React, Node, and MongoDB."
+  },
+  "education": [
+    {
+      "institution": "Anna University",
+      "degree": "Bachelor",
+      "fieldOfStudy": "Computer Science",
+      "startDate": "2014-06-01",
+      "endDate": "2018-05-31"
+    }
+  ],
+  "experience": [
+    {
+      "company": "TechNova",
+      "position": "Full Stack Developer",
+      "employmentType": "Full-time",
+      "location": "Chennai",
+      "startDate": "2019-01-01",
+      "endDate": "2023-12-31",
+      "current": false,
+      "description": "Developed scalable MERN apps and REST APIs.",
+      "skills": ["React", "Node.js", "MongoDB", "AWS"]
+    }
+  ],
+  "skills": ["React", "Node.js", "MongoDB", "AWS", "JavaScript"],
+  "awards": [
+    {
+      "title": "Employee of the Year",
+      "issuer": "TechNova",
+      "date": "2021-03-15",
+      "description": "Recognized for leading multiple successful projects."
+    }
+  ],
+  "preferences": {
+    "jobTypes": ["Full-time"],
+    "locations": ["Chennai", "Remote"]
+  },
+  "isPrimary": true,
+  "isActive": true
+}
+
+
+
+Response: 
+
+{
+    "success": true,
+    "message": "Resume updated successfully",
+    "resume": {
+        "personalInfo": {
+            "fullName": "Aravind Kumar",
+            "professionalTitle": "Senior Software Engineer",
+            "email": "aravind@example.com",
+            "phone": "+919876543210",
+            "location": {
+                "city": "Chennai",
+                "country": "India"
+            },
+            "linkedInUrl": "https://linkedin.com/in/aravind",
+            "githubUrl": "https://github.com/aravind",
+            "summary": "Experienced software engineer with expertise in full-stack development."
+        },
+        "preferences": {
+            "jobTypes": [
+                "Full-time",
+                "Remote"
+            ],
+            "locations": [
+                "Chennai",
+                "Bangalore"
+            ]
+        },
+        "_id": "68d7da74a9dc39a5b8a63fa0",
+        "candidate": "68ac9967d0d12b78d128cc96",
+        "title": "My Professional Resume-updated",
+        "description": "mine new updated resume",
+        "template": "modern",
+        "education": [
+            {
+                "institution": "IIT Madras",
+                "degree": "Bachelor’s Degree",
+                "fieldOfStudy": "Computer Science",
+                "startDate": "2018-06-01T00:00:00.000Z",
+                "endDate": "2022-05-31T00:00:00.000Z",
+                "current": false,
+                "grade": "8.5 CGPA",
+                "description": "Specialized in algorithms and web development."
+            }
+        ],
+        "experience": [
+            {
+                "company": "Tech Corp",
+                "position": "Software Engineer",
+                "employmentType": "Full-time",
+                "location": "Chennai",
+                "startDate": "2022-06-01T00:00:00.000Z",
+                "endDate": null,
+                "current": true,
+                "description": "Developed scalable web applications.",
+                "achievements": [
+                    "Led a team of 5 developers",
+                    "Increased app performance by 30%"
+                ],
+                "skills": [
+                    "React",
+                    "Node.js"
+                ]
+            }
+        ],
+        "awards": [
+            {
+                "title": "Best Project Award",
+                "issuer": "Tech Corp",
+                "date": "2023-12-01T00:00:00.000Z",
+                "description": "Awarded for innovative web app."
+            }
+        ],
+        "skills": [
+            "JavaScript",
+            "React",
+            "Node.js",
+            "Python"
+        ],
+        "portfolio": [
+            {
+                "file": "/uploads/candidate/9d5f5827-35b1-44f0-a71b-0275a42041f6.pdf",
+                "title": "Untitled",
+                "description": ""
+            }
+        ],
+        "atsScore": 100,
+        "isActive": false,
+        "isPrimary": true,
+        "createdAt": "2025-09-27T12:37:08.284Z",
+        "updatedAt": "2025-09-27T13:11:36.698Z",
+        "__v": 3
+    }
+}
+
+//{{local}}api/v1/candidate-dashboard/resumes/get-all  - GET 
+
+Just pass candidate token 
+
+//if resume is active you will get the list 
+{
+    "success": true,
+    "resumes": [],
+    "debugCount": {
+        "total": 1,
+        "active": 0
+    }
+}
+
+
+//{{local}}api/v1/candidate-dashboard/resumes/get/68d7da74a9dc39a5b8a63fa0 - GET (Single Resume)
+
+Response:
+
+{
+    "success": true,
+    "resume": {
+        "personalInfo": {
+            "location": {
+                "city": "Chennai",
+                "country": "India"
+            },
+            "fullName": "Aravind Kumar",
+            "professionalTitle": "Senior Software Engineer",
+            "email": "aravind@example.com",
+            "phone": "+919876543210",
+            "linkedInUrl": "https://linkedin.com/in/aravind",
+            "githubUrl": "https://github.com/aravind",
+            "summary": "Experienced software engineer with expertise in full-stack development."
+        },
+        "preferences": {
+            "jobTypes": [
+                "Full-time",
+                "Remote"
+            ],
+            "locations": [
+                "Chennai",
+                "Bangalore"
+            ]
+        },
+        "_id": "68d7da74a9dc39a5b8a63fa0",
+        "candidate": "68ac9967d0d12b78d128cc96",
+        "title": "My Professional Resume-updated",
+        "description": "mine new updated resume",
+        "template": "modern",
+        "education": [
+            {
+                "institution": "IIT Madras",
+                "degree": "Bachelor’s Degree",
+                "fieldOfStudy": "Computer Science",
+                "startDate": "2018-06-01T00:00:00.000Z",
+                "endDate": "2022-05-31T00:00:00.000Z",
+                "current": false,
+                "grade": "8.5 CGPA",
+                "description": "Specialized in algorithms and web development."
+            }
+        ],
+        "experience": [
+            {
+                "company": "Tech Corp",
+                "position": "Software Engineer",
+                "employmentType": "Full-time",
+                "location": "Chennai",
+                "startDate": "2022-06-01T00:00:00.000Z",
+                "endDate": null,
+                "current": true,
+                "description": "Developed scalable web applications.",
+                "achievements": [
+                    "Led a team of 5 developers",
+                    "Increased app performance by 30%"
+                ],
+                "skills": [
+                    "React",
+                    "Node.js"
+                ]
+            }
+        ],
+        "awards": [
+            {
+                "title": "Best Project Award",
+                "issuer": "Tech Corp",
+                "date": "2023-12-01T00:00:00.000Z",
+                "description": "Awarded for innovative web app."
+            }
+        ],
+        "skills": [
+            "JavaScript",
+            "React",
+            "Node.js",
+            "Python"
+        ],
+        "portfolio": [
+            {
+                "file": "/uploads/candidate/9d5f5827-35b1-44f0-a71b-0275a42041f6.pdf",
+                "title": "Untitled",
+                "description": ""
+            }
+        ],
+        "atsScore": 100,
+        "isActive": false,
+        "isPrimary": true,
+        "createdAt": "2025-09-27T12:37:08.284Z",
+        "updatedAt": "2025-09-27T13:11:36.698Z",
+        "__v": 3
+    }
+}
+
+//{{local}}api/v1/candidate-dashboard/resumes/68d7da74a9dc39a5b8a63fa0/generate-pdf - GET (For generate PDF)
+
+//{{local}}api/v1/candidate-dashboard/resumes/delete/68d7da74a9dc39a5b8a63fa0
+
+response:
+
+{
+  "success": true,
+  "message": "Resume deleted successfully"
+}
+
+=====================
+
+Applicants List:
+
+{{local}}api/v1/employer-dashboard/applicants/68973adae4a9452631e9fbd2 - GET 
+
+(/applicants/:jobId)
+
+Response: 
+
+{
+    "success": true,
+    "applicants": [
+        {
+            "id": "687b3ab5745d8f29bb6a1496",
+            "name": "Priya Patel",
+            "designation": "Senior Data Analyst",
+            "location": "Mumbai",
+            "expectedSalary": "₹15-20 LPA",
+            "tags": [
+                "Accounting & Finance",
+                "Digital",
+                "Creative Art"
+            ],
+            "avatar": "/default-avatar.jpg",
+            "status": "Pending",
+            "appliedAt": "2025-08-23T15:33:05.646Z",
+            "resume": "/uploads/candidate/be6756d9-d6e7-4bb1-9d8b-d7576b220001.docx",
+            "applicationId": "68a9df31f6a58ce8451e4739"
+        }
+    ],
+    "pagination": {
+        "currentPage": 1,
+        "totalPages": 1,
+        "total": 1,
+        "limit": 10
+    },
+    "statusCounts": {
+        "Total": 1,
+        "Pending": 1,
+        "Reviewed": 0,
+        "Accepted": 0,
+        "Rejected": 0
+    }
+}
+
+
+Update Applicant Status:
+
+/applicants/:applicationId/status
+{{local}}api/v1/employer-dashboard/applicants/68a9df31f6a58ce8451e4739/status  - PUT 
+
+Payload:
+
+{
+    "status" : "Reviewed"
+}
+
+
+response:
+
+{
+    "success": true,
+    "message": "Applicant status updated to Reviewed",
+    "application": {
+        "_id": "68a9df31f6a58ce8451e4739",
+        "jobPost": {
+            "location": {
+                "country": "India",
+                "city": "Coimbatore",
+                "completeAddress": "NRMlayout,avarankudithoppu"
+            },
+            "_id": "68973adae4a9452631e9fbd2",
+            "employer": "686eb2200d0b5472f9a6c996",
+            "companyProfile": "6894ec6b55908eb75da0745f",
+            "title": "DevOps Engineer",
+            "description": "We need a DevOps engineer with AWS experience.",
+            "contactEmail": "hr@techfirm.com",
+            "contactUsername": "techfirmHR",
+            "specialisms": [
+                "Digital & Creative"
+            ],
+            "jobType": "Part-time",
+            "offeredSalary": "$3500",
+            "careerLevel": "Intermediate",
+            "experience": "1-3 years",
+            "gender": "Male",
+            "industry": "Information Technology",
+            "qualification": "Associate Degree",
+            "applicationDeadline": "2025-08-06T00:00:00.000Z",
+            "applicantCount": 1,
+            "remoteWork": "On-site",
+            "status": "Published",
+            "createdAt": "2025-08-09T12:11:06.245Z",
+            "updatedAt": "2025-08-23T15:33:05.675Z",
+            "__v": 0
+        },
+        "candidate": "687b3ab5745d8f29bb6a1496",
+        "resume": "/uploads/candidate/be6756d9-d6e7-4bb1-9d8b-d7576b220001.docx",
+        "description": "i am interested to apply the job",
+        "status": "Reviewed",
+        "createdAt": "2025-08-23T15:33:05.646Z",
+        "updatedAt": "2025-09-28T08:29:33.624Z",
+        "__v": 0,
+        "candidateProfile": "68a767a57404167a7a475121"
+    }
+}
+
+
+//get or view single applicant details 
+
+{{local}}api/v1/employer-dashboard/applicants/get/68a9df31f6a58ce8451e4739 - GET 
+
+{{local}}api/v1/employer-dashboard/applicants/get/:applicationId
+
+
+response:
+
+{
+    "success": true,
+    "application": {
+        "_id": "68a9df31f6a58ce8451e4739",
+        "jobPost": {
+            "_id": "68973adae4a9452631e9fbd2",
+            "employer": "686eb2200d0b5472f9a6c996",
+            "title": "DevOps Engineer"
+        },
+        "candidate": {
+            "_id": "687b3ab5745d8f29bb6a1496",
+            "name": "rv",
+            "email": "test@gmail.com"
+        },
+        "resume": "/uploads/candidate/be6756d9-d6e7-4bb1-9d8b-d7576b220001.docx",
+        "description": "i am interested to apply the job",
+        "status": "Reviewed",
+        "createdAt": "2025-08-23T15:33:05.646Z",
+        "updatedAt": "2025-09-28T08:29:33.624Z",
+        "candidateProfile": {
+            "location": {
+                "country": "India",
+                "city": "Mumbai",
+                "completeAddress": "789, Marine Drive, Mumbai, Maharashtra 400001, India"
+            },
+            "_id": "68a767a57404167a7a475121",
+            "fullName": "Rv Kumar",
+            "jobTitle": "Senior Data Analyst",
+            "phone": "+918765432109",
+            "expectedSalary": "₹15-20 LPA",
+            "categories": [
+                "Accounting & Finance",
+                "Digital",
+                "Creative Art"
+            ],
+            "profilePhoto": null,
+            "resume": null
+        }
+    }
+}
+
+
+//delete applicant 
+
+/applicants/delete/:applicationId - DELETE 
+
+//Shortlist the application 
+
+{{local}}api/v1/employer-dashboard/applicants/68a9df31f6a58ce8451e4739/shortlist - PUT 
+
+Response :
+
+{
+    "success": true,
+    "message": "Applicant shortlisted successfully",
+    "application": {
+        "_id": "68a9df31f6a58ce8451e4739",
+        "jobPost": {
+            "location": {
+                "country": "India",
+                "city": "Coimbatore",
+                "completeAddress": "NRMlayout,avarankudithoppu"
+            },
+            "_id": "68973adae4a9452631e9fbd2",
+            "employer": "686eb2200d0b5472f9a6c996",
+            "companyProfile": "6894ec6b55908eb75da0745f",
+            "title": "DevOps Engineer",
+            "description": "We need a DevOps engineer with AWS experience.",
+            "contactEmail": "hr@techfirm.com",
+            "contactUsername": "techfirmHR",
+            "specialisms": [
+                "Digital & Creative"
+            ],
+            "jobType": "Part-time",
+            "offeredSalary": "$3500",
+            "careerLevel": "Intermediate",
+            "experience": "1-3 years",
+            "gender": "Male",
+            "industry": "Information Technology",
+            "qualification": "Associate Degree",
+            "applicationDeadline": "2025-08-06T00:00:00.000Z",
+            "applicantCount": 4,
+            "remoteWork": "On-site",
+            "status": "Published",
+            "createdAt": "2025-08-09T12:11:06.245Z",
+            "updatedAt": "2025-09-28T14:38:50.818Z",
+            "__v": 0
+        },
+        "candidate": {
+            "_id": "687b3ab5745d8f29bb6a1496",
+            "email": "test@gmail.com"
+        },
+        "resume": "/uploads/candidate/be6756d9-d6e7-4bb1-9d8b-d7576b220001.docx",
+        "description": "i am interested to apply the job",
+        "status": "Reviewed",
+        "createdAt": "2025-08-23T15:33:05.646Z",
+        "updatedAt": "2025-09-28T14:38:50.787Z",
+        "__v": 0,
+        "candidateProfile": "68a767a57404167a7a475121",
+        "shortlisted": true
+    }
+}
+
+
+//Unshorlist the resume 
+
+{{local}}api/v1/employer-dashboard/applicants/68a9df31f6a58ce8451e4739/unshortlist  -PUT 
+
+put('/applicants/:applicationId/unshortlist
+
+Response :
+
+{
+    "success": true,
+    "message": "Applicant removed from shortlist",
+    "application": {
+        "_id": "68a9df31f6a58ce8451e4739",
+        "jobPost": {
+            "location": {
+                "country": "India",
+                "city": "Coimbatore",
+                "completeAddress": "NRMlayout,avarankudithoppu"
+            },
+            "_id": "68973adae4a9452631e9fbd2",
+            "employer": "686eb2200d0b5472f9a6c996",
+            "companyProfile": "6894ec6b55908eb75da0745f",
+            "title": "DevOps Engineer",
+            "description": "We need a DevOps engineer with AWS experience.",
+            "contactEmail": "hr@techfirm.com",
+            "contactUsername": "techfirmHR",
+            "specialisms": [
+                "Digital & Creative"
+            ],
+            "jobType": "Part-time",
+            "offeredSalary": "$3500",
+            "careerLevel": "Intermediate",
+            "experience": "1-3 years",
+            "gender": "Male",
+            "industry": "Information Technology",
+            "qualification": "Associate Degree",
+            "applicationDeadline": "2025-08-06T00:00:00.000Z",
+            "applicantCount": 5,
+            "remoteWork": "On-site",
+            "status": "Published",
+            "createdAt": "2025-08-09T12:11:06.245Z",
+            "updatedAt": "2025-09-28T14:39:26.884Z",
+            "__v": 0
+        },
+        "candidate": "687b3ab5745d8f29bb6a1496",
+        "resume": "/uploads/candidate/be6756d9-d6e7-4bb1-9d8b-d7576b220001.docx",
+        "description": "i am interested to apply the job",
+        "status": "Reviewed",
+        "createdAt": "2025-08-23T15:33:05.646Z",
+        "updatedAt": "2025-09-28T14:40:57.194Z",
+        "__v": 0,
+        "candidateProfile": "68a767a57404167a7a475121",
+        "shortlisted": false
+    }
+}
+
+//Get shortlisted Resume 
+
+{{local}}api/v1/employer-dashboard/shortlisted-resumes?jobId=68973adae4a9452631e9fbd2 - GET
+
+/shortlisted-resumes
+
+Response :
+
+{
+    "success": true,
+    "applicants": [
+        {
+            "id": "687b3ab5745d8f29bb6a1496",
+            "name": "Rv Kumar",
+            "designation": "Senior Data Analyst",
+            "location": "Mumbai",
+            "hourlyRate": "₹15-20 LPA",
+            "tags": [
+                "Accounting & Finance",
+                "Digital",
+                "Creative Art"
+            ],
+            "avatar": "/default-avatar.jpg",
+            "status": "Reviewed",
+            "shortlisted": true,
+            "appliedAt": "2025-08-23T15:33:05.646Z",
+            "resume": "/uploads/candidate/be6756d9-d6e7-4bb1-9d8b-d7576b220001.docx",
+            "applicationId": "68a9df31f6a58ce8451e4739",
+            "jobTitle": "DevOps Engineer"
+        }
+    ],
+    "pagination": {
+        "currentPage": 1,
+        "totalPages": 1,
+        "total": 1,
+        "limit": 10
+    },
+    "statusCounts": {
+        "Total": 1,
+        "Pending": 0,
+        "Reviewed": 0,
+        "Accepted": 0,
+        "Rejected": 0
+    }
+}
+
+
+//candidateProfile update
+
+PUT: localhost:5000/api/v1/candidate-dashboard/profile/update/68a767a57404167a7a475121
+
+Payload:
+
+{
+  "fullName": "Aravind Kumar",
+  "jobTitle": "Senior DevOps Engineer",
+  "phone": "+919876543210",
+  "email": "aravind.k@example.com",
+  "website": "https://aravinddevops.in",
+  "currentSalary": "₹10-15 LPA",
+  "expectedSalary": "₹20-30 LPA",
+  "experience": "5-10 years",
+  "age": 32,
+  "educationLevels": ["Bachelor"],
+  "languages": ["English", "Hindi"],
+  "categories": ["Engineering", "DevOps"],
+  "allowInSearch": true,
+  "description": "DevOps professional with 7 years of experience in CI/CD pipelines, AWS, Docker, Kubernetes, and cloud infrastructure automation.",
+  "socialMedia": {
+    "linkedin": "https://linkedin.com/in/aravinddevops",
+    "github": "https://github.com/aravinddevops",
+    "gender": "Male"
+  },
+  "location": {
+    "country": "India",
+    "city": "Bangalore",
+    "state": "Karnataka",
+    "completeAddress" : "789, Marine Drive, Bangalore, Karnataka 400001, India"
+  },
+  "preferences": {
+    "remoteReady": true
+  },
+  "skills": ["AWS", "Docker", "Kubernetes", "CI/CD", "Terraform", "Ansible"]
+}
+
+
+
+Response:
+
+{
+    "success": true,
+    "message": "Candidate profile updated successfully",
+    "profile": {
+        "socialMedia": {
+            "linkedin": "https://linkedin.com/in/aravinddevops"
+        },
+        "location": {
+            "country": "India",
+            "city": "Bangalore",
+            "completeAddress": "789, Marine Drive, Bangalore, Karnataka 400001, India"
+        },
+        "_id": "68a767a57404167a7a475121",
+        "candidate": "687b3ab5745d8f29bb6a1496",
+        "fullName": "Aravind Kumar",
+        "jobTitle": "Senior DevOps Engineer",
+        "phone": "+919876543210",
+        "email": "aravind.k@example.com",
+        "website": "https://aravinddevops.in",
+        "currentSalary": "₹10-15 LPA",
+        "expectedSalary": "₹20-30 LPA",
+        "experience": "5-10 years",
+        "age": 32,
+        "educationLevels": [
+            "Bachelor"
+        ],
+        "languages": [
+            "English",
+            "Hindi"
+        ],
+        "categories": [
+            "Engineering",
+            "DevOps"
+        ],
+        "allowInSearch": true,
+        "description": "DevOps professional with 7 years of experience in CI/CD pipelines, AWS, Docker, Kubernetes, and cloud infrastructure automation.",
+        "profilePhoto": null,
+        "resume": null,
+        "isActive": true,
+        "createdAt": "2025-08-21T18:38:29.054Z",
+        "updatedAt": "2025-10-25T14:34:09.593Z",
+        "__v": 1,
+        "gender": "No Preference"
+    }
+}
+
+
+//get resume alerts
+
+GET {{local}}api/v1/employer-dashboard/resume-alerts/get-all
+
+Response:
+
+{
+    "success": true,
+    "alerts": [
+        {
+            "criteria": {
+                "location": {
+                    "country": "India",
+                    "city": "Bangalore"
+                },
+                "salaryRange": {
+                    "min": 1500000,
+                    "max": 3000000
+                },
+                "diversity": {
+                    "ageRange": {
+                        "min": 25,
+                        "max": 45
+                    },
+                    "gender": "No Preference"
+                },
+                "categories": [
+                    "Engineering",
+                    "DevOps"
+                ],
+                "experience": "5-10 years",
+                "educationLevels": [
+                    "Bachelor",
+                    "Master"
+                ],
+                "skills": [
+                    "AWS",
+                    "Docker",
+                    "Kubernetes"
+                ],
+                "remoteWork": "Any",
+                "keywords": [
+                    "CI/CD",
+                    "cloud infrastructure"
+                ]
+            },
+            "stats": {
+                "emailsSent": 1,
+                "totalMatches": 1,
+                "lastMatch": "2025-10-25T14:34:13.162Z"
+            },
+            "_id": "68fcd9a85a9abcb9ffbc07d7",
+            "employer": "68ac9967d0d12b78d128cc96",
+            "title": "Senior DevOps Engineers",
+            "frequency": "Instant",
+            "isActive": true,
+            "matchingCount": 0,
+            "createdAt": "2025-10-25T14:07:36.165Z",
+            "updatedAt": "2025-10-25T14:34:13.165Z"
+        }
+    ]
+}
+
+
+
+//Create resumealerts
+
+POST : {{local}}api/v1/employer-dashboard/resume-alerts/create
+
+Payload:
+
+{
+  "title": "Senior DevOps Engineers",
+  "criteria": {
+    "categories": ["Engineering", "DevOps"],
+    "location": {
+      "country": "India",
+      "city": "Bangalore"
+    },
+    "salaryRange": {
+      "min": 1500000,
+      "max": 3000000
+    },
+    "experience": "5-10 years",
+    "educationLevels": ["Bachelor", "Master"],
+    "skills": ["AWS", "Docker", "Kubernetes"],
+    "diversity": {
+      "gender": "No Preference",
+      "ageRange": {
+        "min": 25,
+        "max": 45
+      }
+    },
+    "remoteWork": "Any",
+    "keywords": ["CI/CD", "cloud infrastructure"]
+  },
+  "frequency": "Instant"
+}
+
+//payload 2
+
+{
+  "title": "Data Science Professionals",
+  "frequency": "Weekly",
+  "criteria": {
+    "categories": ["Data Science", "AI/ML"],
+    "skills": ["Python", "TensorFlow", "Pandas"],
+    "experience": "3-5 years",
+    "educationLevels": ["Master", "Doctorate"],
+    "location": {
+      "country": "India",
+      "city": "Pune"
+    },
+    "diversity": {
+      "gender": "Female",
+      "ageRange": { "min": 25, "max": 40 }
+    },
+    "remoteWork": "Remote",
+    "keywords": ["machine learning", "data analysis"]
+  }
+}
+
+
+
+//response:
+
+{
+    "success": true,
+    "message": "Resume alert created successfully",
+    "alert": {
+        "employer": "68ac9967d0d12b78d128cc96",
+        "criteria": {
+            "categories": [
+                "Frontend",
+                "UI/UX"
+            ],
+            "location": {
+                "country": "India",
+                "city": "Chennai"
+            },
+            "experience": "3-5 years",
+            "educationLevels": [
+                "Bachelor"
+            ],
+            "skills": [
+                "React",
+                "Next.js",
+                "JavaScript",
+                "CSS"
+            ],
+            "diversity": {
+                "gender": "No Preference",
+                "ageRange": {
+                    "min": 22,
+                    "max": 35
+                }
+            },
+            "remoteWork": "Any",
+            "keywords": [
+                "React",
+                "Frontend"
+            ]
+        },
+        "title": "React Frontend Developers",
+        "frequency": "Daily",
+        "isActive": true,
+        "matchingCount": 0,
+        "stats": {
+            "emailsSent": 0,
+            "totalMatches": 0
+        },
+        "_id": "68fdcc1485aa2eae5d81f2f5",
+        "createdAt": "2025-10-26T07:21:56.146Z",
+        "updatedAt": "2025-10-26T07:21:56.146Z",
+        "__v": 0
+    }
+}
+
+
+//update resumealerts:
+
+PUT: {{local}}api/v1/employer-dashboard/resume-alerts/update/68fcd9a85a9abcb9ffbc07d7
+
+Payload:
+
+{
+  "title": "Senior DevOps Engineers",
+  "criteria": {
+    "categories": ["DevOps"],
+    "location": {
+      "country": "India",
+      "city": "Chennai"
+    },
+    "salaryRange": {
+      "min": 1500000,
+      "max": 3000000
+    },
+    "experience": "5-10 years",
+    "educationLevels": ["Bachelor", "Master"],
+    "skills": ["AWS", "Docker", "Kubernetes"],
+    "diversity": {
+      "gender": "No Preference",
+      "ageRange": {
+        "min": 25,
+        "max": 45
+      }
+    },
+    "remoteWork": "Any",
+    "keywords": ["CI/CD", "cloud infrastructure"]
+  },
+  "frequency": "Instant"
+}
+
+
+Response:
+
+{
+    "success": true,
+    "message": "Resume alert updated successfully",
+    "alert": {
+        "criteria": {
+            "categories": [
+                "DevOps"
+            ],
+            "location": {
+                "country": "India",
+                "city": "Chennai"
+            },
+            "salaryRange": {
+                "min": 1500000,
+                "max": 3000000
+            },
+            "experience": "5-10 years",
+            "educationLevels": [
+                "Bachelor",
+                "Master"
+            ],
+            "skills": [
+                "AWS",
+                "Docker",
+                "Kubernetes"
+            ],
+            "diversity": {
+                "gender": "No Preference",
+                "ageRange": {
+                    "min": 25,
+                    "max": 45
+                }
+            },
+            "remoteWork": "Any",
+            "keywords": [
+                "CI/CD",
+                "cloud infrastructure"
+            ]
+        },
+        "stats": {
+            "emailsSent": 1,
+            "totalMatches": 1,
+            "lastMatch": "2025-10-25T14:34:13.162Z"
+        },
+        "_id": "68fcd9a85a9abcb9ffbc07d7",
+        "employer": "68ac9967d0d12b78d128cc96",
+        "title": "Senior DevOps Engineers",
+        "frequency": "Instant",
+        "isActive": true,
+        "matchingCount": 0,
+        "createdAt": "2025-10-25T14:07:36.165Z",
+        "updatedAt": "2025-10-25T15:55:47.075Z",
+        "__v": 0
+    }
+}
+
+
+Get Alert Matches
+
+curl -X GET "http://localhost:5000/api/v1/employer/resume-alerts/68a9df31f6a58ce8451e4739/matches?page=1&limit=10" \
+  -H "Authorization: Bearer <token>"
+
+employerRouter.get('/resume-alerts/:Alertid/matches') = here id is alertid
+
+GET: {{local}}api/v1/employer-dashboard/resume-alerts/68fdcc7f85aa2eae5d81f2fd/matches?page=1&limit=10
+
+success:
+{
+    "success": true,
+    "matches": [
+        {
+            "id": "68a767a57404167a7a475121",
+            "fullName": "Aravind Kumar",
+            "jobTitle": "Senior DevOps Engineer",
+            "location": "Bangalore",
+            "expectedSalary": "₹20-30 LPA",
+            "experience": "5-10 years",
+            "categories": [
+                "Engineering",
+                "DevOps"
+            ],
+            "matchScore": "88.9",
+            "profilePhoto": "/default-avatar.jpg"
+        }
+    ],
+    "pagination": {
+        "currentPage": 1,
+        "totalPages": 1,
+        "total": 1,
+        "limit": 10
+    }
+}
+
+
+Failure:
+
+{
+    "success": false,
+    "message": "No Candidate are available for matching"
+}
+
+
+//delete
+
+DELETE : {{local}}api/v1/employer-dashboard/resume-alerts/delete/68fcd9a85a9abcb9ffbc07d7
+
+
+Response:
+
+{
+    "success": true,
+    "message": "Resume alert deleted successfully"
+}
+
+//CV Manger
+//upload cv
+http://localhost:5000/api/v1/candidate-dashboard/cvs/upload  - POST 
+
+curl -X POST "http://localhost:5000/api/v1/candidate-dashboard/cvs/upload" \
+  -H "Authorization: Bearer <token>" \
+  -F "cv=@/path/to/your/resume.pdf"
+
+Key : cv 
+Value: Select a file (e.g., my-cv.pdf or resume.docx)
+
+response:
+
+{
+    "success": true,
+    "message": "CV uploaded successfully",
+    "cv": {
+        "candidate": "687b3ab5745d8f29bb6a1496",
+        "file": "/uploads/candidate/39ca65f0-c5bf-4e7b-9cfa-1bbd7898d340.pdf",
+        "originalName": "Aravindakumar-S (1).pdf",
+        "_id": "69479d149598e92292d8b11f",
+        "uploadedAt": "2025-12-21T07:09:08.737Z",
+        "createdAt": "2025-12-21T07:09:08.744Z",
+        "updatedAt": "2025-12-21T07:09:08.744Z",
+        "__v": 0
+    }
+}
+
+
+//get cv 
+
+http://localhost:5000/api/v1/candidate-dashboard/cvs/list  - GET 
+
+pass - token 
+
+Response: 
+
+{
+    "success": true,
+    "cvs": [
+        {
+            "_id": "69479d149598e92292d8b11f",
+            "candidate": "687b3ab5745d8f29bb6a1496",
+            "file": "/uploads/candidate/39ca65f0-c5bf-4e7b-9cfa-1bbd7898d340.pdf",
+            "originalName": "Aravindakumar-S (1).pdf",
+            "uploadedAt": "2025-12-21T07:09:08.737Z",
+            "createdAt": "2025-12-21T07:09:08.744Z",
+            "updatedAt": "2025-12-21T07:09:08.744Z"
+        }
+    ]
+}
+
+//delete 
+
+DELETE /api/v1/candidate-dashboard/cvs/delete/:id
+
+Response:
+
+{
+    "success": true,
+    "message": "CV deleted successfully"
+}
+
+Failure: 
+
+{
+    "success": false,
+    "message": "CV not found or not yours"
+}
+
+//employerdashboard api's:
+
+// recent-activities
+{{local}}api/v1/employer-dashboard/recent-activities -GET 
+
+Response:
+
+{
+    "success": true,
+    "activities": [
+        {
+            "type": "application",
+            "message": "rv applied for DevOps Engineer",
+            "time": "2025-12-01T15:33:05.646Z",
+            "status": "Rejected"
+        }
+    ]
+}
+
+//stats
+{{local}}api/v1/employer-dashboard/stats
+
+response:
+
+{
+    "success": true,
+    "stats": {
+        "totalJobs": 1,
+        "activeJobs": 1,
+        "totalApplications": 1,
+        "thisMonthApplications": 1,
+        "pendingApplications": 0,
+        "shortlistedCount": 1,
+        "totalMessages": 0,
+        "profileViews": 0,
+        "conversionRate": 100,
+        "applicationGrowth": 100,
+        "lastUpdated": "2025-12-23T16:04:14.575Z"
+    }
+}
+
+
+//job-status-distribution
+
+{{local}}api/v1/employer-dashboard/job-status-distribution -GET 
+
+Response: (use pie chart)
+
+{
+    "success": true,
+    "distribution": [
+        {
+            "status": "Published",
+            "count": 1,
+            "percentage": 100,
+            "totalApplications": 38
+        }
+    ],
+    "totalJobs": 1
+}
+
+
+//application-trends
+
+{{local}}api/v1/employer-dashboard/application-trends - GET 
+
+Response:
+
+{
+    "success": true,
+    "period": "monthly",
+    "data": [
+        {
+            "date": "2025-12",
+            "total": 1,
+            "pending": 0,
+            "accepted": 0,
+            "rejected": 1
+        }
+    ],
+    "startDate": "2024-12-23T17:08:56.405Z",
+    "endDate": "2025-12-23T17:08:56.405Z"
+}
+
+//get companyProfile views 
+
+{{local}}api/v1/employer-dashboard/profile-views - GET
+
+Response:
+
+{
+    "success": true,
+    "totalViews": 2,
+    "uniqueViewers": 1,
+    "monthlyData": [
+        {
+            "month": "December",
+            "year": 2025,
+            "totalViews": 2,
+            "uniqueViews": 1
+        },
+        {
+            "month": "November",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        },
+        {
+            "month": "October",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        },
+        {
+            "month": "September",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        },
+        {
+            "month": "August",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        },
+        {
+            "month": "July",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        }
+    ]
+}
+
+//candidate dashboard API's:
+
+//STATS
+{{local}}api/v1/candidate-dashboard/stats - GET
+
+Response:
+{
+    "success": true,
+    "stats": {
+        "appliedJobs": 2,
+        "savedJobs": 3,
+        "jobAlerts": 2,
+        "profileViews": 0,
+        "profileCompleteness": 100,
+        "applicationsThisMonth": 2,
+        "applicationGrowth": 100,
+        "lastUpdated": "2025-12-24T16:41:14.543Z"
+    }
+}
+
+
+//Recent-Activity 
+
+{{local}}api/v1/candidate-dashboard/recent-activities  - GET 
+
+Response:
+
+{
+    "success": true,
+    "activities": [
+        {
+            "type": "saved",
+            "message": "Saved job: DevOps Engineer",
+            "time": "2025-12-21T15:09:37.922Z"
+        },
+        {
+            "type": "saved",
+            "message": "Saved job: Junior software developer",
+            "time": "2025-12-15T05:07:48.422Z"
+        },
+        {
+            "type": "alert",
+            "message": "Created job alert: Untitled Alert",
+            "time": "2025-12-12T11:32:01.318Z"
+        },
+        {
+            "type": "alert",
+            "message": "Created job alert: Untitled Alert",
+            "time": "2025-12-12T11:29:08.980Z"
+        },
+        {
+            "type": "saved",
+            "message": "Saved job: AI Developer",
+            "time": "2025-12-10T19:20:14.167Z"
+        },
+        {
+            "type": "application",
+            "message": "Applied to Junior software developer",
+            "time": "2025-12-10T17:28:00.378Z",
+            "status": "Pending"
+        },
+        {
+            "type": "application",
+            "message": "Applied to DevOps Engineer",
+            "time": "2025-12-01T15:33:05.646Z",
+            "status": "Rejected"
+        }
+    ]
+}
+
+
+//Applicants-trends
+
+{{local}}api/v1/candidate-dashboard/application-trends -GET 
+
+response:
+
+{
+    "success": true,
+    "period": "monthly",
+    "data": [
+        {
+            "date": "2025-12",
+            "total": 2,
+            "pending": 1,
+            "reviewed": 0,
+            "accepted": 0,
+            "rejected": 1
+        }
+    ]
+}
+
+//profile-views 
+//{{local}}api/v1/candidate-dashboard/profile-views - GET 
+
+{
+    "success": true,
+    "totalViews": 2,
+    "uniqueViewers": 1,
+    "monthlyData": [
+        {
+            "month": "December",
+            "year": 2025,
+            "totalViews": 2,
+            "uniqueViews": 1
+        },
+        {
+            "month": "November",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        },
+        {
+            "month": "October",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        },
+        {
+            "month": "September",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        },
+        {
+            "month": "August",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        },
+        {
+            "month": "July",
+            "year": 2025,
+            "totalViews": 0,
+            "uniqueViews": 0
+        }
+    ]
+}
+
+
+//job-type-distribution 
+
+{{local}}api/v1/candidate-dashboard/job-type-distribution
+
+Response:
+
+{
+    "success": true,
+    "distribution": [
+        {
+            "jobType": "Part-time",
+            "count": 1,
+            "percentage": 50
+        },
+        {
+            "jobType": "Full-time",
+            "count": 1,
+            "percentage": 50
+        }
+    ],
+    "totalApplications": 2
+}
+
+//trending jobs 
+
+{{local}}api/v1/candidate-dashboard/trending-jobs -GET 
+
+{
+    "success": true,
+    "trendingJobs": [
+        {
+            "job": {
+                "location": {
+                    "country": "India",
+                    "city": "coimbatore",
+                    "completeAddress": "adyar"
+                },
+                "profileViews": 0,
+                "_id": "694ce251baccd202853d2b22",
+                "employer": "68ac9967d0d12b78d128cc96",
+                "companyProfile": {
+                    "_id": "6894ec6b55908eb75da0745f",
+                    "companyName": "National Employment Board",
+                    "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png"
+                },
+                "title": "test-recom-job-2",
+                "description": "test-her, this is for 2nd recommmentation job test",
+                "contactEmail": "test2@gmail.com",
+                "contactUsername": "",
+                "specialisms": [
+                    "Digital & Creative"
+                ],
+                "jobType": "Part-time",
+                "offeredSalary": "$1500",
+                "careerLevel": "Intermediate",
+                "experience": "1-3 years",
+                "gender": "Male",
+                "industry": "banking",
+                "qualification": "Bachelor’s Degree",
+                "applicationDeadline": "2025-12-30T00:00:00.000Z",
+                "applicantCount": 1,
+                "remoteWork": "Hybrid",
+                "status": "Published",
+                "createdAt": "2025-12-25T07:05:53.176Z",
+                "updatedAt": "2025-12-25T07:33:28.398Z",
+                "__v": 0,
+                "dailyViews": []
+            },
+            "trendingScore": 5
+        },
+        {
+            "job": {
+                "location": {
+                    "country": "india",
+                    "city": "coimbatore",
+                    "completeAddress": "singanallur, coimbatore"
+                },
+                "profileViews": 0,
+                "_id": "694cde8dbaccd202853d2b01",
+                "employer": "68ac9967d0d12b78d128cc96",
+                "companyProfile": {
+                    "_id": "6894ec6b55908eb75da0745f",
+                    "companyName": "National Employment Board",
+                    "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png"
+                },
+                "title": "test-2-recommenation",
+                "description": "test job for recommenation",
+                "contactEmail": "test@gmail.com",
+                "contactUsername": "",
+                "specialisms": [
+                    "Digital & Creative",
+                    "Management"
+                ],
+                "jobType": "Full-time",
+                "offeredSalary": "$1500",
+                "careerLevel": "Intermediate",
+                "experience": "1-3 years",
+                "gender": "No Preference",
+                "industry": "IT",
+                "qualification": "Bachelor’s Degree",
+                "applicationDeadline": "2026-02-03T00:00:00.000Z",
+                "applicantCount": 0,
+                "remoteWork": "On-site",
+                "status": "Published",
+                "createdAt": "2025-12-25T06:49:49.287Z",
+                "updatedAt": "2025-12-25T06:49:49.287Z",
+                "__v": 0,
+                "dailyViews": []
+            },
+            "trendingScore": 5
+        },
+        {
+            "job": {
+                "location": {
+                    "country": "India",
+                    "city": "Pondicherry",
+                    "completeAddress": "Not 1, White Town, Pondhicherry-605001"
+                },
+                "profileViews": 0,
+                "_id": "6942647c055dc64d7110b278",
+                "employer": "694253cba4154242ffefbbf9",
+                "companyProfile": {
+                    "_id": "69425ac9e6784f2a83fd2d28",
+                    "companyName": "Employer1",
+                    "logo": "/uploads/company/13764fcb-0e77-407c-93f3-492113b9fa24.jpg"
+                },
+                "title": "Job One",
+                "description": "Job about not about Job",
+                "contactEmail": "employer1@mail.com",
+                "contactUsername": "Employer1",
+                "specialisms": [
+                    "Creative Art"
+                ],
+                "jobType": "Temporary",
+                "offeredSalary": "Negotiable",
+                "careerLevel": "Entry Level",
+                "experience": "10+ years",
+                "gender": "No Preference",
+                "industry": "Art",
+                "qualification": "Doctorate",
+                "applicationDeadline": "2122-12-22T00:00:00.000Z",
+                "applicantCount": 0,
+                "remoteWork": "Hybrid",
+                "status": "Published",
+                "createdAt": "2025-12-17T08:06:20.596Z",
+                "updatedAt": "2025-12-17T08:06:20.596Z",
+                "__v": 0,
+                "dailyViews": []
+            },
+            "trendingScore": 0
+        },
+        {
+            "job": {
+                "location": {
+                    "country": "India",
+                    "city": "Pondicherry",
+                    "completeAddress": "Not 1, White Town, Pondhicherry-605001"
+                },
+                "profileViews": 0,
+                "_id": "6942832e3f7dd9c216e1780f",
+                "employer": "69426f9c1d973d1c59aa9882",
+                "companyProfile": {
+                    "_id": "69427e3d3f7dd9c216e177fd",
+                    "companyName": "Employer2",
+                    "logo": "/uploads/company/13764fcb-0e77-407c-93f3-492113b9fa24.jpg"
+                },
+                "title": "Job Two",
+                "description": "Job about not about Job",
+                "contactEmail": "employer2@mail.com",
+                "contactUsername": "Employer2",
+                "specialisms": [
+                    "Creative Art"
+                ],
+                "jobType": "Temporary",
+                "offeredSalary": "Negotiable",
+                "careerLevel": "Entry Level",
+                "experience": "10+ years",
+                "gender": "No Preference",
+                "industry": "Art",
+                "qualification": "Doctorate",
+                "applicationDeadline": "2122-12-22T00:00:00.000Z",
+                "applicantCount": 0,
+                "remoteWork": "Hybrid",
+                "status": "Published",
+                "createdAt": "2025-12-17T08:06:20.596Z",
+                "updatedAt": "2025-12-17T08:06:20.596Z",
+                "__v": 0,
+                "dailyViews": []
+            },
+            "trendingScore": 0
+        },
+        {
+            "job": {
+                "location": {
+                    "country": "India",
+                    "city": "Pondicherry",
+                    "completeAddress": "Not 1, White Town, Pondhicherry-605001"
+                },
+                "profileViews": 0,
+                "_id": "6942832e3f7dd9c216e17810",
+                "employer": "694270a61d973d1c59aa9885",
+                "companyProfile": {
+                    "_id": "69427e3d3f7dd9c216e177fe",
+                    "companyName": "Employer3",
+                    "logo": "/uploads/company/13764fcb-0e77-407c-93f3-492113b9fa24.jpg"
+                },
+                "title": "Job Three",
+                "description": "Job about not about Job",
+                "contactEmail": "employer3@mail.com",
+                "contactUsername": "Employer3",
+                "specialisms": [
+                    "Creative Art"
+                ],
+                "jobType": "Temporary",
+                "offeredSalary": "Negotiable",
+                "careerLevel": "Entry Level",
+                "experience": "10+ years",
+                "gender": "No Preference",
+                "industry": "Art",
+                "qualification": "Doctorate",
+                "applicationDeadline": "2122-12-22T00:00:00.000Z",
+                "applicantCount": 0,
+                "remoteWork": "Hybrid",
+                "status": "Published",
+                "createdAt": "2025-12-17T08:06:20.596Z",
+                "updatedAt": "2025-12-17T08:06:20.596Z",
+                "__v": 0,
+                "dailyViews": []
+            },
+            "trendingScore": 0
+        },
+        {
+            "job": {
+                "location": {
+                    "country": "India",
+                    "city": "Pondicherry",
+                    "completeAddress": "Not 1, White Town, Pondhicherry-605001"
+                },
+                "profileViews": 0,
+                "_id": "6942832e3f7dd9c216e17811",
+                "employer": "694271351d973d1c59aa9888",
+                "companyProfile": {
+                    "_id": "69427e3d3f7dd9c216e177ff",
+                    "companyName": "Employer4",
+                    "logo": "/uploads/company/13764fcb-0e77-407c-93f3-492113b9fa24.jpg"
+                },
+                "title": "Job Four",
+                "description": "Job about not about Job",
+                "contactEmail": "employer4@mail.com",
+                "contactUsername": "Employer4",
+                "specialisms": [
+                    "Creative Art"
+                ],
+                "jobType": "Temporary",
+                "offeredSalary": "Negotiable",
+                "careerLevel": "Entry Level",
+                "experience": "10+ years",
+                "gender": "No Preference",
+                "industry": "Art",
+                "qualification": "Doctorate",
+                "applicationDeadline": "2122-12-22T00:00:00.000Z",
+                "applicantCount": 0,
+                "remoteWork": "Hybrid",
+                "status": "Published",
+                "createdAt": "2025-12-17T08:06:20.596Z",
+                "updatedAt": "2025-12-17T08:06:20.596Z",
+                "__v": 0,
+                "dailyViews": []
+            },
+            "trendingScore": 0
+        },
+        {
+            "job": {
+                "location": {
+                    "country": "India",
+                    "city": "Pondicherry",
+                    "completeAddress": "Not 1, White Town, Pondhicherry-605001"
+                },
+                "profileViews": 0,
+                "_id": "6942832e3f7dd9c216e17812",
+                "employer": "694271871d973d1c59aa988b",
+                "companyProfile": {
+                    "_id": "69427e3d3f7dd9c216e17800",
+                    "companyName": "Employer5",
+                    "logo": "/uploads/company/13764fcb-0e77-407c-93f3-492113b9fa24.jpg"
+                },
+                "title": "Job Five",
+                "description": "Job about not about Job",
+                "contactEmail": "employer5@mail.com",
+                "contactUsername": "Employer5",
+                "specialisms": [
+                    "Creative Art"
+                ],
+                "jobType": "Temporary",
+                "offeredSalary": "Negotiable",
+                "careerLevel": "Entry Level",
+                "experience": "10+ years",
+                "gender": "No Preference",
+                "industry": "Art",
+                "qualification": "Doctorate",
+                "applicationDeadline": "2122-12-22T00:00:00.000Z",
+                "applicantCount": 0,
+                "remoteWork": "Hybrid",
+                "status": "Published",
+                "createdAt": "2025-12-17T08:06:20.596Z",
+                "updatedAt": "2025-12-17T08:06:20.596Z",
+                "__v": 0,
+                "dailyViews": []
+            },
+            "trendingScore": 0
+        },
+        {
+            "job": {
+                "location": {
+                    "country": "India",
+                    "city": "Pondicherry",
+                    "completeAddress": "Not 1, White Town, Pondhicherry-605001"
+                },
+                "profileViews": 0,
+                "_id": "6942832e3f7dd9c216e17813",
+                "employer": "69427f35ca1592abcb380593",
+                "companyProfile": {
+                    "_id": "694280e23f7dd9c216e17807",
+                    "companyName": "Employer6",
+                    "logo": "/uploads/company/13764fcb-0e77-407c-93f3-492113b9fa24.jpg"
+                },
+                "title": "Job Six",
+                "description": "Job about not about Job",
+                "contactEmail": "employer6@mail.com",
+                "contactUsername": "Employer6",
+                "specialisms": [
+                    "Creative Art"
+                ],
+                "jobType": "Temporary",
+                "offeredSalary": "Negotiable",
+                "careerLevel": "Entry Level",
+                "experience": "10+ years",
+                "gender": "No Preference",
+                "industry": "Art",
+                "qualification": "Doctorate",
+                "applicationDeadline": "2122-12-22T00:00:00.000Z",
+                "applicantCount": 0,
+                "remoteWork": "Hybrid",
+                "status": "Published",
+                "createdAt": "2025-12-17T08:06:20.596Z",
+                "updatedAt": "2025-12-17T08:06:20.596Z",
+                "__v": 0,
+                "dailyViews": []
+            },
+            "trendingScore": 0
+        }
+    ],
+    "pagination": {
+        "page": 1,
+        "limit": 10,
+        "total": 8
+    }
+}
+
+//Save Candidate to Talent Pool (Candidate-Level – New Feature)
+
+Route: POST /employer/saved-candidates/:candidateId
+
+{{local}}api/v1/employer-dashboard/saved-candidates/687b3ab5745d8f29bb6a1496 - POST 
+
+PAYLOAD:
+
+{
+  "notes": "Strong React skills, good communication",
+  "folder": "Frontend Developers"
+}
+
+Response:
+
+{
+    "success": true,
+    "message": "Candidate saved to talent pool",
+    "savedCandidate": {
+        "employer": "68ac9967d0d12b78d128cc96",
+        "candidate": "687b3ab5745d8f29bb6a1496",
+        "candidateProfile": "69061c3a555b8542180e2de8",
+        "notes": "Strong React skills, good communication",
+        "folder": "Frontend Developers",
+        "_id": "694fa052ab68441b67b16b5f",
+        "createdAt": "2025-12-27T09:01:06.317Z",
+        "updatedAt": "2025-12-27T09:01:06.317Z",
+        "__v": 0
+    }
+}
+
+Get Saved Candidates (Talent Pool):
+
+{{local}}api/v1/employer-dashboard/saved-candidates?folder=Frontend Developers&limit=5  -GET 
+
+Optional Query Params:
+
+folder=Frontend Developers
+search=React
+page=1&limit=10
+
+Response:
+
+{
+    "success": true,
+    "savedCandidates": [
+        {
+            "_id": "694fa052ab68441b67b16b5f",
+            "employer": "68ac9967d0d12b78d128cc96",
+            "candidate": {
+                "_id": "687b3ab5745d8f29bb6a1496",
+                "name": "rv",
+                "email": "avarvind3765@gmail.com"
+            },
+            "candidateProfile": {
+                "location": {
+                    "country": "India",
+                    "city": "Coimbatore",
+                    "completeAddress": "singanallur",
+                    "remoteWork": "Hybrid"
+                },
+                "_id": "69061c3a555b8542180e2de8",
+                "fullName": "aravinda s",
+                "jobTitle": "Senior DevOps Engineer",
+                "expectedSalary": "₹15-20 LPA",
+                "categories": [
+                    "IT",
+                    "Digital & Creative",
+                    "Engineering"
+                ],
+                "profilePhoto": "/uploads/candidate/b902a7d4-13df-46a7-ae46-2291fd4d0d1f.jpg"
+            },
+            "notes": "Strong React skills, good communication",
+            "folder": "Frontend Developers",
+            "createdAt": "2025-12-27T09:01:06.317Z",
+            "updatedAt": "2025-12-27T09:01:06.317Z",
+            "__v": 0
+        }
+    ],
+    "pagination": {
+        "page": 1,
+        "totalPages": 1,
+        "total": 1,
+        "limit": 5
+    }
+}
+
+
+Unsave Candidate from Talent Pool:
+
+Route: DELETE /employer/saved-candidates/:savedId
+
+{{local}}api/v1/employer-dashboard/saved-candidates/694fa052ab68441b67b16b5f - DELETE
+
+Response:
+
+{
+    "success": true,
+    "message": "Candidate removed from talent pool"
+}
+
+Get Active Jobs for the employer
+
+Route: GET /employer-dashboard/company/:companyProfileId/jobs
+
+{{local}}api/v1/employer-dashboard/company/6894ec6b55908eb75da0745f/jobs?limit=10&page=1 - GET 
+
+Response:
+
+{
+    "success": true,
+    "companyName": "National Employment Board",
+    "totalJobs": 2,
+    "jobs": [
+        {
+            "positions": {
+                "total": 55,
+                "remaining": 54
+            },
+            "location": {
+                "country": "India",
+                "city": "coimbatore",
+                "completeAddress": "adyar"
+            },
+            "_id": "694ce251baccd202853d2b22",
+            "title": "test-recom-job-2",
+            "jobType": "Part-time",
+            "offeredSalary": "₹5-10 LPA",
+            "remoteWork": "Hybrid",
+            "createdAt": "2025-12-25T07:05:53.176Z"
+        },
+        {
+            "positions": {
+                "total": 45,
+                "remaining": 44
+            },
+            "location": {
+                "country": "india",
+                "city": "coimbatore",
+                "completeAddress": "singanallur, coimbatore"
+            },
+            "_id": "694cde8dbaccd202853d2b01",
+            "title": "test-2-recommenation",
+            "jobType": "Full-time",
+            "offeredSalary": "₹5-10 LPA",
+            "remoteWork": "On-site",
+            "createdAt": "2025-12-25T06:49:49.287Z"
+        }
+    ],
+    "pagination": {
+        "currentPage": 1,
+        "totalPages": 1,
+        "total": 2,
+        "limit": 10
+    }
+}
