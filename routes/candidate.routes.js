@@ -17,16 +17,19 @@ candidateRouter.get('/profile/fetch-all', candidateController.getAllCandidatePro
 candidateRouter.post('/profile/create', authenticate, authorize(['candidate']), candidateUpload, normalizeBody, candidateController.createCandidateProfile);
 
 // Update candidate profile (with file upload)
-candidateRouter.put('/profile/update/:id', authenticate, authorize(['candidate','admin', 'employer', 'superadmin']), candidateUpload, normalizeBody, candidateController.updateCandidateProfile);
+candidateRouter.put('/profile/update/:id', authenticate, authorize(['candidate','hr-admin', 'employer', 'superadmin']), candidateUpload, normalizeBody, candidateController.updateCandidateProfile);
 
 // Get single candidate profile
-candidateRouter.get('/profile/get/:id', authenticate, authorize(['candidate', 'employer', 'admin', 'superadmin']),trackCandidateView, candidateController.getCandidateProfile);
+candidateRouter.get('/profile/get/:id', authenticate, authorize(['candidate', 'employer', 'hr-admin', 'superadmin']),trackCandidateView, candidateController.getCandidateProfile);
 
 // Get candidate's own profiles (for candidate users only)
 candidateRouter.get('/profile/my-profiles', authenticate, authorize(['candidate']), candidateController.getCandidateProfilesForCandidate);
 
 // Delete candidate profile
 candidateRouter.delete('/profile/delete/:id', authenticate, authorize(['candidate', 'superadmin']), candidateController.deleteCandidateProfile);
+
+candidateRouter.get( '/candidate-profile/assigned', authenticate, authorize(['hr-admin', 'superadmin']), candidateController.getAssignedCandidateProfiles);
+
 
 // View all job posts (public for candidates)
 candidateRouter.get('/jobs', candidateController.getAllJobPosts);

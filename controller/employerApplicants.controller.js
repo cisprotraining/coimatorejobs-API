@@ -3,6 +3,7 @@ import Application from '../models/jobApply.model.js';
 import JobPost from '../models/jobs.model.js';
 import CandidateProfile from '../models/candidateProfile.model.js';
 import User from '../models/user.model.js';
+import { canManageJob, buildJobQueryForUser } from '../utils/roleHelper.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors.js';
 
 const employerApplicantsController = {};
@@ -21,8 +22,19 @@ employerApplicantsController.getApplicantsByJob = async (req, res, next) => {
 
     //  Validate job ownership
     const jobPost = await JobPost.findById(jobId);
-    if (!jobPost || jobPost.employer.toString() !== employerId.toString()) {
-      throw new ForbiddenError("You do not have permission to view applicants for this job");
+
+    // old ownership check
+    // if (!jobPost || jobPost.employer.toString() !== employerId.toString()) {
+    //   throw new ForbiddenError("You do not have permission to view applicants for this job");
+    // }
+
+
+    // console.log("tttttttttttttttttttttt", canManageJob());
+    
+
+    // new ownership check using role helper
+    if (!canManageJob(jobPost, req.user)) {
+      throw new ForbiddenError('You do not have permission to view applicants for this job');
     }
 
     //  Build initial match query
@@ -176,26 +188,194 @@ employerApplicantsController.getApplicantsByJob = async (req, res, next) => {
 };
 
 /**
- * Get all applicants across all jobs by the employer with filters.
+ * Get all applicants across all jobs user is allowed to see
  * @route GET /api/employer/applicants
- * @access Private (Employer, Admin, Superadmin)
+ * @access Employer (own), HR-Admin (all), Superadmin (all)
  */
 employerApplicantsController.getAllApplicants = async (req, res, next) => {
   try {
-    const employerId = req.user.id;
+    const user = req.user;
+    const { status, dateRange, page = 1, limit = 10, search } = req.query;
+    console.log("loggedin", user);
+    // --------------------------------------------------
+    // Determine which jobs the user can see
+    // --------------------------------------------------
+    let jobQuery = {};
+
+    if (user.role === 'employer') {
+      // Regular employer: only their own jobs
+      jobQuery = { employer: user.id };
+    } else if (user.role === 'hr-admin' || user.role === 'superadmin') {
+      // HR-Admin & Superadmin: see ALL jobs
+      jobQuery = {};
+    } else {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+    
+
+    const jobs = await JobPost.find(jobQuery).select('_id');
+
+    console.log("testtttttttttttttttting", jobs.length);
+
+
+    if (!jobs.length) {
+      return res.status(200).json({
+        success: true,
+        applicants: [],
+        pagination: { currentPage: Number(page), totalPages: 0, total: 0, limit: Number(limit) },
+        statusCounts: { Total: 0, Pending: 0, Reviewed: 0, Accepted: 0, Rejected: 0 },
+      });
+    }
+
+    const matchQuery = { jobPost: { $in: jobs.map(j => j._id) } };
+
+    if (status && status !== 'All') matchQuery.status = status;
+
+    if (dateRange && dateRange !== 'All') {
+      const months = { 'Last 12 Months': 12, 'Last 16 Months': 16, 'Last 24 Months': 24, 'Last 5 year': 60 };
+      const cutoffDate = new Date();
+      cutoffDate.setMonth(cutoffDate.getMonth() - (months[dateRange] || 12));
+      matchQuery.createdAt = { $gte: cutoffDate };
+    }
+
+    // --------------------------------------------------
+    // Rest of your aggregation pipeline remains EXACTLY the same
+    // --------------------------------------------------
+    const pipeline = [
+      { $match: matchQuery },
+      { $lookup: { from: 'users', localField: 'candidate', foreignField: '_id', as: 'candidate' } },
+      { $unwind: { path: '$candidate', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'candidateprofiles', localField: 'candidateProfile', foreignField: '_id', as: 'candidateProfile' } },
+      { $unwind: { path: '$candidateProfile', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'jobPost' } },
+      { $unwind: { path: '$jobPost', preserveNullAndEmptyArrays: true } },
+    ];
+
+    if (search) {
+      const regex = new RegExp(search, 'i');
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'candidate.name': regex },
+            { 'candidate.email': regex },
+            { 'candidateProfile.fullName': regex },
+            { 'candidateProfile.email': regex },
+            { 'candidateProfile.jobTitle': regex },
+          ],
+        },
+      });
+    }
+
+    pipeline.push(
+      { $sort: { createdAt: -1 } },
+      {
+        $facet: {
+          data: [
+            { $skip: (page - 1) * limit },
+            { $limit: Number(limit) },
+          ],
+          totalCount: [{ $count: 'count' }],
+          statusCounts: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
+        },
+      }
+    );
+
+    const [result] = await Application.aggregate(pipeline);
+
+    const applicants = result.data || [];
+    const total = result.totalCount?.[0]?.count || 0;
+
+    const statusCounts = {
+      Total: total,
+      Pending: result.statusCounts.find(s => s._id === 'Pending')?.count || 0,
+      Reviewed: result.statusCounts.find(s => s._id === 'Reviewed')?.count || 0,
+      Accepted: result.statusCounts.find(s => s._id === 'Accepted')?.count || 0,
+      Rejected: result.statusCounts.find(s => s._id === 'Rejected')?.count || 0,
+    };
+
+    const formattedApplicants = applicants.map(app => ({
+      id: app.candidate?._id,
+      name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
+      designation: app.candidateProfile?.jobTitle || 'N/A',
+      location: app.candidateProfile?.location?.city || 'N/A',
+      expectedSalary: app.candidateProfile?.expectedSalary || 'N/A',
+      tags: app.candidateProfile?.categories || [],
+      avatar: app.candidateProfile?.profilePhoto || app.candidate?.profilePhoto || '/default-avatar.jpg',
+      status: app.status,
+      shortlisted: app.shortlisted || false,
+      appliedAt: app.createdAt,
+      resume: app.resume,
+      applicationId: app._id,
+      jobTitle: app.jobPost?.title || 'N/A',
+      employerId: app.jobPost?.employer,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      applicants: formattedApplicants,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / limit),
+        total,
+        limit: Number(limit),
+      },
+      statusCounts,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get applicants for jobs belonging to HR-Admin assigned employers
+ *
+ * @route   GET /api/hr-admin/applicants
+ * @access  Private (HR-Admin, Superadmin)
+ */
+employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, next) => {
+  try {
+    const user = req.user;
     const { status, dateRange, page = 1, limit = 10, search } = req.query;
 
-    // Fetch all job posts by the employer
-    const employerJobs = await JobPost.find({ employer: employerId }).select('_id');
-    if (!employerJobs.length) {
+    // Resolve employer scope
+    let employerFilter = {};
+
+    if (user.role === 'hr-admin') {
+      if (!user.employerIds || !user.employerIds.length) {
+        return res.status(200).json({
+          success: true,
+          applicants: [],
+          pagination: {
+            currentPage: Number(page),
+            totalPages: 0,
+            total: 0,
+            limit: Number(limit),
+          },
+          statusCounts: {
+            Total: 0,
+            Pending: 0,
+            Reviewed: 0,
+            Accepted: 0,
+            Rejected: 0,
+          },
+        });
+      }
+
+      employerFilter = { employer: { $in: user.employerIds } };
+    }
+
+    //Fetch jobs under those employers
+    const jobs = await JobPost.find(employerFilter).select('_id');
+
+    if (!jobs.length) {
       return res.status(200).json({
         success: true,
         applicants: [],
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: Number(page),
           totalPages: 0,
           total: 0,
-          limit: parseInt(limit),
+          limit: Number(limit),
         },
         statusCounts: {
           Total: 0,
@@ -205,12 +385,16 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
           Rejected: 0,
         },
       });
-    }    
+    }
 
-     // Build base query
-    const matchQuery = { jobPost: { $in: employerJobs.map(j => j._id) } };
+    // Build application match query
+    const matchQuery = {
+      jobPost: { $in: jobs.map(j => j._id) },
+    };
 
-    if (status && status !== 'All') matchQuery.status = status;
+    if (status && status !== 'All') {
+      matchQuery.status = status;
+    }
 
     if (dateRange && dateRange !== 'All') {
       const months = {
@@ -224,134 +408,91 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
       matchQuery.createdAt = { $gte: cutoffDate };
     }
 
-   // Build aggregation pipeline for fetching applicants with joined data
-  const pipeline = [
-    // Match applications that belong to jobs posted by this employer
-    { $match: matchQuery },
+    // Aggregation pipeline
+    const pipeline = [
+      { $match: matchQuery },
 
-    // Join the `users` collection to fetch candidate basic info
-    // (Mongoose population equivalent)
-    {
-      $lookup: {
-        from: 'users',              // Collection name in MongoDB
-        localField: 'candidate',    // Field in Application schema
-        foreignField: '_id',        // Field in User schema
-        as: 'candidate',            // New array field to store joined data
-      },
-    },
-    // `$lookup` always returns an array — even if only one match.
-    // `$unwind` converts that array into a single object so we can access its fields directly.
-    { $unwind: { path: '$candidate', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'users', localField: 'candidate', foreignField: '_id', as: 'candidate' } },
+      { $unwind: { path: '$candidate', preserveNullAndEmptyArrays: true } },
 
-    //  Join the `candidateprofiles` collection to include detailed profile info
-    {
-      $lookup: {
-        from: 'candidateprofiles',
-        localField: 'candidateProfile',
-        foreignField: '_id',
-        as: 'candidateProfile',
-      },
-    },
-    // Flatten `candidateProfile` array for easier access
-    { $unwind: { path: '$candidateProfile', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'candidateprofiles', localField: 'candidateProfile', foreignField: '_id', as: 'candidateProfile' } },
+      { $unwind: { path: '$candidateProfile', preserveNullAndEmptyArrays: true } },
 
-    //  Join the `jobposts` collection to attach job title and metadata
-    {
-      $lookup: {
-        from: 'jobposts',
-        localField: 'jobPost',
-        foreignField: '_id',
-        as: 'jobPost',
-      },
-    },
-    // Again, flatten jobPost since `$lookup` returns an array
-    { $unwind: { path: '$jobPost', preserveNullAndEmptyArrays: true } },
-  ];
+      { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'jobPost' } },
+      { $unwind: { path: '$jobPost', preserveNullAndEmptyArrays: true } },
+    ];
 
-  //  Apply text search across joined fields
-  // Using `$match` with `$or` allows searching multiple fields simultaneously
-  if (search) {
-    const regex = new RegExp(search, 'i'); // case-insensitive match
-    pipeline.push({
-      $match: {
-        $or: [
-          { 'candidate.name': regex },
-          { 'candidate.email': regex },
-          { 'candidateProfile.fullName': regex },
-          { 'candidateProfile.email': regex },
-          { 'candidateProfile.jobTitle': regex },
-        ],
-      },
-    });
-  }
-
-  //  Sort and paginate results using `$facet`
-  pipeline.push(
-    // Sort by most recent applications first
-    { $sort: { createdAt: -1 } },
-
-    // `$facet` allows us to run multiple sub-pipelines in parallel:
-    // one for paginated data, one for total count, and one for status counts.
-    {
-      $facet: {
-        // Paginated data (skip and limit)
-        data: [
-          { $skip: (parseInt(page) - 1) * parseInt(limit) },
-          { $limit: parseInt(limit) },
-        ],
-
-        // Total record count for pagination
-        totalCount: [{ $count: 'count' }],
-
-        // Group applications by status to build "Pending / Accepted / Rejected" counts
-        statusCounts: [
-          { $group: { _id: '$status', count: { $sum: 1 } } },
-        ],
-      },
+    // Search
+    if (search) {
+      const regex = new RegExp(search, 'i');
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'candidate.name': regex },
+            { 'candidate.email': regex },
+            { 'candidateProfile.fullName': regex },
+            { 'candidateProfile.email': regex },
+            { 'candidateProfile.jobTitle': regex },
+          ],
+        },
+      });
     }
-  );
 
-    // Execute aggregation
-    const result = await Application.aggregate(pipeline);
+    // Pagination + counts
+    pipeline.push(
+      { $sort: { createdAt: -1 } },
+      {
+        $facet: {
+          data: [
+            { $skip: (page - 1) * limit },
+            { $limit: Number(limit) },
+          ],
+          totalCount: [{ $count: 'count' }],
+          statusCounts: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
+        },
+      }
+    );
 
-    const applicants = result[0]?.data || [];
-    const total = result[0]?.totalCount[0]?.count || 0;
-    const statusCountsAgg = result[0]?.statusCounts || [];
+    const [result] = await Application.aggregate(pipeline);
 
+    const applicants = result.data || [];
+    const total = result.totalCount?.[0]?.count || 0;
+
+    // Status tab counts
     const statusCounts = {
       Total: total,
-      Pending: statusCountsAgg.find(s => s._id === 'Pending')?.count || 0,
-      Reviewed: statusCountsAgg.find(s => s._id === 'Reviewed')?.count || 0,
-      Accepted: statusCountsAgg.find(s => s._id === 'Accepted')?.count || 0,
-      Rejected: statusCountsAgg.find(s => s._id === 'Rejected')?.count || 0,
+      Pending: result.statusCounts.find(s => s._id === 'Pending')?.count || 0,
+      Reviewed: result.statusCounts.find(s => s._id === 'Reviewed')?.count || 0,
+      Accepted: result.statusCounts.find(s => s._id === 'Accepted')?.count || 0,
+      Rejected: result.statusCounts.find(s => s._id === 'Rejected')?.count || 0,
     };
 
-
-    // Format applicants for frontend
+    //  Format response
     const formattedApplicants = applicants.map(app => ({
-      id: app.candidate._id,
-      name: app.candidateProfile?.fullName || app.candidate.name,
+      id: app.candidate?._id,
+      name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location?.city || 'N/A',
       expectedSalary: app.candidateProfile?.expectedSalary || 'N/A',
       tags: app.candidateProfile?.categories || [],
-      avatar: app.candidateProfile?.profilePhoto || app.candidate.profilePhoto || '/default-avatar.jpg',
+      avatar: app.candidateProfile?.profilePhoto || app.candidate?.profilePhoto || '/default-avatar.jpg',
       status: app.status,
-      shortlisted: app.shortlisted || false,
+      shortlisted: app.shortlisted,
       appliedAt: app.createdAt,
       resume: app.resume,
       applicationId: app._id,
       jobTitle: app.jobPost?.title || 'N/A',
+      employerId: app.jobPost?.employer,
     }));
 
     return res.status(200).json({
       success: true,
       applicants: formattedApplicants,
       pagination: {
-        currentPage: parseInt(page),
+        currentPage: Number(page),
         totalPages: Math.ceil(total / limit),
         total,
-        limit: parseInt(limit),
+        limit: Number(limit),
       },
       statusCounts,
     });
@@ -359,6 +500,7 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
     next(error);
   }
 };
+
 
 
 /**
@@ -378,7 +520,13 @@ employerApplicantsController.updateApplicantStatus = async (req, res, next) => {
     }
 
     const application = await Application.findById(applicationId).populate('jobPost');
-    if (!application || application.jobPost.employer.toString() !== employerId.toString()) {
+    // old ownership check
+    // if (!application || application.jobPost.employer.toString() !== employerId.toString()) {
+    //   throw new ForbiddenError('You do not have permission to update this application');
+    // }
+
+    // new ownership check using role helper
+    if (!application || !canManageJob(application.jobPost, req.user)) {
       throw new ForbiddenError('You do not have permission to update this application');
     }
 
@@ -407,9 +555,14 @@ employerApplicantsController.deleteApplicant = async (req, res, next) => {
     const applicationId = req.params.applicationId;
 
     const application = await Application.findById(applicationId).populate('jobPost');
-    if (!application || application.jobPost.employer.toString() !== employerId.toString()) {
-      throw new ForbiddenError('You do not have permission to delete this application');
+    // if (!application || application.jobPost.employer.toString() !== employerId.toString()) {
+    //   throw new ForbiddenError('You do not have permission to delete this application');
+    // }
+
+    if (!canManageJob(application.jobPost, req.user)) {
+      throw new ForbiddenError('Permission denied');
     }
+
 
     await application.deleteOne();
 
@@ -442,9 +595,15 @@ employerApplicantsController.viewApplicant = async (req, res, next) => {
         })
       .select('-__v');
 
-    if (!application || application.jobPost.employer.toString() !== employerId.toString()) {
-      throw new ForbiddenError('You do not have permission to view this application');
+    // old ownership check
+    // if (!application || application.jobPost.employer.toString() !== employerId.toString()) {
+    //   throw new ForbiddenError('You do not have permission to view this application');
+    // }
+    // new ownership check using role helper
+    if (!canManageJob(application.jobPost, req.user)) {
+      throw new ForbiddenError('Permission denied');
     }
+
 
     return res.status(200).json({
       success: true,
@@ -477,11 +636,18 @@ employerApplicantsController.bulkUpdateStatus = async (req, res, next) => {
     // Find applications belonging to the employer
     const applications = await Application.find({
       _id: { $in: applicationIds },
-      'jobPost.employer': employerId,
-    });
+      // 'jobPost.employer': employerId,
+    }).populate('jobPost');
 
-    if (applications.length !== applicationIds.length) {
-      throw new ForbiddenError('Some applications do not belong to you');
+    // if (applications.length !== applicationIds.length) {
+    //   throw new ForbiddenError('Some applications do not belong to you');
+    // }
+
+     // Permission check per application
+    for (const app of applications) {
+      if (!canManageJob(app.jobPost, req.user)) {
+        throw new ForbiddenError('Permission denied for one or more applications');
+      }
     }
 
     // Update statuses
@@ -519,10 +685,16 @@ employerApplicantsController.shortlistApplicant = async (req, res, next) => {
     }
 
     //check if the job belongs to the employer
-    if (application.jobPost.employer.toString() !== employerId.toString()) {
-      throw new ForbiddenError('You do not have permission to shortlist this applicant');
+    // if (application.jobPost.employer.toString() !== employerId.toString()) {
+    //   throw new ForbiddenError('You do not have permission to shortlist this applicant');
+    // }
+    // console.log("Shortlisting application:", application);
+
+    // new ownership check using role helper
+    if (!canManageJob(application.jobPost, req.user)) {
+      throw new ForbiddenError('Permission denied');
     }
-    console.log("Shortlisting application:", application);
+
     
     application.shortlisted = true;
     await application.save();
@@ -561,9 +733,15 @@ employerApplicantsController.unshortlistApplicant = async (req, res, next) => {
       throw new NotFoundError('Application not found');
     }
 
-    if (application.jobPost.employer.toString() !== employerId.toString()) {
-      throw new ForbiddenError('You do not have permission to unshortlist this applicant');
+    // if (application.jobPost.employer.toString() !== employerId.toString()) {
+    //   throw new ForbiddenError('You do not have permission to unshortlist this applicant');
+    // }
+
+    // new ownership check using role helper
+    if (!canManageJob(application.jobPost, req.user)) {
+      throw new ForbiddenError('Permission denied');
     }
+
 
     application.shortlisted = false;
     await application.save();
@@ -585,77 +763,98 @@ employerApplicantsController.unshortlistApplicant = async (req, res, next) => {
  */
 employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
   try {
-    const employerId = req.user.id;
+    const user = req.user;
     const { jobId, status, dateRange, page = 1, limit = 10, search } = req.query;
 
-    // Build query
     let query = { shortlisted: true };
 
-    // Filter by jobId if provided
+    // --------------------------------------------------
+    // Job ownership handling (Employer / HR-Admin / Superadmin)
+    // --------------------------------------------------
     if (jobId) {
       const jobPost = await JobPost.findById(jobId);
-      if (!jobPost || jobPost.employer.toString() !== employerId.toString()) {
+
+      if (!jobPost) {
+        throw new NotFoundError('Job post not found');
+      }
+
+      const isAllowed =
+        user.role === 'superadmin' ||
+        (user.role === 'employer' && jobPost.employer?.toString() === user.id) ||
+        (user.role === 'hr-admin' && jobPost.postedBy?.toString() === user.id);
+
+      if (!isAllowed) {
         throw new ForbiddenError('You do not have permission to view shortlisted resumes for this job');
       }
+
       query.jobPost = jobId;
     } else {
-      // Fetch job posts by employer to limit applications to their jobs
-      const employerJobs = await JobPost.find({ employer: employerId }).select('_id');
-      query.jobPost = { $in: employerJobs.map(job => job._id) };
+      const jobQuery = await buildJobQueryForUser(user);
+      const jobs = await JobPost.find(jobQuery).select('_id');
+
+      query.jobPost = { $in: jobs.map(j => j._id) };
     }
 
-    if (status && status !== 'All') {
-      query.status = status;
-    }
+    // --------------------------------------------------
+    // Filters
+    // --------------------------------------------------
+    if (status && status !== 'All') query.status = status;
+
     if (dateRange && dateRange !== 'All') {
-      const months = { 'Last 12 Months': 12, 'Last 16 Months': 16, 'Last 24 Months': 24, 'Last 5 year': 60 };
+      const months = {
+        'Last 12 Months': 12,
+        'Last 16 Months': 16,
+        'Last 24 Months': 24,
+        'Last 5 year': 60,
+      };
       const cutoffDate = new Date();
       cutoffDate.setMonth(cutoffDate.getMonth() - (months[dateRange] || 12));
       query.createdAt = { $gte: cutoffDate };
     }
-    if (search) {
-      query.$or = [
-        { 'candidate.name': { $regex: search, $options: 'i' } },
-        { 'candidate.email': { $regex: search, $options: 'i' } },
-        { 'candidateProfile.fullName': { $regex: search, $options: 'i' } },
-        { 'candidateProfile.email': { $regex: search, $options: 'i' } },
-      ];
-    }
 
-    // Count total shortlisted resumes for pagination
+    // --------------------------------------------------
+    // Pagination count
+    // --------------------------------------------------
     const total = await Application.countDocuments(query);
 
+    // --------------------------------------------------
     // Fetch shortlisted applications
+    // --------------------------------------------------
     const applicants = await Application.find(query)
       .populate('candidate', 'name email phone profilePhoto')
       .populate('candidateProfile', 'fullName jobTitle phone location profilePhoto resume expectedSalary categories')
-      .populate('jobPost', 'title companyProfile')
+      .populate('jobPost', 'title')
+      .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit))
-      .sort({ createdAt: -1 });
+      .limit(parseInt(limit));
 
-    // Get status counts for tabs
-    const statusCounts = await Application.aggregate([
-      { $match: { ...query, shortlisted: true } },
+    // --------------------------------------------------
+    // Status counts
+    // --------------------------------------------------
+    const statusCountsAgg = await Application.aggregate([
+      { $match: query },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]);
+
     const counts = {
       Total: total,
-      Pending: statusCounts.find(s => s._id === 'Pending')?.count || 0,
-      Reviewed: statusCounts.find(s => s._id === 'Reviewed')?.count || 0,
-      Accepted: statusCounts.find(s => s._id === 'Accepted')?.count || 0,
-      Rejected: statusCounts.find(s => s._id === 'Rejected')?.count || 0,
+      Pending: statusCountsAgg.find(s => s._id === 'Pending')?.count || 0,
+      Reviewed: statusCountsAgg.find(s => s._id === 'Reviewed')?.count || 0,
+      Accepted: statusCountsAgg.find(s => s._id === 'Accepted')?.count || 0,
+      Rejected: statusCountsAgg.find(s => s._id === 'Rejected')?.count || 0,
     };
 
-    // Format applicants for frontend
+    // --------------------------------------------------
+    // Format response
+    // --------------------------------------------------
     const formattedApplicants = applicants.map(app => ({
-      id: app.candidate._id,
-      name: app.candidateProfile?.fullName || app.candidate.name,
+      id: app.candidate?._id,
+      name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location?.city || 'N/A',
-      hourlyRate: app.candidateProfile?.expectedSalary || 'N/A',
+      expectedSalary: app.candidateProfile?.expectedSalary || 'N/A',
       tags: app.candidateProfile?.categories || [],
-      avatar: app.candidateProfile?.profilePhoto || app.candidate.profilePhoto || '/default-avatar.jpg',
+      avatar: app.candidateProfile?.profilePhoto || app.candidate?.profilePhoto || '/default-avatar.jpg',
       status: app.status,
       shortlisted: app.shortlisted,
       appliedAt: app.createdAt,
@@ -668,10 +867,10 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
       success: true,
       applicants: formattedApplicants,
       pagination: {
-        currentPage: parseInt(page),
+        currentPage: Number(page),
         totalPages: Math.ceil(total / limit),
         total,
-        limit: parseInt(limit),
+        limit: Number(limit),
       },
       statusCounts: counts,
     });
@@ -679,6 +878,155 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
     next(error);
   }
 };
+
+
+
+/**
+ * Get employer-wise applicant summary for HR-Admin / Superadmin
+ *
+ * What this API does:
+ * ----------------------------------------------------
+ * - Groups applicants by employer
+ * - Counts total jobs per employer
+ * - Counts total applicants
+ * - Gives status-wise applicant breakdown
+ *
+ * @route   GET /api/hr-admin/employers/applicants-summary
+ * @access  Private (HR-Admin, Superadmin)
+ */
+employerApplicantsController.getEmployerApplicantsSummary = async (req, res, next) => {
+  try {
+    const user = req.user;
+
+    // Build employer filter based on role
+    let employerMatch = {};
+
+    if (user.role === 'hr-admin') {
+      if (!user.employerIds || !user.employerIds.length) {
+        return res.status(200).json({
+          success: true,
+          data: [],
+        });
+      }
+
+      employerMatch._id = { $in: user.employerIds };
+    }
+
+    // Fetch employers
+    const employers = await User.find({
+      role: 'employer',
+      ...employerMatch,
+    }).select('_id name companyName email');
+
+    if (!employers.length) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+      });
+    }
+
+    const employerIds = employers.map(e => e._id);
+
+    // Aggregate applicants grouped by employer
+    const summary = await Application.aggregate([
+      // Join job posts
+      {
+        $lookup: {
+          from: 'jobposts',
+          localField: 'jobPost',
+          foreignField: '_id',
+          as: 'jobPost',
+        },
+      },
+      { $unwind: '$jobPost' },
+
+      // Match only employers we care about
+      {
+        $match: {
+          'jobPost.employer': { $in: employerIds },
+        },
+      },
+
+      // Group by employer + status
+      {
+        $group: {
+          _id: {
+            employer: '$jobPost.employer',
+            status: '$status',
+          },
+          count: { $sum: 1 },
+        },
+      },
+
+      // Group again by employer
+      {
+        $group: {
+          _id: '$_id.employer',
+          totalApplicants: { $sum: '$count' },
+          statusCounts: {
+            $push: {
+              status: '$_id.status',
+              count: '$count',
+            },
+          },
+        },
+      },
+    ]);
+
+    // Get job counts per employer
+    const jobCounts = await JobPost.aggregate([
+      { $match: { employer: { $in: employerIds } } },
+      {
+        $group: {
+          _id: '$employer',
+          totalJobs: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const jobCountMap = {};
+    jobCounts.forEach(j => {
+      jobCountMap[j._id.toString()] = j.totalJobs;
+    });
+
+    // Format response
+    const employerMap = {};
+    employers.forEach(e => {
+      employerMap[e._id.toString()] = e;
+    });
+
+    const formatted = summary.map(item => {
+      const statusObj = {
+        Pending: 0,
+        Reviewed: 0,
+        Accepted: 0,
+        Rejected: 0,
+      };
+
+      item.statusCounts.forEach(s => {
+        statusObj[s.status] = s.count;
+      });
+
+      return {
+        employerId: item._id,
+        employerName: employerMap[item._id.toString()]?.companyName ||
+                      employerMap[item._id.toString()]?.name ||
+                      'N/A',
+        totalJobs: jobCountMap[item._id.toString()] || 0,
+        totalApplicants: item.totalApplicants,
+        statusCounts: statusObj,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: formatted,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 
 export default employerApplicantsController;

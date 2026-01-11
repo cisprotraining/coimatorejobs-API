@@ -2297,3 +2297,1158 @@ Response:
         "limit": 10
     }
 }
+
+// Company profile creation - (hr-admin, employer)
+// hr-admin can create multiple company profile for multiple employers
+// employer can create only one company profilr for their company
+
+POST /api/v1/employer/company-profile/create
+Authorization: Bearer <TOKEN>  - hr-admin, employer 
+Content-Type: multipart/form-data, json 
+
+
+Sample payload:
+
+{
+  "companyName": "Cispro Technologies",
+  "companyType": "Private",
+  "email": "info@cisprotech.com",
+  "phone": "9876543210",
+  "website": "https://www.cisprotech.com",
+  "establishedSince": "2016-06-15",
+  "teamSize": "50 - 100",
+  "categories": ["Technology", "Recruitment"],
+  "industry": "Information Technology",
+  "allowInSearch": true,
+  "isHiring": true,
+  "description": "Cispro Technologies is a leading IT solutions and recruitment platform delivering enterprise-grade software and talent solutions.",
+  "socialMedia": {
+    "facebook": "https://facebook.com/cisprotech",
+    "twitter": "https://twitter.com/cisprotech",
+    "linkedin": "https://linkedin.com/company/cisprotech",
+    "instagram": "https://instagram.com/cisprotech"
+  },
+  "location": {
+    "address": "No. 12, Tech Park Road",
+    "city": "Coimbatore",
+    "state": "Tamil Nadu",
+    "country": "India",
+    "zipCode": "641001"
+  },
+  "culture": ["Innovative", "Collaborative", "Work-life balance"],
+  "revenue": "$1M - $10M",
+  "founders": [
+    {
+      "name": "Aravind Kumar",
+      "role": "Founder & CEO",
+      "linkedin": "https://linkedin.com/in/aravindkumar"
+    }
+  ],
+  "branches": [
+    {
+      "city": "Bangalore",
+      "state": "Karnataka",
+      "country": "India"
+    },
+    {
+      "city": "Hyderabad",
+      "state": "Telangana",
+      "country": "India"
+    }
+  ]
+}
+
+Failure response: 400
+
+{
+    "success": false,
+    "message": "Employer is not approved yet"
+}
+
+{
+    "success": false,
+    "message": "Company profile already exists for this employer"
+}
+
+Success response:
+
+{
+    "success": true,
+    "message": "Company profile created successfully",
+    "profile": {
+        "employer": "694906a331477526c0c36815",
+        "createdBy": "695661cb81b115f60d58f4d2",
+        "companyName": "Cispro Technologies",
+        "companyType": "Private",
+        "email": "info@cisprotech.com",
+        "phone": "9876543210",
+        "website": "https://www.cisprotech.com",
+        "establishedSince": "2016-06-15T00:00:00.000Z",
+        "teamSize": "50 - 100",
+        "categories": [
+            "Technology",
+            "Recruitment"
+        ],
+        "industry": "Information Technology",
+        "allowInSearch": true,
+        "isHiring": true,
+        "isVerified": false,
+        "description": "Cispro Technologies is a leading IT solutions and recruitment platform delivering enterprise-grade software and talent solutions.",
+        "profileViews": 0,
+        "status": "approved",
+        "approvedBy": "695661cb81b115f60d58f4d2",
+        "approvedAt": "2026-01-01T18:03:53.997Z",
+        "culture": [
+            "Innovative",
+            "Collaborative",
+            "Work-life balance"
+        ],
+        "revenue": "$1M - $10M",
+        "founders": [
+            {
+                "name": "Sathish Kumar",
+                "role": "Founder & CEO",
+                "linkedin": "https://linkedin.com/in/sathishkumar",
+                "_id": "6956b70a754792a318b77893",
+                "id": "6956b70a754792a318b77893"
+            }
+        ],
+        "socialMedia": {
+            "facebook": "https://facebook.com/cisprotech",
+            "twitter": "https://twitter.com/cisprotech",
+            "linkedin": "https://linkedin.com/company/cisprotech",
+            "instagram": "https://instagram.com/cisprotech"
+        },
+        "location": {
+            "address": "No. 12, Tech Park Road",
+            "city": "Coimbatore",
+            "state": "Tamil Nadu",
+            "country": "India",
+            "zipCode": "641001"
+        },
+        "branches": [
+            {
+                "city": "Bangalore",
+                "state": "Karnataka",
+                "country": "India",
+                "_id": "6956b70a754792a318b77894",
+                "id": "6956b70a754792a318b77894"
+            },
+            {
+                "city": "Hyderabad",
+                "state": "Telangana",
+                "country": "India",
+                "_id": "6956b70a754792a318b77895",
+                "id": "6956b70a754792a318b77895"
+            }
+        ],
+        "logo": "/uploads/company/c3317f22-cdb6-4289-8ce8-0afe2a5836a5.jpg",
+        "ratings": {
+            "average": 0,
+            "count": 0
+        },
+        "_id": "6956b70a754792a318b77892",
+        "dailyViews": [],
+        "uniqueViewers": [],
+        "id": "6956b70a754792a318b77892"
+    }
+}
+
+
+//fetch employers and candidate API 
+
+{{local}}api/v1/auth/users?roles=employer - GET 
+
+Authorization : hr-admin or superadmin token 
+
+Response:
+
+{
+    "success": true,
+    "count": 14,
+    "data": [
+        {
+            "status": "pending",
+            "_id": "694f74a252e1378ffe8d9df3",
+            "name": "Coimbatorejobs 2025",
+            "email": "coimbatorejobs2025@gmail.com",
+            "role": "candidate",
+            "isActive": true,
+            "createdAt": "2025-12-27T05:54:42.562Z",
+            "updatedAt": "2025-12-27T05:54:42.562Z",
+            "__v": 0
+        },
+        {
+            "status": "pending",
+            "_id": "694a408413904053a0865d85",
+            "name": "cisprotraining",
+            "email": "cisprodm@gmail.com",
+            "role": "candidate",
+            "isActive": true,
+            "createdAt": "2025-12-23T07:11:00.152Z",
+            "updatedAt": "2025-12-23T07:11:00.152Z",
+            "__v": 0
+        },
+        {
+            "status": "pending",
+            "_id": "69493f31925e565dfb6a220f",
+            "name": "cisprotraining",
+            "email": "blog@cisprotraining.com",
+            "role": "candidate",
+            "isActive": true,
+            "createdAt": "2025-12-22T12:53:05.793Z",
+            "updatedAt": "2025-12-22T12:53:05.793Z",
+            "__v": 0
+        },
+       etc...
+    ]
+}
+
+//user status update api (only for hr-admin and superadmin)
+
+// :userId is the user ID whose status is to be updated
+ROUTE : put /admin/users/status/:userId,
+{{local}}api/v1/auth/admin/users/status/68ac9967d0d12b78d128cc96 - PUT 
+
+Authorization : hr-admin or superadmin token 
+
+
+Payload: 
+
+{
+    "status" : "approved"
+}
+
+Response: 
+
+{
+    "success": true,
+    "message": "User approved successfully"
+}
+
+//get company-profile
+
+Route: id is companyProfile id
+
+http://localhost:5000/api/v1/employer-dashboard/company-profile/get/6956b70a754792a318b77892 - GET 
+
+Response: 
+
+{
+    "success": true,
+    "profile": {
+        "socialMedia": {
+            "facebook": "https://facebook.com/cisprotech",
+            "twitter": "https://twitter.com/cisprotech",
+            "linkedin": "https://linkedin.com/company/cisprotech",
+            "instagram": "https://instagram.com/cisprotech"
+        },
+        "location": {
+            "address": "No. 12, Tech Park Road",
+            "city": "Coimbatore",
+            "state": "Tamil Nadu",
+            "country": "India",
+            "zipCode": "641001"
+        },
+        "ratings": {
+            "average": 0,
+            "count": 0
+        },
+        "_id": "6956b70a754792a318b77892",
+        "employer": "694906a331477526c0c36815",
+        "createdBy": "695661cb81b115f60d58f4d2",
+        "companyName": "Cispro Technologies",
+        "companyType": "Private",
+        "email": "info@cisprotech.com",
+        "phone": "9876543210",
+        "website": "https://www.cisprotech.com",
+        "establishedSince": "2016-06-15T00:00:00.000Z",
+        "teamSize": "50 - 100",
+        "categories": [
+            "Technology",
+            "Recruitment"
+        ],
+        "industry": "Information Technology",
+        "allowInSearch": true,
+        "isHiring": true,
+        "isVerified": false,
+        "description": "Cispro Technologies is a leading IT solutions and recruitment platform delivering enterprise-grade software and talent solutions.",
+        "profileViews": 0,
+        "status": "approved",
+        "approvedBy": "695661cb81b115f60d58f4d2",
+        "approvedAt": "2026-01-01T18:03:53.997Z",
+        "culture": [
+            "Innovative",
+            "Collaborative",
+            "Work-life balance"
+        ],
+        "revenue": "$1M - $10M",
+        "founders": [
+            {
+                "name": "Sathish Kumar",
+                "role": "Founder & CEO",
+                "linkedin": "https://linkedin.com/in/sathishkumar",
+                "_id": "6956b70a754792a318b77893",
+                "id": "6956b70a754792a318b77893"
+            }
+        ],
+        "branches": [
+            {
+                "city": "Bangalore",
+                "state": "Karnataka",
+                "country": "India",
+                "_id": "6956b70a754792a318b77894",
+                "id": "6956b70a754792a318b77894"
+            },
+            {
+                "city": "Hyderabad",
+                "state": "Telangana",
+                "country": "India",
+                "_id": "6956b70a754792a318b77895",
+                "id": "6956b70a754792a318b77895"
+            }
+        ],
+        "logo": "/uploads/company/c3317f22-cdb6-4289-8ce8-0afe2a5836a5.jpg",
+        "dailyViews": [],
+        "uniqueViewers": [],
+        "id": "6956b70a754792a318b77892"
+    },
+    "activeJobsCount": 0
+}
+
+
+//Jobs Create 
+
+(hr-admin)
+http://localhost:5000/api/v1/employer-dashboard/jobs/create  -POST 
+
+Authorization : hr-admin token
+
+Payload:
+
+{
+  "employerId": "694906a331477526c0c36815",
+  "title": "Frontend Engineer (React)",
+  "description": "Hiring React developers for product team.",
+  "contactEmail": "jobs@company.com",
+  "contactUsername": "recruitment",
+  "specialisms": ["React", "JavaScript", "UI"],
+  "jobType": "Full-time",
+  "offeredSalary": "₹10-15 LPA",
+  "careerLevel": "Mid Level",
+  "experience": "3-5 years",
+  "industry": "Software",
+  "qualification": "Bachelor",
+  "applicationDeadline": "2026-02-15",
+  "remoteWork": "Remote",
+  "positions": {
+    "total": 5
+  },
+  "location": {
+    "country": "India",
+    "city": "Chennai",
+    "completeAddress": "Tidel Park, Chennai"
+  }
+}
+
+Success Response : 201
+
+{
+    "success": true,
+    "message": "Job post created successfully",
+    "jobPost": {
+        "employer": "694906a331477526c0c36815",
+        "companyProfile": "6956b70a754792a318b77892",
+        "title": "Frontend Engineer (React)",
+        "description": "Hiring React developers for product team.",
+        "contactEmail": "jobs@company.com",
+        "contactUsername": "recruitment",
+        "specialisms": [
+            "React",
+            "JavaScript",
+            "UI"
+        ],
+        "jobType": "Full-time",
+        "offeredSalary": "₹10-15 LPA",
+        "careerLevel": "Mid Level",
+        "experience": "3-5 years",
+        "gender": "No Preference",
+        "industry": "Software",
+        "qualification": "Bachelor",
+        "applicationDeadline": "2026-02-15T00:00:00.000Z",
+        "positions": {
+            "total": 5,
+            "remaining": 5
+        },
+        "applicantCount": 0,
+        "location": {
+            "country": "India",
+            "city": "Chennai",
+            "completeAddress": "Tidel Park, Chennai"
+        },
+        "remoteWork": "Remote",
+        "status": "Published",
+        "profileViews": 0,
+        "postedBy": "695661cb81b115f60d58f4d2",
+        "_id": "695806561a53581c0d12c434",
+        "dailyViews": [],
+        "uniqueViewers": [],
+        "createdAt": "2026-01-02T17:54:30.024Z",
+        "updatedAt": "2026-01-02T17:54:30.024Z",
+        "__v": 0
+    }
+}
+
+
+
+(employer)
+http://localhost:5000/api/v1/employer-dashboard/jobs/create  -POST 
+
+Authorization : employer token
+
+Payload:
+
+{
+  "title": "Senior Backend Developer",
+  "description": "We are looking for an experienced Node.js backend developer.",
+  "contactEmail": "hr@company.com",
+  "contactUsername": "hr-team",
+  "specialisms": ["Node.js", "MongoDB", "API Development"],
+  "jobType": "Full-time",
+  "offeredSalary": "₹20-30 LPA",
+  "careerLevel": "Senior Level",
+  "experience": "5-10 years",
+  "gender": "No Preference",
+  "industry": "IT Services",
+  "qualification": "Bachelor",
+  "applicationDeadline": "2026-03-31",
+  "remoteWork": "Hybrid",
+  "positions": {
+    "total": 3
+  },
+  "location": {
+    "country": "India",
+    "city": "Bangalore",
+    "completeAddress": "Whitefield, Bangalore"
+  }
+}
+
+
+// failure response :
+
+{
+    "success": false,
+    "message": "Company profile must be approved before posting jobs"
+}
+
+//success response: 
+
+{
+    "success": true,
+    "message": "Job post created successfully",
+    "jobPost": {
+        "employer": "68ac9967d0d12b78d128cc96",
+        "companyProfile": "6894ec6b55908eb75da0745f",
+        "title": "Senior Backend Developer",
+        "description": "We are looking for an experienced Node.js backend developer.",
+        "contactEmail": "hr@company.com",
+        "contactUsername": "hr-team",
+        "specialisms": [
+            "Node.js",
+            "MongoDB",
+            "API Development"
+        ],
+        "jobType": "Full-time",
+        "offeredSalary": "₹20-30 LPA",
+        "careerLevel": "Senior Level",
+        "experience": "5-10 years",
+        "gender": "No Preference",
+        "industry": "IT Services",
+        "qualification": "Bachelor",
+        "applicationDeadline": "2026-03-31T00:00:00.000Z",
+        "positions": {
+            "total": 3,
+            "remaining": 3
+        },
+        "applicantCount": 0,
+        "location": {
+            "country": "India",
+            "city": "Bangalore",
+            "completeAddress": "Whitefield, Bangalore"
+        },
+        "remoteWork": "Hybrid",
+        "status": "Published",
+        "profileViews": 0,
+        "postedBy": "68ac9967d0d12b78d128cc96",
+        "_id": "6958095d1a53581c0d12c48c",
+        "dailyViews": [],
+        "uniqueViewers": [],
+        "createdAt": "2026-01-02T18:07:25.656Z",
+        "updatedAt": "2026-01-02T18:07:25.656Z",
+        "__v": 0
+    }
+}
+
+
+//fetch Jobs 
+
+(hr-admin)
+http://localhost:5000/api/v1/employer-dashboard/jobs/fetch-all - GET 
+
+Authorization : hr-admin token 
+
+response: 
+
+{
+    "success": true,
+    "jobPosts": [
+        {
+            "location": {
+                "country": "India",
+                "city": "Chennai",
+                "completeAddress": "Tidel Park, Chennai"
+            },
+            "_id": "695806561a53581c0d12c434",
+            "employer": "694906a331477526c0c36815",
+            "companyProfile": {
+                "_id": "6956b70a754792a318b77892",
+                "companyName": "Cispro Technologies",
+                "logo": "/uploads/company/c3317f22-cdb6-4289-8ce8-0afe2a5836a5.jpg",
+                "id": "6956b70a754792a318b77892"
+            },
+            "title": "Frontend Engineer (React)",
+            "applicationDeadline": "2026-02-15T00:00:00.000Z",
+            "applicantCount": 0,
+            "status": "Published",
+            "createdAt": "2026-01-02T17:54:30.024Z"
+        }
+    ]
+}
+
+
+//Get Single job post 
+
+//ID is job post id
+http://localhost:5000/api/v1/employer-dashboard/jobs/fetch/695806561a53581c0d12c434 - GET 
+
+Authorization : any 
+
+Response: 
+
+{
+    "success": true,
+    "jobPost": {
+        "positions": {
+            "total": 5,
+            "remaining": 5
+        },
+        "location": {
+            "country": "India",
+            "city": "Chennai",
+            "completeAddress": "Tidel Park, Chennai"
+        },
+        "_id": "695806561a53581c0d12c434",
+        "employer": "694906a331477526c0c36815",
+        "companyProfile": {
+            "_id": "6956b70a754792a318b77892",
+            "companyName": "Cispro Technologies",
+            "logo": "/uploads/company/c3317f22-cdb6-4289-8ce8-0afe2a5836a5.jpg",
+            "id": "6956b70a754792a318b77892"
+        },
+        "title": "Frontend Engineer (React)",
+        "description": "Hiring React developers for product team.",
+        "contactEmail": "jobs@company.com",
+        "contactUsername": "recruitment",
+        "specialisms": [
+            "React",
+            "JavaScript",
+            "UI"
+        ],
+        "jobType": "Full-time",
+        "offeredSalary": "₹10-15 LPA",
+        "careerLevel": "Mid Level",
+        "experience": "3-5 years",
+        "gender": "No Preference",
+        "industry": "Software",
+        "qualification": "Bachelor",
+        "applicationDeadline": "2026-02-15T00:00:00.000Z",
+        "remoteWork": "Remote",
+        "status": "Published",
+        "profileViews": 1,
+        "postedBy": "695661cb81b115f60d58f4d2",
+        "dailyViews": [
+            {
+                "date": "2026-01-02",
+                "count": 1,
+                "unique": 1,
+                "_id": "69580e1c86c9e31dcf647696"
+            }
+        ],
+        "uniqueViewers": [
+            {
+                "viewer": "695661cb81b115f60d58f4d2",
+                "lastViewed": "2026-01-02T18:27:40.597Z",
+                "_id": "69580e1c86c9e31dcf647695"
+            }
+        ],
+        "createdAt": "2026-01-02T17:54:30.024Z",
+        "updatedAt": "2026-01-02T18:27:40.597Z"
+    }
+}
+
+
+//Update Job post: 
+
+PUT /jobs/update/:jobId
+http://localhost:5000/api/v1/employer-dashboard/jobs/update/695806561a53581c0d12c434 - PUT
+
+//payload 
+
+{
+  "title": "Lead Backend Engineer",
+  "positions": {
+    "total": 4
+  }
+}
+
+
+//response 
+
+{
+    "success": true,
+    "message": "Job post updated successfully",
+    "jobPost": {
+        "positions": {
+            "total": 4,
+            "remaining": 4
+        },
+        "location": {
+            "country": "India",
+            "city": "Chennai",
+            "completeAddress": "Tidel Park, Chennai"
+        },
+        "_id": "695806561a53581c0d12c434",
+        "employer": "694906a331477526c0c36815",
+        "companyProfile": "6956b70a754792a318b77892",
+        "title": "Lead Backend Engineer",
+        "description": "Hiring React developers for product team.",
+        "contactEmail": "jobs@company.com",
+        "contactUsername": "recruitment",
+        "specialisms": [
+            "React",
+            "JavaScript",
+            "UI"
+        ],
+        "jobType": "Full-time",
+        "offeredSalary": "₹10-15 LPA",
+        "careerLevel": "Mid Level",
+        "experience": "3-5 years",
+        "gender": "No Preference",
+        "industry": "Software",
+        "qualification": "Bachelor",
+        "applicationDeadline": "2026-02-15T00:00:00.000Z",
+        "remoteWork": "Remote",
+        "status": "Published",
+        "profileViews": 1,
+        "postedBy": "695661cb81b115f60d58f4d2",
+        "dailyViews": [
+            {
+                "date": "2026-01-02",
+                "count": 1,
+                "unique": 1,
+                "_id": "69580e1c86c9e31dcf647696"
+            }
+        ],
+        "uniqueViewers": [
+            {
+                "viewer": "695661cb81b115f60d58f4d2",
+                "lastViewed": "2026-01-02T18:27:40.597Z",
+                "_id": "69580e1c86c9e31dcf647695"
+            }
+        ],
+        "createdAt": "2026-01-02T17:54:30.024Z",
+        "updatedAt": "2026-01-02T18:32:16.998Z"
+    }
+}
+
+//delete the job post 
+
+DELETE /jobs/delete/:jobId
+
+Response:
+
+{
+    "success": true,
+    "message": "Job post deleted successfully"
+}
+
+
+//hr-admin or superadmin to create the employer or candidate themselves
+
+localhost:5000/api/v1/auth/admin/users  - POST 
+
+Auth : hr-admin or superadmin token
+
+Payload:
+
+{
+  "name": "John Doe",
+  "email": "john@test.com",
+  "password": "123456",
+  "role": "candidate" 
+}
+
+Failure response: 400
+
+{
+    "message": "All fields are required (name, email, password)"
+}
+
+Success Response: 201
+
+
+{
+    "success": true,
+    "message": "candidate created & assigned successfully",
+    "data": {
+        "name": "John Doe",
+        "email": "john@test.com",
+        "password": "$2b$10$FmkuulZWVlRevzLBOQzeM.V6XmxGuSAjoOGyA8yp.hPUgvNLFCWcO",
+        "role": "candidate",
+        "status": "approved",
+        "employerIds": [],
+        "candidateIds": [],
+        "createdBy": "695661cb81b115f60d58f4d2",
+        "isActive": true,
+        "_id": "695bf66e5765a5677e573d8d",
+        "createdAt": "2026-01-05T17:35:42.309Z",
+        "updatedAt": "2026-01-05T17:35:42.309Z",
+        "__v": 0
+    }
+}
+
+{
+    "success": true,
+    "message": "Employer created & assigned successfully",
+    "employer": {
+        "name": "test-employer-by-hr",
+        "email": "test-employer@gmail.com",
+        "password": "$2b$10$fIkxdjycYitih8iMEoEhseaGMIddyVkYvXVhg.YG/EM6QtQB279mO",
+        "role": "employer",
+        "status": "approved",
+        "employerIds": [],
+        "createdBy": "695661cb81b115f60d58f4d2",
+        "isActive": true,
+        "_id": "695b29b006d25e96967fc4f4",
+        "createdAt": "2026-01-05T03:02:08.515Z",
+        "updatedAt": "2026-01-05T03:02:08.515Z",
+        "__v": 0
+    }
+}
+
+//get assigned employers or candidate list for the hr-admin or superadmin
+
+localhost:5000/api/v1/auth/admin/users/assigned?roles=employer,candidate  - GET 
+
+Auth : hr-admin or superadmin token
+
+Payload:
+
+roles:employer,candidate
+
+Response: 
+
+{
+    "success": true,
+    "count": 4,
+    "data": [
+        {
+            "_id": "695bf66e5765a5677e573d8d",
+            "name": "John Doe",
+            "email": "john@test.com",
+            "role": "candidate",
+            "status": "approved",
+            "employerIds": [],
+            "candidateIds": [],
+            "createdBy": "695661cb81b115f60d58f4d2",
+            "isActive": true,
+            "createdAt": "2026-01-05T17:35:42.309Z",
+            "updatedAt": "2026-01-05T17:35:42.309Z",
+            "__v": 0
+        },
+        {
+            "candidateIds": [],
+            "_id": "695bf196c9a70b25e0c4caac",
+            "name": "test-emp",
+            "email": "test-emp@gmail.com",
+            "role": "employer",
+            "status": "approved",
+            "employerIds": [],
+            "createdBy": "695661cb81b115f60d58f4d2",
+            "isActive": true,
+            "createdAt": "2026-01-05T17:15:02.755Z",
+            "updatedAt": "2026-01-05T17:15:02.755Z",
+            "__v": 0
+        },
+        {
+            "candidateIds": [],
+            "_id": "695b628bb4ef469f775c7c7b",
+            "name": "TestingCreateEmployerbyHR-CreatorID",
+            "email": "employerbyhr@gmail.com",
+            "role": "employer",
+            "status": "approved",
+            "employerIds": [],
+            "createdBy": "695661cb81b115f60d58f4d2",
+            "isActive": true,
+            "createdAt": "2026-01-05T07:04:43.625Z",
+            "updatedAt": "2026-01-05T07:04:43.625Z",
+            "__v": 0
+        },
+        {
+            "candidateIds": [],
+            "_id": "695b29b006d25e96967fc4f4",
+            "name": "test-employer-by-hr",
+            "email": "test-employer@gmail.com",
+            "role": "employer",
+            "status": "approved",
+            "employerIds": [],
+            "createdBy": "695661cb81b115f60d58f4d2",
+            "isActive": true,
+            "createdAt": "2026-01-05T03:02:08.515Z",
+            "updatedAt": "2026-01-05T03:02:08.515Z",
+            "__v": 0
+        }
+    ]
+}
+
+
+//Company-Profile 
+
+//get assigned employers or candidate company profile list for the hr-admin or superadmin
+
+http://localhost:5000/api/v1/employer-dashboard/company-profile/assigned - GET 
+
+Auth : hr-admin or superadmin token
+
+Response: 
+
+{
+    "success": true,
+    "count": 2,
+    "data": [
+        {
+            "socialMedia": {
+                "facebook": "facbook/theeran",
+                "twitter": "twitter/theeran",
+                "linkedin": "linkedIn/theeran"
+            },
+            "location": {
+                "address": "Coimabtore",
+                "city": "Coimbatore",
+                "country": "India"
+            },
+            "ratings": {
+                "average": 0,
+                "count": 0
+            },
+            "_id": "695d51cba70039d51d214dd7",
+            "employer": "695d05c3aecf335d83745188",
+            "createdBy": "695661cb81b115f60d58f4d2",
+            "companyName": "Dheeran Associa",
+            "companyType": "Private",
+            "email": "info@dheeranassociates.com",
+            "phone": "9876543211",
+            "website": "www.theeran.com",
+            "establishedSince": "2005-08-23T00:00:00.000Z",
+            "teamSize": "50 - 100",
+            "categories": [
+                "Retail"
+            ],
+            "industry": "Associates",
+            "allowInSearch": false,
+            "isHiring": false,
+            "isVerified": false,
+            "description": "One of the associates company.",
+            "profileViews": 0,
+            "status": "approved",
+            "approvedBy": "695661cb81b115f60d58f4d2",
+            "approvedAt": "2026-01-06T18:17:47.224Z",
+            "culture": [],
+            "founders": [],
+            "branches": [],
+            "logo": null,
+            "dailyViews": [],
+            "uniqueViewers": [],
+            "id": "695d51cba70039d51d214dd7"
+        },
+        {
+            "socialMedia": {
+                "facebook": "https://facebook.com/cisprotech",
+                "twitter": "https://twitter.com/cisprotech",
+                "linkedin": "https://linkedin.com/company/cisprotech",
+                "instagram": "https://instagram.com/cisprotech"
+            },
+            "location": {
+                "address": "No. 12, Tech Park Road",
+                "city": "Coimbatore",
+                "state": "Tamil Nadu",
+                "country": "India",
+                "zipCode": "641001"
+            },
+            "ratings": {
+                "average": 0,
+                "count": 0
+            },
+            "_id": "6956b70a754792a318b77892",
+            "employer": "694906a331477526c0c36815",
+            "createdBy": "695661cb81b115f60d58f4d2",
+            "companyName": "Unite",
+            "companyType": "Private",
+            "email": "info@cisprotech.com",
+            "phone": "9876543210",
+            "website": "https://www.cisprotech.com",
+            "establishedSince": "2016-06-15T00:00:00.000Z",
+            "teamSize": "50 - 100",
+            "categories": [
+                "Technology",
+                "Recruitment"
+            ],
+            "industry": "Information Technology",
+            "allowInSearch": true,
+            "isHiring": true,
+            "isVerified": false,
+            "description": "Cispro Technologies is a leading IT solutions and recruitment platform delivering enterprise-grade software and talent solutions.",
+            "profileViews": 25,
+            "status": "approved",
+            "approvedBy": "695661cb81b115f60d58f4d2",
+            "approvedAt": "2026-01-01T18:03:53.997Z",
+            "culture": [
+                "Innovative",
+                "Collaborative",
+                "Work-life balance"
+            ],
+            "revenue": "₹10M - ₹50M",
+            "founders": [
+                {
+                    "name": "Sathish Kumar",
+                    "role": "Founder & CEO",
+                    "linkedin": "https://linkedin.com/in/sathishkumar",
+                    "_id": "69573b763b2be920cf636f18",
+                    "id": "69573b763b2be920cf636f18"
+                }
+            ],
+            "branches": [
+                {
+                    "city": "Bangalore",
+                    "state": "Karnataka",
+                    "country": "India",
+                    "_id": "69573b763b2be920cf636f16",
+                    "id": "69573b763b2be920cf636f16"
+                },
+                {
+                    "city": "Hyderabad",
+                    "state": "Telangana",
+                    "country": "India",
+                    "_id": "69573b763b2be920cf636f17",
+                    "id": "69573b763b2be920cf636f17"
+                }
+            ],
+            "logo": "/uploads/company/c3317f22-cdb6-4289-8ce8-0afe2a5836a5.jpg",
+            "dailyViews": [
+                {
+                    "date": "2026-01-02",
+                    "count": 6,
+                    "unique": 1,
+                    "_id": "6957ac0b9c307132f4d5be31",
+                    "id": "6957ac0b9c307132f4d5be31"
+                },
+                {
+                    "date": "2026-01-03",
+                    "count": 19,
+                    "unique": 1,
+                    "_id": "6958bcf162a69ee072a537bf",
+                    "id": "6958bcf162a69ee072a537bf"
+                }
+            ],
+            "uniqueViewers": [
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2026-01-02T11:29:15.568Z",
+                    "_id": "6957ac0b9c307132f4d5be30",
+                    "id": "6957ac0b9c307132f4d5be30"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2026-01-03T06:53:37.447Z",
+                    "_id": "6958bcf162a69ee072a537be",
+                    "id": "6958bcf162a69ee072a537be"
+                }
+            ],
+            "id": "6956b70a754792a318b77892"
+        }
+    ]
+}
+
+
+//get Job post (All employers posted)
+
+http://localhost:5000/api/v1/employer-dashboard/jobs/by-employers - GET 
+
+Auth : hr-admin or superadmin token
+
+Response: 
+
+{
+    "success": true,
+    "count": 15,
+    "jobPosts": [
+        {
+            "_id": "6958095d1a53581c0d12c48c",
+            "employer": {
+                "_id": "68ac9967d0d12b78d128cc96",
+                "name": "aravi",
+                "email": "aravindakumar3315@gmail.com"
+            },
+            "companyProfile": {
+                "_id": "6894ec6b55908eb75da0745f",
+                "companyName": "National Employment Board",
+                "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png",
+                "id": "6894ec6b55908eb75da0745f"
+            },
+            "title": "Senior Backend Developer",
+            "status": "Published",
+            "postedBy": "68ac9967d0d12b78d128cc96",
+            "createdAt": "2026-01-02T18:07:25.656Z"
+        },
+        {
+            "_id": "6954b0907cdbffe1795a7f83",
+            "employer": {
+                "_id": "68ac9967d0d12b78d128cc96",
+                "name": "aravi",
+                "email": "aravindakumar3315@gmail.com"
+            },
+            "companyProfile": {
+                "_id": "69392f68f7c5a0c0ef0aaa9c",
+                "companyName": "TNQ Technologies",
+                "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png",
+                "id": "69392f68f7c5a0c0ef0aaa9c"
+            },
+            "title": "DM Intern",
+            "status": "Published",
+            "createdAt": "2025-12-31T05:11:44.088Z",
+            "postedBy": "68ac9967d0d12b78d128cc96"
+        },
+        {
+            "_id": "69526683e3aa250c48b0db6b",
+            "employer": {
+                "_id": "68ac9967d0d12b78d128cc96",
+                "name": "aravi",
+                "email": "aravindakumar3315@gmail.com"
+            },
+            "companyProfile": {
+                "_id": "69425ac9e6784f2a83fd2d28",
+                "companyName": "Lakshmi mills",
+                "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png",
+                "id": "69425ac9e6784f2a83fd2d28"
+            },
+            "title": "test-post-job",
+            "status": "Published",
+            "createdAt": "2025-12-29T11:31:15.024Z",
+            "postedBy": "68ac9967d0d12b78d128cc96"
+        },
+        {
+            "_id": "6951421e7095eaea3e9c2c88",
+            "employer": {
+                "_id": "68ac9967d0d12b78d128cc96",
+                "name": "aravi",
+                "email": "aravindakumar3315@gmail.com"
+            },
+            "companyProfile": {
+                "_id": "69425ac9e6784f2a83fd2d28",
+                "companyName": "Lakshmi mills",
+                "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png",
+                "id": "69425ac9e6784f2a83fd2d28"
+            },
+            "title": "test-job-employer-1",
+            "status": "Published",
+            "createdAt": "2025-12-28T14:43:42.242Z",
+            "postedBy": "68ac9967d0d12b78d128cc96"
+        },
+        {
+            "_id": "68976cf56c09d9b432d4c770",
+            "employer": {
+                "_id": "686eb2200d0b5472f9a6c996",
+                "name": "ragu",
+                "email": "ragu@gmail.com"
+            },
+            "companyProfile": {
+                "_id": "6894ec6b55908eb75da0745f",
+                "companyName": "National Employment Board",
+                "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png",
+                "id": "6894ec6b55908eb75da0745f"
+            },
+            "title": "AI Developer",
+            "status": "Draft",
+            "createdAt": "2025-08-09T15:44:53.414Z",
+            "postedBy": "686eb2200d0b5472f9a6c996"
+        },
+        {
+            "_id": "68973adae4a9452631e9fbd2",
+            "employer": {
+                "_id": "68ac9967d0d12b78d128cc96",
+                "name": "aravi",
+                "email": "aravindakumar3315@gmail.com"
+            },
+            "companyProfile": {
+                "_id": "6894ec6b55908eb75da0745f",
+                "companyName": "National Employment Board",
+                "logo": "/uploads/company/e548f1b0-5bdb-4e51-9ae0-b578d771b27c.png",
+                "id": "6894ec6b55908eb75da0745f"
+            },
+            "title": "DevOps Engineer",
+            "status": "Published",
+            "createdAt": "2025-01-12T12:11:06.245Z",
+            "postedBy": "68ac9967d0d12b78d128cc96"
+        },
+        etc..
+    ]
+}
+
+
+//Fetches job posts created by HR-Admins or Superadmins on behalf of employers.
+
+http://localhost:5000/api/v1/employer-dashboard/jobs/by-admins - GET 
+
+Auth : hr-admin or superadmin token
+
+Response: 
+
+{
+    "success": true,
+    "count": 1,
+    "jobPosts": [
+        {
+            "_id": "695806561a53581c0d12c434",
+            "employer": {
+                "_id": "694906a331477526c0c36815",
+                "name": "Sreehani",
+                "email": "hanisreeh@gmail.com"
+            },
+            "companyProfile": {
+                "_id": "6956b70a754792a318b77892",
+                "companyName": "Unite",
+                "logo": "/uploads/company/c3317f22-cdb6-4289-8ce8-0afe2a5836a5.jpg",
+                "id": "6956b70a754792a318b77892"
+            },
+            "title": "Lead Backend Engineer",
+            "applicationDeadline": "2026-02-15T00:00:00.000Z",
+            "status": "Published",
+            "postedBy": {
+                "_id": "695661cb81b115f60d58f4d2",
+                "name": "aravinde",
+                "role": "hr-admin"
+            },
+            "createdAt": "2026-01-02T17:54:30.024Z"
+        }
+    ]
+}

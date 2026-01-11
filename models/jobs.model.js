@@ -132,6 +132,14 @@ const jobPostSchema = new mongoose.Schema({
     lastViewed: { type: Date, default: Date.now }
   }],
 
+  // for the new hr-admin role fix
+  postedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    default: function() { return this.employer; } // fallback for old data
+  }
+
 }, { timestamps: true });
 
 

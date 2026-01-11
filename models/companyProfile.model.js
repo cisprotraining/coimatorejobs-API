@@ -5,7 +5,12 @@ const companyProfileSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'users',
     required: true,
-    unique: true   // Uncomment if each employer can have only one profile
+    // unique: true   // Uncomment if each employer can have only one profile
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'users',
+    required: true
   },
   companyName: {
     type: String,
@@ -102,6 +107,29 @@ const companyProfileSchema = new mongoose.Schema({
       lastViewed: { type: Date, default: Date.now }
     }
   ],
+  // Approval status from hr-admin or superadmin
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending',
+    index: true
+  },
+  // Approval status from hr-admin or superadmin
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'users',
+    default: null
+  },
+  // timstamp of when the profile was approved
+  approvedAt: {
+    type: Date,
+    default: null
+  },
+  // rejection reason from hr-admin or superadmin
+  rejectionReason: {
+    type: String,
+    trim: true
+  },
   // mission: {
   //   type: String,
   //   trim: true,
@@ -119,7 +147,7 @@ const companyProfileSchema = new mongoose.Schema({
   }],
   revenue: {
     type: String,
-    enum: ['< $1M', '$1M - $10M', '$10M - $50M', '$50M - $100M', '$100M+'],
+    enum: ['< ₹1M', '₹1M - ₹10M', '₹10M - ₹50M', '₹50M - ₹100M', '₹100M+'],
   },
   founders: [{
     name: { type: String, trim: true },
@@ -170,9 +198,12 @@ const companyProfileSchema = new mongoose.Schema({
  
 // Indexes for faster queries
 companyProfileSchema.index({ 'dailyViews.date': 1 });
-companyProfileSchema.index({ employer: 1 }, { unique: true });  // Uncomment if each employer can have only one profile
+// companyProfileSchema.index({ employer: 1 }, { unique: true });  // Uncomment if each employer can have only one profile
 companyProfileSchema.index({ companyName: 'text', industry: 'text' });
 companyProfileSchema.index({ 'location.city': 1, 'location.country': 1 });
+companyProfileSchema.index({ createdBy: 1 });
+// companyProfileSchema.index({ employer: 1 });
+
 
 const CompanyProfile = mongoose.model('CompanyProfile', companyProfileSchema);
 

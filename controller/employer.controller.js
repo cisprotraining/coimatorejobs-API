@@ -3,6 +3,7 @@ import CompanyProfile from "../models/companyProfile.model.js";
 import CandidateProfile from "../models/candidateProfile.model.js";
 import SavedCandidate from "../models/savedCandidate.model.js";
 import JobPost from "../models/jobs.model.js";
+import User from "../models/user.model.js";
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import fs from 'fs';
 import path from 'path';
@@ -31,14 +32,14 @@ employerController.getAllCompanyProfiles = async (req, res, next) => {
 
 
 /**
- * Creates a company profile for an authenticated employer
+ * Creates a company profile for an authenticated employer, hr-admin, or superadmin
  * @param {Object} req - Request object containing employer data
  * @param {Object} res - Response object to send back the result
  * @param {Function} next - Next middleware function
  */
 employerController.createCompanyProfile = async (req, res, next) => {
   try {
-    const employerId = req.user.id;
+    const { role, id: loggedInUserId } = req.user;
 
     // Parse the nested data from req.body.data
     let profileData = {};
@@ -52,6 +53,67 @@ employerController.createCompanyProfile = async (req, res, next) => {
       profileData = req.body; // Fallback in case data isn’t nested
     }
 
+    /**
+     * 2: Resolved employerId
+     * -----------------------------------
+     * employer   → can create ONLY own company
+     * hr-admin   → can create company ONLY for employers (ACTIVE)
+     * superadmin → same as hr-admin
+     */
+
+     // Resolve employerId correctly
+    let employerId = loggedInUserId;
+    
+    if (['hr-admin', 'superadmin'].includes(role)) {
+      if (!profileData.employerId.toString()) {
+        throw new BadRequestError('employerId is required for HR-Admin or Superadmin');
+      }
+      employerId = profileData.employerId;
+    }
+
+    /**
+     *  FUTURE FEATURE (COMMENTED)
+     * Allow HR-Admin to create OWN company
+     */
+    /*
+    if (role === 'hr-admin' && !profileData.employerId) {
+      employerId = loggedInUserId;
+    }
+    */
+
+    /**
+     * 3️: Validate employer user
+     * -----------------------------------
+     * - Must exist
+     * - Must have role = employer
+     * - Must be approved
+     */
+    const employerUser = await User.findById(employerId);
+    if (!employerUser) {
+      throw new BadRequestError('Employer not found');
+    }
+
+    if (employerUser.role !== 'employer') {
+      throw new BadRequestError('Provided user is not an employer');
+    }
+
+    if (employerUser.status !== 'approved') {
+      throw new BadRequestError(
+        'Employer is not approved yet'
+      );
+    }
+
+    // console.log("esggsg", employerUser);
+    
+    // Prevent duplicate company for same employer (business rule)
+    const existingProfile = await CompanyProfile.findOne({ employer: employerId });
+    if (existingProfile) {
+      throw new BadRequestError('Company profile already exists for this employer');
+    }
+
+    // console.log("rgrdddddddd", existingProfile, employerUser);
+    
+
     const { 
       companyName, email, phone, website, establishedSince, 
       teamSize, categories, allowInSearch, description, 
@@ -63,7 +125,7 @@ employerController.createCompanyProfile = async (req, res, next) => {
     // const requiredFields = ['companyName', 'email', 'phone', 'establishedSince', 
     //                        'teamSize', 'categories', 'description', 'industry', 'companyType'];
 
-      const requiredFields = ['companyName', 'email', 'phone', 'establishedSince', 
+    const requiredFields = ['companyName', 'email', 'phone', 'establishedSince', 
     'teamSize', 'categories', 'description'];
     
     const missingFields = requiredFields.filter(field => !profileData[field]);
@@ -71,11 +133,8 @@ employerController.createCompanyProfile = async (req, res, next) => {
       throw new BadRequestError(`Missing required fields: ${missingFields.join(', ')}`);
     }
 
-    // Check if profile already exists
-    const existingProfile = await CompanyProfile.findOne({ employer: employerId });
-    // if (existingProfile) {
-    //   throw new BadRequestError('Company profile already exists for this employer');
-    // }
+    // Determine initial status
+    const isAdminCreator = ['hr-admin', 'superadmin'].includes(role);
 
     // Handle file uploads
     const files = req.files || {};
@@ -85,6 +144,12 @@ employerController.createCompanyProfile = async (req, res, next) => {
     // Create new profile
     const newProfile = new CompanyProfile({
       employer: employerId,
+      createdBy: loggedInUserId, // HR/Admin or Employer
+
+      status: isAdminCreator ? 'approved' : 'pending',
+      approvedBy: isAdminCreator ? loggedInUserId : null,
+      approvedAt: isAdminCreator ? new Date() : null,
+
       companyName,
       email,
       phone,
@@ -133,86 +198,22 @@ employerController.createCompanyProfile = async (req, res, next) => {
   }
 };
 
-// Update company profile (old)
-// employerController.updateCompanyProfile = async (req, res, next) => {
+
+/**
+ * Get all company profiles (Admin / Superadmin)
+ */
+// employerController.getAllCompanyProfiles = async (req, res, next) => {
 //   try {
-//     const user = req.user;
-//     const profileId = req.params.id;
-//     const updateData = req.body;
-//     const files = req.files || {};
-
-//     // Find the profile by ID
-//     const profile = await CompanyProfile.findById(profileId);
-//     if (!profile) {
-//       throw new NotFoundError('Company profile not found');
-//     }
-
-//     // Check permissions
-//     if (user.role !== 'superadmin' && profile.employer.toString() !== user.id) {
-//       throw new ForbiddenError('You do not have permission to update this profile');
-//     }
-
-//     // Handle file uploads only if provided
-//     if (files.logo) {
-//       if (profile.logo) {
-//         const oldLogoPath = path.join(process.cwd(), 'public', profile.logo);
-//         if (fs.existsSync(oldLogoPath)) fs.unlinkSync(oldLogoPath);
-//       }
-//       updateData.logo = `/uploads/company/${files.logo[0].filename}`;
-//     }
-
-//     if (files.coverImage) {
-//       if (profile.coverImage) {
-//         const oldCoverPath = path.join(process.cwd(), 'public', profile.coverImage);
-//         if (fs.existsSync(oldCoverPath)) fs.unlinkSync(oldCoverPath);
-//       }
-//       updateData.coverImage = `/uploads/company/${files.coverImage[0].filename}`;
-//     }
-
-//     // Parse JSON fields
-//     const jsonFields = ['socialMedia', 'location', 'culture', 'founders', 'branches'];
-//     jsonFields.forEach(field => {
-//       if (updateData[field]) {
-//         try {
-//           updateData[field] = JSON.parse(updateData[field]);
-//         } catch (e) {
-//           throw new BadRequestError(`Invalid format for ${field}`);
-//         }
-//       }
-//     });
-
-//     // Handle categories array
-//     if (updateData.categories) {
-//       updateData.categories = Array.isArray(updateData.categories) 
-//         ? updateData.categories 
-//         : [updateData.categories];
-//     }
-
-//     // Update profile
-//     const updatedProfile = await CompanyProfile.findByIdAndUpdate(
-//       profileId,
-//       { $set: updateData },
-//       { new: true, runValidators: true }
-//     );
+//     const profiles = await CompanyProfile.find()
+//       .populate('employer', 'name email')
+//       .populate('approvedBy', 'name role')
+//       .select('-__v');
 
 //     return res.status(200).json({
 //       success: true,
-//       message: 'Company profile updated successfully',
-//       profile: updatedProfile
+//       profiles
 //     });
 //   } catch (error) {
-//     // Cleanup uploaded files if an error occurs
-//     if (req.files) {
-//       const files = req.files;
-//       if (files.logo && files.logo[0]) {
-//         const logoPath = path.join(process.cwd(), 'public', `/uploads/company/${files.logo[0].filename}`);
-//         if (fs.existsSync(logoPath)) fs.unlinkSync(logoPath);
-//       }
-//       if (files.coverImage && files.coverImage[0]) {
-//         const coverPath = path.join(process.cwd(), 'public', `/uploads/company/${files.coverImage[0].filename}`);
-//         if (fs.existsSync(coverPath)) fs.unlinkSync(coverPath);
-//       }
-//     }
 //     next(error);
 //   }
 // };
@@ -240,15 +241,7 @@ employerController.updateCompanyProfile = async (req, res, next) => {
       updateData = req.body; // Fallback, though unlikely with FormData
     }
 
-    // Log for debugging
-    // console.log('req.body:', req.body);
-    // console.log('req.files:', req.files);
-    // console.log('Parsed updateData:', updateData);
-
-    
-    const loggedInUserId = typeof user.id === 'object' && user.id.toHexString
-  ? user.id.toHexString()
-  : (user.id || user._id)?.toString();
+    const loggedInUserId = typeof user.id === 'object' && user.id.toHexString ? user.id.toHexString() : (user.id || user._id)?.toString();
 
     // Find the profile by ID
     const profile = await CompanyProfile.findById(profileId);
@@ -256,20 +249,41 @@ employerController.updateCompanyProfile = async (req, res, next) => {
       throw new NotFoundError('Company profile not found');
     }
 
-//     console.log("Logged-in user:", user.id);
-// console.log("Profile owner:", profile.employer.toString());
-// console.log("User role:", user.role);
 
-    // ✅ Check permissions
+    /**
+     * Permission rules
+     * ---------------------------------
+     * employer   → can update ONLY own profile
+     * hr-admin   → can update any profile
+     * superadmin → can update any profile
+     */
     const profileOwnerId = profile.employer?.toString();
-    const isSuperAdmin = user.role === 'superadmin';
+    const isSuperAdmin = user.role === 'superadmin' || user.role === 'hr-admin'; // hr-admin and superadmin can edit any profile
     const isOwner = loggedInUserId === profileOwnerId;
 
     if (!isSuperAdmin && !isOwner) {
       throw new ForbiddenError('You do not have permission to update this profile');
     }
 
-    // ✅ Handle file uploads only if provided
+    // Employer restriction
+    // Additional check: Employers can only edit APPROVED profiles
+    if (user.role === 'employer' && profile.status !== 'approved' ) {
+      throw new ForbiddenError('Company profile must be approved before editing' );
+    }
+
+     /**
+     * Prevent sensitive fields from being updated
+     * -----------------------------------------------
+     * Approval & ownership fields must be immutable here
+     */
+    delete updateData.status;
+    delete updateData.approvedBy;
+    delete updateData.approvedAt;
+    delete updateData.rejectionReason;
+    delete updateData.createdBy;
+    delete updateData.employer;
+
+    // Handle file uploads only if provided
     if (files.logo) {
       if (profile.logo) {
         const oldLogoPath = path.join(process.cwd(), 'public', profile.logo);
@@ -305,7 +319,7 @@ employerController.updateCompanyProfile = async (req, res, next) => {
         : [updateData.categories];
     }
 
-    // ✅ Update the profile
+    // Update the profile
     const updatedProfile = await CompanyProfile.findByIdAndUpdate(
       profileId,
       { $set: updateData },
@@ -318,7 +332,7 @@ employerController.updateCompanyProfile = async (req, res, next) => {
       profile: updatedProfile
     });
   } catch (error) {
-    // ✅ Cleanup uploaded files if an error occurs
+    //  Cleanup uploaded files if an error occurs
     if (req.files) {
       const files = req.files;
       if (files.logo && files.logo[0]) {
@@ -339,10 +353,27 @@ employerController.updateCompanyProfile = async (req, res, next) => {
 employerController.getCompanyProfile = async (req, res, next) => {
   try {
     const profileId = req.params.id;
-    
+    const { role, id: loggedInUserId } = req.user;
+
     const profile = await CompanyProfile.findById(profileId);
     if (!profile) {
       throw new NotFoundError('Company profile not found');
+    }
+
+    const profileOwnerId = profile.employer.toString();
+    const isOwner = loggedInUserId.toString() === profileOwnerId;
+    const isAdmin = ['hr-admin', 'superadmin'].includes(role);
+
+    /**
+     * Visibility rules
+     * -----------------------------
+     * candidate           → approved only
+     * employer (owner)    → always allowed
+     * employer (others)  → approved only
+     * hr-admin/superadmin→ always allowed
+     */
+    if ( profile.status !== 'approved' && !isOwner && !isAdmin ) {
+      throw new ForbiddenError('Company profile is not approved yet');
     }
 
     // Count active jobs for this company
@@ -357,6 +388,7 @@ employerController.getCompanyProfile = async (req, res, next) => {
       profile,
       activeJobsCount
     });
+
   } catch (error) {
     next(error);
   }
@@ -455,6 +487,44 @@ employerController.deleteCompanyProfile = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Approve or reject company profile
+ * HR-Admin / Superadmin only
+ */
+employerController.approveCompanyProfile = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, rejectionReason } = req.body;
+    const adminId = req.user.id;
+
+    if (!['approved', 'rejected'].includes(status)) {
+      throw new BadRequestError('Invalid status value');
+    }
+
+    const profile = await CompanyProfile.findById(id);
+    if (!profile) {
+      throw new NotFoundError('Company profile not found');
+    }
+
+    profile.status = status;
+    profile.approvedBy = adminId;
+    profile.approvedAt = new Date();
+    profile.rejectionReason =
+      status === 'rejected' ? rejectionReason : null;
+
+    await profile.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Company profile ${status} successfully`,
+      profile
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 // employer.controller.js (add these)
 
@@ -611,6 +681,53 @@ employerController.getActiveJobsByEmployer = async (req, res, next) => {
     next(error);
   }
 };
+
+
+/**
+ * Fetch company profiles created by hr-admin or all for superadmin
+ */
+employerController.getAssignedCompanyProfiles = async (req, res, next) => {
+  try {
+    const loggedInUser = await User.findById(req.user.id)
+      .select('role employerIds');
+
+    if (!loggedInUser) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    let query = {};
+
+    /**
+     * HR-ADMIN rules
+     * -------------------------
+     * 1. Profiles created by hr-admin
+     * 2. Profiles belonging to assigned employers
+     */
+    if (loggedInUser.role === 'hr-admin') {
+      query = {
+        $or: [
+          { createdBy: loggedInUser._id },
+          { employer: { $in: loggedInUser.employerIds || [] } }
+        ]
+      };
+    }
+
+    // SUPERADMIN → sees all
+    const profiles = await CompanyProfile.find(query)
+      .select('-__v')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: profiles.length,
+      data: profiles
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 
 // employerDashboardController.getSummary = async (req, res, next) => {

@@ -42,7 +42,10 @@ const jobApplicationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Prevent duplicate applications
-jobApplicationSchema.index({ jobPost: 1, candidate: 1, status:1, createdAt:-1 }, { unique: true });
+// jobApplicationSchema.index({ jobPost: 1, candidate: 1, status:1, createdAt:-1 }, { unique: true });
+
+jobApplicationSchema.index( { jobPost: 1, candidate: 1 }, { unique: true });  //Statuses should be mutable, not indexed.
+
 
 // Hook to increment applicantCount on save
 // jobApplicationSchema.post('save', async function (doc) {

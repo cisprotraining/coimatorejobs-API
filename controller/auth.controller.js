@@ -6,6 +6,9 @@ import User from "../models/user.model.js";
 import { JWT_SECRET, JWT_EXPIRES_IN, SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import crypto from 'crypto';
 import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail } from '../utils/mailer.js';
+import { BadRequestError, ForbiddenError,NotFoundError} from '../utils/errors.js';
+
+import { log } from "console";
 
 // Authentication controller object
 const authentication = {};
@@ -22,8 +25,8 @@ authentication.signup = async (req, res, next) => {
 
     try {
         const { name, email, password, role } = req.body;
-        // Only allow candidate or employer roles on signup
-        const safeRole = ['candidate', 'employer'].includes(role) ? role : 'candidate';
+        // Only allow candidate, employer, hr-admin roles on signup
+        const safeRole = ['candidate', 'employer', 'hr-admin'].includes(role) ? role : 'candidate';
 
         // Validate required fields
         if (!name || !email || !password) {
@@ -44,8 +47,13 @@ authentication.signup = async (req, res, next) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
+         // Approval logic
+        const status = ['candidate', 'employer'].includes(safeRole)
+          ? 'pending'
+          : 'approved';
+
         // Create new user with optional role (defaults to 'candidate' in schema)
-        const newUser = new User({ name, email, password: hashedPassword, role: safeRole });
+        const newUser = new User({ name, email, password: hashedPassword, role: safeRole, status });
         await newUser.save({ session });
 
         // Generate JWT token
@@ -74,7 +82,8 @@ authentication.signup = async (req, res, next) => {
                 id: newUser._id,
                 name: newUser.name,
                 email: newUser.email,
-                role: newUser.role
+                role: newUser.role,
+                status: newUser.status
             }
         });
     } catch (error) {
@@ -84,6 +93,145 @@ authentication.signup = async (req, res, next) => {
         next(error); // Pass to error middleware
     }
 };
+
+/**
+ * hr-admin or superadmin creates an employer or candidate account
+ * @param {Object} req - Request object containing name, email, password, and role
+ * @param {Object} res - Response object to send back the result
+ * @param {Function} next - Next middleware function for error handling
+ */
+authentication.createAdminUser = async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  // console.log("hiiiiiiiiiiiiiiiiii", session);
+  
+  try {
+    const { name, email, password, role } = req.body;
+    const creator = req.user; // hr-admin or superadmin
+
+    if (!['hr-admin', 'superadmin'].includes(creator.role)) {
+      return res.status(403).json({ message: 'Not allowed, Only hr-admin or superadmin can create employer accounts' });
+    }
+
+    // validations
+    if (!name || !email || !password || !['employer', 'candidate'].includes(role)) {
+      return res.status(400).json({
+        message: 'name, email, password and valid role (employer/candidate) are required'
+      });
+    }
+
+    const existing = await User.findOne({ email }).session(session);
+    if (existing) {
+        return res.status(400).json({ message: 'User already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+   // Auto approved because admin creates
+    const [user] = await User.create([{
+      name,
+      email,
+      password: hashedPassword,
+      role,
+      status: 'approved',
+      createdBy: creator.id
+    }], { session });
+
+    // AUTO ASSIGN EMPLOYER TO HR-ADMIN
+   if (creator.role === 'hr-admin') {
+      const updateField =
+        role === 'employer'
+          ? { employerIds: user._id }
+          : { candidateIds: user._id };
+
+      await User.updateOne(
+        { _id: creator.id },
+        { $addToSet: updateField },
+        { session }
+      );
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json({
+      success: true,
+      message: `${role} created & assigned successfully`,
+      data: user
+    });
+
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    next(err);
+  }
+};
+
+
+/**
+ * Fetch employers/candidates belonging to hr-admin or all for superadmin
+ */
+authentication.getAssignedUsers = async (req, res, next) => {
+  try {
+    const { roles } = req.query;
+
+    // IMPORTANT: fetch fresh user from DB
+    const loggedInUser = await User.findById(req.user.id)
+      .select('role employerIds candidateIds');
+
+    if (!loggedInUser) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    const roleFilter = roles
+      ? roles.split(',').map(r => r.trim())
+      : ['employer', 'candidate'];
+
+    let query = {
+      role: { $in: roleFilter },
+      isActive: true
+    };
+
+    // HR-ADMIN → ONLY ASSIGNED USERS
+    if (loggedInUser.role === 'hr-admin') {
+      const ids = [];
+
+      if (roleFilter.includes('employer')) {
+        ids.push(...(loggedInUser.employerIds || []));
+      }
+      if (roleFilter.includes('candidate')) {
+        ids.push(...(loggedInUser.candidateIds || []));
+      }
+
+      // IMPORTANT guard
+      if (!ids.length) {
+        return res.status(200).json({
+          success: true,
+          count: 0,
+          data: []
+        });
+      }
+
+      query._id = { $in: ids };
+    }
+
+    // SUPERADMIN → sees all
+    const users = await User.find(query, { password: 0 })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+
 
 /**
  * Authenticates a user and returns a JWT token
@@ -111,6 +259,14 @@ authentication.signin = async (req, res, next) => {
         if (!isMatch) {
             return res.status(400).json({ message: "Invalid Password" });
         }
+
+        // Check approval status for candidate and employer roles(for now this we can handle in frontend)
+        // if (user.status !== 'approved') {
+        //   return res.status(403).json({
+        //     message: `Account is ${user.status}. Please wait for approval.`
+        //   });
+        // }
+
 
         if (!user.isActive) {
             return res.status(403).json({ message: "User account is deactivated" });
@@ -296,6 +452,82 @@ authentication.adminResetUserPassword = async (req, res, next) => {
 
 
 /**
+ * Fetch users based on role filters
+ * Accessible only to HR-Admin and Superadmin
+ *
+ * Query Params:
+ * roles=employer
+ * roles=candidate
+ * roles=employer,candidate
+ */
+authentication.getUsersByRole = async (req, res, next) => {
+  try {
+    const { roles } = req.query;
+
+    // Default roles if not passed
+    let roleFilter = ['candidate', 'employer'];
+
+    if (roles) {
+      roleFilter = roles.split(',').map(r => r.trim());
+    }
+
+    // console.log("tessssssssssssss", roles);
+    
+    const users = await User.find(
+      {
+        role: { $in: roleFilter },
+        isActive: true,
+        isDeleted: false
+      },
+      { password: 0 }
+    ).sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+  } catch (error) {
+    console.error('Error in getUsersByRole:', error);
+    next(error);
+  }
+};
+
+/**
+ * Approve or reject a user account
+ * Accessible only to HR-Admin and Superadmin
+ *
+ * Body Params:
+ * status: 'approved' | 'rejected'
+ */
+authentication.updateUserStatus = async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    // console.log("statussssssssssssss", status);
+    if (!['approved', 'rejected'].includes(status)) {
+      throw new Error('Invalid status');
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `User ${status} successfully`
+    });
+  } catch (error) {
+    console.error('Error in updateUserStatus:', error);
+    next(error);
+  }
+};
+
+
+
+
+/**
  * Signs out the user (client-side token invalidation only)
  * @param {Object} req - Request object (not used)
  * @param {Object} res - Response object to confirm sign-out
@@ -305,5 +537,69 @@ authentication.signout = (req, res) => {
     // Future enhancement: Implement server-side token blacklisting if needed
     return res.status(200).json({ success: true, message: "User signed out successfully" });
 };
+
+/**
+ * Soft delete a user profile
+ *
+ * Who can delete:
+ * - Candidate / Employer → their own profile
+ * - HR-Admin / Superadmin → any candidate or employer
+ *
+ * @route DELETE /api/v1/auth/users/:id
+ * @access Private
+ */
+authentication.deleteUserProfile = async (req, res, next) => {
+  try {
+    const loggedInUser = req.user;
+    const targetUserId = req.params.id;
+
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Permission checks
+    const isSelfDelete =
+      loggedInUser.id.toString() === targetUserId.toString();
+
+    const isAdmin =
+      ['hr-admin', 'superadmin'].includes(loggedInUser.role);
+
+    // Candidates & employers can delete ONLY themselves
+    if (!isSelfDelete && !isAdmin) {
+      return res.status(403).json({
+        message: 'You are not allowed to delete this profile'
+      });
+    }
+
+    // HR-Admin should delete only candidate/employer
+    if (
+      loggedInUser.role === 'hr-admin' &&
+      !['candidate', 'employer'].includes(targetUser.role)
+    ) {
+      return res.status(403).json({
+        message: 'HR-Admin cannot delete admin accounts'
+      });
+    }
+
+    // Soft delete 
+    targetUser.isActive = false;
+    targetUser.isDeleted = true;
+    targetUser.deletedAt = new Date();
+    targetUser.deletedBy = loggedInUser.id;
+
+    await targetUser.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'User profile deleted successfully (soft delete)'
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 
 export default authentication;

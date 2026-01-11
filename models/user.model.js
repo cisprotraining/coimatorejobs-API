@@ -26,13 +26,48 @@ const userSchema = new mongoose.Schema({
     },
     role: { 
         type: String, 
-        enum: ['candidate', 'employer', 'admin', 'superadmin'], 
-        default: 'candidate' 
+        enum: ['candidate', 'employer', 'hr-admin', 'superadmin'], 
+        default: 'candidate',
+        required: true
+    },
+    // NEW: Approval status (for candidate and employer roles)
+    status: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        default: 'pending'
+    },
+    // Employer IDs (for HR-Admins to manage employers)
+    employerIds: [
+        { 
+          type: mongoose.Schema.Types.ObjectId, 
+          ref: 'User' 
+        }
+    ],
+    candidateIds: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
     },
     isActive: { type: Boolean, default: true },
     createdAt: {
         type: Date,
         default: Date.now
+    },
+
+    // Soft delete fields
+    isDeleted: {
+        type: Boolean,
+        default: false
+    },
+    deletedAt: {
+        type: Date
+    },
+    deletedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
     }
 }, { timestamps: true });
 

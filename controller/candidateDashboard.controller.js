@@ -113,29 +113,36 @@ candidateDashboardController.getProfileViewsData = async (req, res, next) => {
   try {
     const candidateId = req.user.id;
     const { range = '6' } = req.query;
-    const monthsBack = parseInt(range);
+    const monthsBack = parseInt(range, 10);
 
     const profile = await CandidateProfile.findOne({ candidate: candidateId });
-    if (!profile) return res.json({ success: true, views: [] });
+    if (!profile) {
+      return res.json({ success: true, monthlyData: [] });
+    }
 
     const views = [];
     const now = new Date();
 
     for (let i = monthsBack - 1; i >= 0; i--) {
-      const date = new Date();
-      date.setMonth(date.getMonth() - i);
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
       const key = `${year}-${month}`;
-
-      const entry = profile.dailyViews.find(d => d.date.startsWith(key));
       const monthName = date.toLocaleString('default', { month: 'long' });
+
+      // aggregate ALL days of the month
+      const monthEntries = profile.dailyViews.filter(d =>
+        d.date.startsWith(key)
+      );
+
+      const totalViews = monthEntries.reduce((sum, d) => sum + (d.count || 0), 0);
+      const uniqueViews = monthEntries.reduce((sum, d) => sum + (d.unique || 0), 0);
 
       views.push({
         month: monthName,
         year,
-        totalViews: entry?.count || 0,
-        uniqueViews: entry?.unique || 0
+        totalViews,
+        uniqueViews
       });
     }
 

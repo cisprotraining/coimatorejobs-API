@@ -793,6 +793,50 @@ candidateController.getTrendingJobs = async (req, res, next) => {
   }
 };
 
+
+/**
+ * Fetch candidate profiles created by hr-admin or all for superadmin
+ */
+candidateController.getAssignedCandidateProfiles = async (req, res, next) => {
+  try {
+    const loggedInUser = await User.findById(req.user.id)
+      .select('role candidateIds');
+
+    if (!loggedInUser) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    let query = {};
+
+    /**
+     * HR-ADMIN → only assigned or created candidates
+     */
+    if (loggedInUser.role === 'hr-admin') {
+      query = {
+        $or: [
+          { createdBy: loggedInUser._id },
+          { user: { $in: loggedInUser.candidateIds || [] } }
+        ]
+      };
+    }
+
+    // SUPERADMIN → all
+    const profiles = await CandidateProfile.find(query)
+      .select('-__v')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: profiles.length,
+      data: profiles
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 // Helper: Cosine similarity using natural TF-IDF
 function getSimilarity(text1, text2) {
   if (!text1 || !text2) return 0;

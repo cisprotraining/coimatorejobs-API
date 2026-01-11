@@ -96,7 +96,7 @@ dashboardController.getDashboardStats = async (req, res, next) => {
     //    console.log("testtttttt", activeJobs);
 
     // Get company profile views 
-    const companyProfile = await CompanyProfile.findOne({ user: employerId });
+    const companyProfile = await CompanyProfile.findOne({ employer: employerId });
     const profileViews = companyProfile?.profileViews || 0;
 
     // Calculate growth percentage
@@ -144,12 +144,12 @@ dashboardController.getDashboardStats = async (req, res, next) => {
 dashboardController.getProfileViewsData = async (req, res, next) => {
   try {
     const employerId = req.user.id;
-    const { range = '6' } = req.query; // 6, 12, 24 months
-    const monthsBack = parseInt(range);
+    const { range = '6' } = req.query;
+    const monthsBack = parseInt(range, 10);
 
     const companyProfile = await CompanyProfile.findOne({ employer: employerId });
     if (!companyProfile) {
-      return res.status(200).json({ success: true, views: [] });
+      return res.status(200).json({ success: true, monthlyData: [] });
     }
 
     // Generate last N months labels
@@ -157,31 +157,33 @@ dashboardController.getProfileViewsData = async (req, res, next) => {
     const now = new Date();
 
     for (let i = monthsBack - 1; i >= 0; i--) {
-      const date = new Date();
-      date.setMonth(date.getMonth() - i);
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
-      const monthKey = `${year}-${month}`;
+      const key = `${year}-${month}`;
+      const monthName = date.toLocaleString('default', { month: 'long' });
 
-      const dayEntry = companyProfile.dailyViews.find(d => 
-        d.date.startsWith(monthKey)
+      // Aggregate ALL days of the month
+      const monthEntries = companyProfile.dailyViews.filter(d =>
+        d.date.startsWith(key)
       );
 
-      const monthName = date.toLocaleString('default', { month: 'long' });
+      const totalViews = monthEntries.reduce((sum, d) => sum + (d.count || 0), 0);
+      const uniqueViews = monthEntries.reduce((sum, d) => sum + (d.unique || 0), 0);
 
       views.push({
         month: monthName,
-        year: year,
-        totalViews: dayEntry?.count || 0,
-        uniqueViews: dayEntry?.unique || 0
+        year,
+        totalViews,
+        uniqueViews
       });
     }
 
     return res.status(200).json({
       success: true,
-      totalViews: companyProfile.profileViews,
-      uniqueViewers: companyProfile.uniqueViewers.length,
-      monthlyData: views.reverse() // oldest first
+      totalViews: companyProfile.profileViews || 0,
+      uniqueViewers: companyProfile.uniqueViewers?.length || 0,
+      monthlyData: views.reverse() // DESC (latest first)
     });
   } catch (error) {
     next(error);
