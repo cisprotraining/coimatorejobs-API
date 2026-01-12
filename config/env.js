@@ -16,4 +16,4 @@ if (results.error){
 
 // export const { error } = config({ path: envFile });
 // Pull out the values you need, with sensible defaults:
-export const { PORT = '5000', NODE_ENV, DB_URI, JWT_SECRET, JWT_EXPIRES_IN, EMAIL_USER, EMAIL_PASS, SUPERADMIN_EMAIL, FRONTEND_URL, RESEND_API_KEY, THROTTLING_RETRY_DELAY_BASE = 1000 } = process.env;
+export const { PORT = '5000', NODE_ENV, DB_URI, JWT_SECRET, JWT_EXPIRES_IN, EMAIL_USER, EMAIL_PASS, SUPERADMIN_EMAIL, FRONTEND_URL, MAILTRAP_HOST, MAILTRAP_PORT, MAILTRAP_USER, MAILTRAP_PASS, THROTTLING_RETRY_DELAY_BASE = 1000 } = process.env;

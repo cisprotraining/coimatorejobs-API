@@ -28,7 +28,6 @@
     "nodemailer": "^7.0.5",
     "nodemon": "^3.1.10",
     "puppeteer": "^24.22.3",
-    "resend": "^6.6.0",
     "uuid": "^11.1.0"
   }
 }

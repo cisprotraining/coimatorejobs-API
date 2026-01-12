@@ -1,73 +1,94 @@
 import nodemailer from 'nodemailer';
-// import { Resend } from 'resend';  //resend for mail configurations 
+import { Resend } from 'resend';  //resend for mail configurations 
 import ResumeAlert from '../models/resumeAlert.model.js';
 import { BadRequestError } from './errors.js';
 
 
-const isProd = process.env.NODE_ENV === "production";
-
-
-console.log("NODE_ENV:", process.env.NODE_ENV);
-console.log("MAILTRAP_HOST:", process.env.MAILTRAP_HOST);
-console.log("EMAIL_USER:", process.env.EMAIL_USER);
-
-
-/**
- * ---------------------------------------------------
- * SMTP TRANSPORTER (HYBRID)
- * ---------------------------------------------------
- * Development  → Mailtrap
- * Production   → Microsoft Outlook (Office 365)
- */
-const transporter = nodemailer.createTransport(
-  isProd
-    ? {
-        // ✅ PRODUCTION → Microsoft Outlook
-        host: "smtp.office365.com",
-        port: 587,
-        secure: false,
-        auth: {
-          user: process.env.EMAIL_USER, // no-reply@coimbatorejobs.in
-          pass: process.env.EMAIL_PASS, // Microsoft App Password
-        },
-        tls: {
-          rejectUnauthorized: false,
-        },
-      }
-    : {
-        // 🧪 DEVELOPMENT → Mailtrap
-        host: process.env.MAILTRAP_HOST,
-        port: process.env.MAILTRAP_PORT,
-        auth: {
-          user: process.env.MAILTRAP_USER,
-          pass: process.env.MAILTRAP_PASS,
-        },
-      }
-);
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
 transporter.verify((error) => {
   if (error) {
-    console.error("❌ Email transporter error:", error);
+    console.error('Email transporter error:', error);
   } else {
-    console.log(
-      `✅ Email transporter ready (${isProd ? "Microsoft Outlook" : "Mailtrap"})`
-    );
+    console.log('✅ Email transporter ready');
   }
 });
 
-/**
- * ---------------------------------------------------
- * BASE EMAIL SENDER (DO NOT CHANGE UI)
- * ---------------------------------------------------
- */
-const sendMail = async ({ to, subject, html }) => {
-  return transporter.sendMail({
-    from: process.env.MAIL_FROM,
-    to,
-    subject,
-    html,
-  });
-};
+// Initialize Resend with API key
+// const resend = new Resend(process.env.RESEND_API_KEY);
+
+// /**
+//  * Get safe FROM address
+//  * - Local / unverified → onboarding@resend.dev
+//  * - Production verified → custom domain
+//  */
+// const getFromAddress = () => {
+//   const appName = process.env.APP_NAME || 'Coimbatore Jobs';
+
+//   if (process.env.NODE_ENV === 'production' && process.env.MAIL_FROM_EMAIL) {
+//     return `${appName} <${process.env.MAIL_FROM_EMAIL}>`;
+//   }
+
+//   // Fallback (always works)
+//   return `${appName} <onboarding@resend.dev>`;
+// };
+
+// test 
+// if (process.env.NODE_ENV !== 'test') {
+//   resend.emails.send({
+//     from: 'onboarding@resend.dev', // Required for testing
+//     to: 'delivered@resend.dev',
+//     subject: 'Resend Test',
+//     text: 'Resend is ready!',
+//   }).catch(err => {
+//     console.error('Resend connection failed:', err);
+//   }).then(() => {
+//     console.log('Resend email service ready');
+//   });
+// }
+
+
+// commented for now due to production mail issue in gmail configuration
+// Configure transporter (use environment variables for security)
+// const transporter = nodemailer.createTransport({
+//   service: 'gmail', // Use 'smtp.sendgrid.net' for SendGrid, etc.
+//   auth: {
+//     user: process.env.EMAIL_USER, // e.g., 'your-email@gmail.com'
+//     pass: process.env.EMAIL_PASS, // Gmail App Password or API key
+//   },
+// });
+
+// test mail configuration
+// const transporter = nodemailer.createTransport({
+//   service: 'gmail',
+//   auth: { user: 'avarvind3765@gmail.com', pass: 'pogdwcemqatjvonk' },
+// });
+// transporter.sendMail({
+//   from: 'avarvind3765@gmail.com',
+//   to: 'aravindakumar3315@gmail.com',
+//   subject: 'Test',
+//   text: 'Test email',
+// }, (err, info) => {
+//   console.log(err || info);
+// });
+
+// Verify transporter configuration
+// transporter.verify((error, success) => {
+//   if (error) {
+//     console.error('Email transporter error:', error);
+//   } else {
+//     console.log('Email transporter ready');
+//     // In mailer.js, add at the top
+//   }
+// });
 
 // Function to send job alert email
 const sendJobAlertEmail = async ({ recipient, jobTitle, companyName, jobId }) => {
@@ -77,8 +98,9 @@ const sendJobAlertEmail = async ({ recipient, jobTitle, companyName, jobId }) =>
       throw new Error('Recipient email is missing');
     }
     
-    await sendMail({
-      to: recipient,
+    const { data, error } = await resend.emails.send({
+      from: getFromAddress(),
+      to: [recipient],
       subject: `New Job Alert: ${jobTitle}`,
       html: `
         <h2>New Job Opportunity!</h2>
@@ -111,9 +133,10 @@ const sendPasswordResetEmail = async ({ recipient, name, resetUrl }) => {
       throw new Error('Recipient email is missing');
     }
 
-   await sendMail({
-      to: recipient,
-      subject: "Password Reset Request",
+   const { data, error } = await resend.emails.send({
+      from: getFromAddress(),
+      to: [recipient],
+      subject: 'Password Reset Request',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; color: #333;">
           <h2 style="color: #2563eb;">Reset Your Password</h2>
@@ -141,6 +164,61 @@ const sendPasswordResetEmail = async ({ recipient, name, resetUrl }) => {
 };
 
 
+// resume alert function
+// const sendResumeAlertEmail = async ({ recipient, candidateName, jobTitle, profileId, alert }) => {
+//   try {
+//     if (!recipient) {
+//       throw new Error('Recipient email is missing');
+//     }
+//     const mailOptions = {
+//       from: `"Talent Alerts" <${process.env.EMAIL_USER}>`,
+//       to: recipient,
+//       subject: `New Resume Alert: ${candidateName} for "${alert.title}"`,
+//       html: `
+//         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+//           <h2 style="color: #2563eb;">New Candidate Match!</h2>
+//           <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+//             <h3 style="margin-top: 0;">Alert: ${alert.title}</h3>
+//             <p><strong>Candidate:</strong> ${candidateName}</p>
+//             <p><strong>Job Title:</strong> ${jobTitle}</p>
+//             <p><strong>Criteria:</strong></p>
+//             <ul>
+//               ${alert.criteria.categories?.length > 0 ? `<li>Categories: ${alert.criteria.categories.join(', ')}</li>` : ''}
+//               ${alert.criteria.location?.city ? `<li>Location: ${alert.criteria.location.city}</li>` : ''}
+//               ${alert.criteria.experience ? `<li>Experience: ${alert.criteria.experience}</li>` : ''}
+//               ${alert.criteria.skills?.length > 0 ? `<li>Skills: ${alert.criteria.skills.join(', ')}</li>` : ''}
+//               ${alert.criteria.educationLevels?.length > 0 ? `<li>Education: ${alert.criteria.educationLevels.join(', ')}</li>` : ''}
+//             </ul>
+//           </div>
+//           <div style="text-align: center; margin-top: 20px;">
+//             <a href="${process.env.FRONTEND_URL}/employer/candidates/${profileId}" 
+//                style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+//               View Candidate Profile
+//             </a>
+//           </div>
+//           <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+//             <p style="color: #64748b; font-size: 14px;">
+//               You're receiving this email because you set up a resume alert on our platform.<br>
+//               <a href="${process.env.FRONTEND_URL}/employer/resume-alerts/${alert._id}/manage" style="color: #2563eb;">Manage this alert</a> |
+//               <a href="${process.env.FRONTEND_URL}/employer/notification-settings" style="color: #2563eb;">Notification Settings</a>
+//             </p>
+//           </div>
+//         </div>
+//       `,
+//     };
+//     await transporter.sendMail(mailOptions);
+//     console.log(`Resume alert email sent to ${recipient} for candidate ${candidateName}`);
+//     await ResumeAlert.findByIdAndUpdate(alert._id, {
+//       $inc: { 'stats.emailsSent': 1, 'stats.totalMatches': 1 },
+//       $set: { 'stats.lastMatch': new Date() },
+//     });
+//   } catch (error) {
+//     console.error(`Failed to send resume alert email to ${recipient}:`, error);
+//     throw new BadRequestError('Failed to send resume alert email');
+//   }
+// };
+
+
 
 /**
  * Sends a Resume Alert Email (Employer) using Resend
@@ -156,8 +234,9 @@ const sendResumeAlertEmail = async ({
   try {
     if (!recipient) throw new Error('Recipient email is missing');
 
-     await sendMail({
-      to: recipient,
+    const { data, error } = await resend.emails.send({
+      from: `Talent Alerts ${getFromAddress()}`, // Update to your verified domain later
+      to: [recipient],
       subject: `New Resume Match: ${candidateName} for "${alert.title}"`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -235,11 +314,84 @@ const sendResumeAlertEmail = async ({
 
 
 // Send welcome email to new user
+// const sendWelcomeEmail = async ({ recipient, name }) => {
+//   try {
+//     const { data, error } = await resend.emails.send({
+//       from: `Coimbatore Jobs ${getFromAddress()}`,
+//       to: [recipient],
+//       subject: 'Welcome to Coimbatore Jobs!',
+//       html: `
+//         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px;">
+//           <h2 style="color: #10b981;">Welcome, ${name}!</h2>
+//           <p>Congratulations! Your account has been successfully created on <strong>Coimbatore Jobs</strong>.</p>
+//           <p>Start exploring thousands of job opportunities in Coimbatore and beyond.</p>
+//           <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0;">
+//             <strong>Next Steps:</strong>
+//             <ul>
+//               <li>Complete your profile for better job matches</li>
+//               <li>Set up job alerts</li>
+//               <li>Apply to jobs instantly</li>
+//             </ul>
+//           </div>
+//           <div style="text-align: center;">
+//             <a href="${process.env.FRONTEND_URL}/dashboard" style="background: #10b981; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px;">
+//               Go to Dashboard
+//             </a>
+//           </div>
+//           <p>Need help? Contact us at support@coimbatorejobs.com</p>
+//           <hr>
+//           <p style="color: #666; font-size: 12px;">© ${new Date().getFullYear()} Coimbatore Jobs by Cispro</p>
+//         </div>
+//       `,
+//     });
+
+//     if (error) throw error;
+//     console.log(`Welcome email sent to ${recipient}`);
+//   } catch (error) {
+//     console.error('Welcome email failed:', error);
+//   }
+// };
+
+// // Send alert to superadmin on new registration
+// const sendSuperadminAlertEmail = async ({ superadminEmail, newUserEmail, newUserRole }) => {
+//   try {
+//     if (!superadminEmail) return;
+
+//     const { data, error } = await resend.emails.send({
+//       from: `System Alert ${getFromAddress()}`,
+//       to: [superadminEmail],
+//       subject: 'New User Registration',
+//       html: `
+//         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px;">
+//           <h2 style="color: #dc2626;">New User Registered</h2>
+//           <p>A new user has joined Coimbatore Jobs:</p>
+//           <div style="background: #fef2f2; padding: 15px; border-radius: 8px;">
+//             <p><strong>Email:</strong> ${newUserEmail}</p>
+//             <p><strong>Role:</strong> ${newUserRole}</p>
+//             <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+//           </div>
+//           <div style="text-align: center; margin: 20px 0;">
+//             <a href="${process.env.FRONTEND_URL}/admin/users" style="background: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+//               View Admin Dashboard
+//             </a>
+//           </div>
+//         </div>
+//       `,
+//     });
+
+//     if (error) throw error;
+//     console.log(`Superadmin alert sent for ${newUserEmail}`);
+//   } catch (error) {
+//     console.error('Superadmin alert failed:', error);
+//   }
+// };
+
+// Send welcome email to new user
 const sendWelcomeEmail = async ({ recipient, name }) => {
   try {
     if (!recipient) throw new Error('Recipient email is missing');
 
-     await sendMail({
+    const mailOptions = {
       from: `"Welcome to Coimbatore Jobs" <${process.env.EMAIL_USER}>`,
       to: recipient,
       subject: 'Welcome to Coimbatore Jobs - Your Registration is Successful!',
@@ -275,9 +427,9 @@ const sendWelcomeEmail = async ({ recipient, name }) => {
           </p>
         </div>
       `,
-    });
+    };
 
-    // await transporter.sendMail(mailOptions);
+    await transporter.sendMail(mailOptions);
     console.log(`Welcome email sent to ${recipient}`);
   } catch (error) {
     console.error(`Failed to send welcome email to ${recipient}:`, error);
@@ -289,7 +441,7 @@ const sendSuperadminAlertEmail = async ({ superadminEmail, newUserEmail, newUser
   try {
     if (!superadminEmail) throw new Error('Superadmin email not configured');
 
-    await sendMail({
+    const mailOptions = {
       from: `"System Alert" <${process.env.EMAIL_USER}>`,
       to: superadminEmail,
       subject: 'New User Registration Alert',
@@ -321,9 +473,9 @@ const sendSuperadminAlertEmail = async ({ superadminEmail, newUserEmail, newUser
           </p>
         </div>
       `,
-    });
+    };
 
-    // await transporter.sendMail(mailOptions);
+    await transporter.sendMail(mailOptions);
     console.log(`Superadmin alert sent for new user ${newUserEmail}`);
   } catch (error) {
     console.error(`Failed to send superadmin alert:`, error);
