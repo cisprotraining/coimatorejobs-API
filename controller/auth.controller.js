@@ -463,30 +463,50 @@ authentication.adminResetUserPassword = async (req, res, next) => {
 authentication.getUsersByRole = async (req, res, next) => {
   try {
     const { roles } = req.query;
+    const loggedInUser = req.user;
 
-    // Default roles if not passed
+    // Default roles
     let roleFilter = ['candidate', 'employer'];
-
     if (roles) {
       roleFilter = roles.split(',').map(r => r.trim());
     }
 
-    // console.log("tessssssssssssss", roles);
+    // Base query
+    let query = {
+      role: { $in: roleFilter },
+      isActive: true,
+      $or: [
+        { isDeleted: false },
+        { isDeleted: { $exists: false } }
+      ]
+    };
+
+
+    console.log("ehfvbekuyfvb", query);
     
-    const users = await User.find(
-      {
-        role: { $in: roleFilter },
-        isActive: true,
-        isDeleted: false
-      },
-      { password: 0 }
-    ).sort({ createdAt: -1 });
+
+    /**
+     * HR-ADMIN RULE:
+     * Show only users assigned to this HR-admin
+     */
+    if (loggedInUser.role === 'hr-admin') {
+      query.createdBy = loggedInUser.id; 
+    }
+
+    /**
+     * SUPERADMIN:
+     * No restriction
+     */
+
+    const users = await User.find(query, { password: 0 })
+      .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
       count: users.length,
       data: users
     });
+
   } catch (error) {
     console.error('Error in getUsersByRole:', error);
     next(error);

@@ -4,6 +4,7 @@ import employerApplicantsController from '../controller/employerApplicants.contr
 import resumeAlertController from '../controller/resumeAlert.controller.js';
 import jobsController from '../controller/jobs.controller.js';
 import employerDashboardController from '../controller/employerDashboard.controller.js';
+import hrAdminDashboardController from '../controller/hrAdminDashboard.controller.js';
 import { authenticate, authorize, authorizeEmployerLike } from '../middleware/auth.js';
 import companyUpload from '../utils/fileUpload.js';  
 import normalizeBody from '../utils/normalizeBody.js';
@@ -101,13 +102,13 @@ employerRouter.get('/shortlisted-resumes', authenticate, authorizeEmployerLike()
 
 // candidate save for future use
 // Save candidate profile
-employerRouter.post('/saved-candidates/save/:candidateId', authenticate, authorize(['employer']), employerController.saveCandidate);
+employerRouter.post('/saved-candidates/save/:candidateId', authenticate, authorize(['employer', 'hr-admin']), employerController.saveCandidate);
 
 // Unsave candidate
-employerRouter.delete('/saved-candidates/un-save/:savedId', authenticate, authorize(['employer']), employerController.unsaveCandidate);
+employerRouter.delete('/saved-candidates/un-save/:savedId', authenticate, authorize(['employer', 'hr-admin']), employerController.unsaveCandidate);
 
 // Get saved candidates (with filters)
-employerRouter.get('/saved-candidates', authenticate, authorize(['employer']), employerController.getSavedCandidates);
+employerRouter.get('/saved-candidates', authenticate, authorize(['employer', 'hr-admin']), employerController.getSavedCandidates);
 
 // resume alert routes
 // Create resume alert
@@ -150,5 +151,69 @@ employerRouter.get('/job-status-distribution', authenticate, authorize(['employe
  * (HR-Admin / Superadmin only)
  */
 employerRouter.get('/hr-admin/employers/applicants-summary', authenticate, authorize(['hr-admin', 'superadmin']), employerApplicantsController.getEmployerApplicantsSummary);
+
+// HR-Admin / Superadmin Dashboard Routes
+// employerRouter.get('/hr-admin/stats', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getDashboardStats);
+// employerRouter.get('/hr-admin/recent-activities', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getRecentActivity);
+// employerRouter.get('/hr-admin/application-trends', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getApplicationTrends);
+// employerRouter.get('/hr-admin/top-employers', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getTopEmployers);
+
+
+// Platform statistics overview
+employerRouter.get(
+  '/hr-admin-dashboard/platform-stats',
+  authenticate,
+  authorize(['hr-admin', 'superadmin']),
+  hrAdminDashboardController.getPlatformStats
+);
+
+// Assigned employers overview
+employerRouter.get(
+  '/hr-admin-dashboard/assigned-employers',
+  authenticate,
+  authorize(['hr-admin', 'superadmin']),
+  hrAdminDashboardController.getAssignedEmployers
+);
+
+// Job performance metrics
+employerRouter.get(
+  '/hr-admin-dashboard/job-performance',
+  authenticate,
+  authorize(['hr-admin', 'superadmin']),
+  hrAdminDashboardController.getJobPerformance
+);
+
+// Application trends across platform
+employerRouter.get(
+  '/hr-admin-dashboard/application-trends',
+  authenticate,
+  authorize(['hr-admin', 'superadmin']),
+  hrAdminDashboardController.getApplicationTrends
+);
+
+// Candidate analytics
+employerRouter.get(
+  '/hr-admin-dashboard/candidate-analytics',
+  authenticate,
+  authorize(['hr-admin', 'superadmin']),
+  hrAdminDashboardController.getCandidateAnalytics
+);
+
+// Pending approvals and actions
+employerRouter.get(
+  '/hr-admin-dashboard/pending-actions',
+  authenticate,
+  authorize(['hr-admin', 'superadmin']),
+  hrAdminDashboardController.getPendingActions
+);
+
+// Revenue/reporting metrics
+employerRouter.get(
+  '/hr-admin-dashboard/revenue-metrics',
+  authenticate,
+  authorize(['hr-admin', 'superadmin']),
+  hrAdminDashboardController.getRevenueMetrics
+);
+
 
 export default employerRouter;

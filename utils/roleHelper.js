@@ -86,3 +86,84 @@ export const buildJobQueryForUser = (user) => {
 
   return { _id: null };
 };
+
+
+
+/**
+ * Build dashboard filter based on user role
+ * @param {Object} user - User object
+ * @returns {Object} - Filter object for queries
+ */
+export const buildDashboardFilter = (user, collection) => {
+  if (!user) return {};
+  
+  // Superadmin gets full access
+  if (user.role === 'superadmin') return {};
+  
+  // HR-Admin filters by assigned employers
+  if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
+    switch (collection) {
+      case 'users':
+        return { _id: { $in: user.employerIds }, role: 'employer' };
+      case 'jobposts':
+        return { employer: { $in: user.employerIds } };
+      case 'companyprofiles':
+        return { employer: { $in: user.employerIds } };
+      case 'applications':
+        // Will be filtered via job posts
+        return {};
+      default:
+        return {};
+    }
+  }
+  
+  // Employer filters by their own data
+  if (user.role === 'employer') {
+    switch (collection) {
+      case 'users':
+        return { _id: user.id };
+      case 'jobposts':
+        return { employer: user.id };
+      case 'companyprofiles':
+        return { employer: user.id };
+      case 'applications':
+        // Will be filtered via job posts
+        return {};
+      default:
+        return { employer: user.id };
+    }
+  }
+  
+  return {};
+};
+
+/**
+ * Check if user can view platform-wide stats
+ * @param {string} role - User role
+ * @returns {boolean} - True if can view platform stats
+ */
+export const canViewPlatformStats = (role) => {
+  return ['hr-admin', 'superadmin'].includes(role);
+};
+
+/**
+ * Check if user can view employer-specific stats
+ * @param {Object} user - User object
+ * @param {string} employerId - Employer ID to check
+ * @returns {boolean} - True if can view employer stats
+ */
+export const canViewEmployerStats = (user, employerId) => {
+  if (!user || !employerId) return false;
+  
+  if (user.role === 'superadmin') return true;
+  
+  if (user.role === 'hr-admin') {
+    return user.employerIds?.some(id => id.toString() === employerId.toString());
+  }
+  
+  if (user.role === 'employer') {
+    return user.id.toString() === employerId.toString();
+  }
+  
+  return false;
+};
