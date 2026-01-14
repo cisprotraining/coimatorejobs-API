@@ -49,6 +49,8 @@ authRouter.get('/admin/users/assigned', authenticate, authorize(['hr-admin', 'su
 authRouter.delete('/users/:id', authenticate,authorize(['candidate', 'employer', 'hr-admin', 'superadmin']),authentication.deleteUserProfile);
 
 
+// Google OAuth2 login
+authRouter.post('/google-login', authentication.googleLogin);
 
 
 export default authRouter;

@@ -10,6 +10,9 @@ import { BadRequestError, ForbiddenError,NotFoundError} from '../utils/errors.js
 
 import { log } from "console";
 
+import { OAuth2Client } from 'google-auth-library';
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
 // Authentication controller object
 const authentication = {};
 
@@ -463,30 +466,50 @@ authentication.adminResetUserPassword = async (req, res, next) => {
 authentication.getUsersByRole = async (req, res, next) => {
   try {
     const { roles } = req.query;
-
-    // Default roles if not passed
+    const loggedInUser = req.user;
+ 
+    // Default roles
     let roleFilter = ['candidate', 'employer'];
-
     if (roles) {
       roleFilter = roles.split(',').map(r => r.trim());
     }
-
-    // console.log("tessssssssssssss", roles);
-    
-    const users = await User.find(
-      {
-        role: { $in: roleFilter },
-        isActive: true,
-        isDeleted: false
-      },
-      { password: 0 }
-    ).sort({ createdAt: -1 });
-
+ 
+    // Base query
+    let query = {
+      role: { $in: roleFilter },
+      isActive: true,
+      $or: [
+        { isDeleted: false },
+        { isDeleted: { $exists: false } }
+      ]
+    };
+ 
+ 
+    console.log("ehfvbekuyfvb", query);
+   
+ 
+    /**
+     * HR-ADMIN RULE:
+     * Show only users assigned to this HR-admin
+     */
+    if (loggedInUser.role === 'hr-admin') {
+      query.createdBy = loggedInUser.id;
+    }
+ 
+    /**
+     * SUPERADMIN:
+     * No restriction
+     */
+ 
+    const users = await User.find(query, { password: 0 })
+      .sort({ createdAt: -1 });
+ 
     res.status(200).json({
       success: true,
       count: users.length,
       data: users
     });
+ 
   } catch (error) {
     console.error('Error in getUsersByRole:', error);
     next(error);
@@ -600,6 +623,70 @@ authentication.deleteUserProfile = async (req, res, next) => {
   }
 };
 
+//* Google OAuth2 Login Handler */
+authentication.googleLogin = async (req, res, next) => {
+    try {
+        // 'role' is passed from the frontend Tabs (candidate or employer)
+        const { token: googleToken, role } = req.body; 
 
+        // 1. Verify Google Token
+        const ticket = await client.verifyIdToken({
+            idToken: googleToken,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        const { email, name } = payload;
+
+        // 2. Find existing user by email
+        let user = await User.findOne({ email });
+
+        if (!user) {
+            // 3. AUTO-REGISTER if user doesn't exist
+            // Generate a secure random password (required by your schema)
+            const salt = await bcrypt.genSalt(10);
+            const randomPass = crypto.randomBytes(16).toString('hex');
+            const hashedPassword = await bcrypt.hash(randomPass, salt);
+
+            user = new User({
+                name: name,
+                email: email,
+                password: hashedPassword,
+                role: role || 'candidate', // Uses the role from the frontend tab
+                status: 'approved',        // Auto-approve verified Google users
+                isActive: true,
+                isDeleted: false
+            });
+
+            await user.save();
+        }
+
+        // 4. Generate Application JWT (Matches your schema/middleware logic)
+        const token = jwt.sign(
+            { userId: user._id }, 
+            process.env.JWT_SECRET, 
+            { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+        );
+
+        // 5. Return success response to frontend
+        res.status(200).json({
+            success: true,
+            user: {
+                token,
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                status: user.status
+            }
+        });
+
+    } catch (error) {
+        console.error("Google Auth Error:", error);
+        res.status(401).json({
+            success: false,
+            message: "Google authentication failed. Please try again."
+        });
+    }
+};
 
 export default authentication;

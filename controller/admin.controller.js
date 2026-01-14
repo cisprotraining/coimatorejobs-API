@@ -1,6 +1,9 @@
 // controller/admin.controller.js
 import User from '../models/user.model.js';
 
+// Import the new model at the top of your controller file
+import Homepage from '../models/homepage.model.js';
+
 // Admin controller object for admin and superadmin functionality
 const adminController = {};
 
@@ -95,6 +98,93 @@ adminController.toggleUserActivation = async (req, res, next) => {
             success: true,
             message: `User ${user.isActive ? 'activated' : 'deactivated'} successfully`,
             data: { id: user._id, isActive: user.isActive }
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Fetch all company profiles for the management table
+adminController.getAllCompanyProfiles = async (req, res, next) => {
+    try {
+        // Fetching all profiles; adjust the model name 'CompanyProfile' as per your project
+        const profiles = await CompanyProfile.find().sort({ createdAt: -1 });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Company profiles retrieved successfully',
+            profiles // Frontend expects 'profiles' in the response
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Toggle the 'isTopCompany' status
+adminController.updateCompanyTopStatus = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { isTopCompany } = req.body;
+
+        const updatedProfile = await CompanyProfile.findByIdAndUpdate(
+            id,
+            { isTopCompany },
+            { new: true } // Returns the updated document
+        );
+
+        if (!updatedProfile) {
+            return res.status(404).json({
+                success: false,
+                message: 'Company profile not found'
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: isTopCompany ? 'Added to Top Companies' : 'Removed from Top Companies',
+            data: updatedProfile
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+
+// GET: Public settings for the frontend (No auth required for viewing)
+adminController.getHomepageSettings = async (req, res, next) => {
+    try {
+        const settings = await Homepage.find();
+        return res.status(200).json({
+            success: true,
+            message: 'Homepage settings retrieved successfully',
+            data: settings
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// POST: Update settings (Accessible to superadmins)
+adminController.updateHomepageCMS = async (req, res, next) => {
+    try {
+        const { sections } = req.body; // Expects an array of section objects
+
+        const bulkOps = sections.map((section) => ({
+            updateOne: {
+                filter: { section_id: section.section_id },
+                update: { 
+                    visible: section.visible, 
+                    settings: section.settings 
+                },
+                upsert: true,
+            },
+        }));
+
+        await Homepage.bulkWrite(bulkOps);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Homepage CMS updated successfully'
         });
     } catch (error) {
         next(error);
