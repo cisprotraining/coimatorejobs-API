@@ -170,42 +170,46 @@ authentication.createAdminUser = async (req, res, next) => {
   }
 };
 
-
+ 
 /**
  * Fetch employers/candidates belonging to hr-admin or all for superadmin
  */
 authentication.getAssignedUsers = async (req, res, next) => {
   try {
     const { roles } = req.query;
-
+ 
     // IMPORTANT: fetch fresh user from DB
     const loggedInUser = await User.findById(req.user.id)
       .select('role employerIds candidateIds');
-
+ 
     if (!loggedInUser) {
       return res.status(401).json({ message: 'User not found' });
     }
-
+ 
     const roleFilter = roles
       ? roles.split(',').map(r => r.trim())
       : ['employer', 'candidate'];
-
+ 
     let query = {
       role: { $in: roleFilter },
-      isActive: true
+      isActive: true,
+      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }]
     };
-
+ 
+    // console.log("test", query);
+   
+ 
     // HR-ADMIN → ONLY ASSIGNED USERS
     if (loggedInUser.role === 'hr-admin') {
       const ids = [];
-
+ 
       if (roleFilter.includes('employer')) {
         ids.push(...(loggedInUser.employerIds || []));
       }
       if (roleFilter.includes('candidate')) {
         ids.push(...(loggedInUser.candidateIds || []));
       }
-
+ 
       // IMPORTANT guard
       if (!ids.length) {
         return res.status(200).json({
@@ -214,26 +218,24 @@ authentication.getAssignedUsers = async (req, res, next) => {
           data: []
         });
       }
-
+ 
       query._id = { $in: ids };
     }
-
+ 
     // SUPERADMIN → sees all
     const users = await User.find(query, { password: 0 })
       .sort({ createdAt: -1 });
-
+ 
     res.status(200).json({
       success: true,
       count: users.length,
       data: users
     });
-
+ 
   } catch (error) {
     next(error);
   }
 };
-
-
 
 
 /**
@@ -453,7 +455,6 @@ authentication.adminResetUserPassword = async (req, res, next) => {
   }
 };
 
-
 /**
  * Fetch users based on role filters
  * Accessible only to HR-Admin and Superadmin
@@ -469,10 +470,9 @@ authentication.getUsersByRole = async (req, res, next) => {
     const loggedInUser = req.user;
  
     // Default roles
-    let roleFilter = ['candidate', 'employer'];
-    if (roles) {
-      roleFilter = roles.split(',').map(r => r.trim());
-    }
+   const roleFilter = roles
+      ? roles.split(',').map(r => r.trim())
+      : ['employer', 'candidate'];
  
     // Base query
     let query = {
@@ -485,24 +485,27 @@ authentication.getUsersByRole = async (req, res, next) => {
     };
  
  
-    console.log("ehfvbekuyfvb", query);
+    // console.log("ehfvbekuyfvb", query);
    
  
     /**
      * HR-ADMIN RULE:
      * Show only users assigned to this HR-admin
      */
-    if (loggedInUser.role === 'hr-admin') {
-      query.createdBy = loggedInUser.id;
-    }
+    // if (loggedInUser.role === 'hr-admin') {
+    //   query.createdBy = loggedInUser.id;
+    // }
  
     /**
      * SUPERADMIN:
      * No restriction
      */
  
-    const users = await User.find(query, { password: 0 })
-      .sort({ createdAt: -1 });
+    // const users = await User.find(query, { password: 0 })
+    //   .sort({ createdAt: -1 });
+    const users = await User.find(query, {
+      password: 0
+    }).sort({ createdAt: -1 });
  
     res.status(200).json({
       success: true,
@@ -515,6 +518,7 @@ authentication.getUsersByRole = async (req, res, next) => {
     next(error);
   }
 };
+ 
 
 /**
  * Approve or reject a user account

@@ -16,32 +16,13 @@ adminRouter.get('/superadmin/dashboard', authenticate, authorize(['superadmin'])
 adminRouter.get('/superadmin/users', authenticate, authorize(['superadmin']), adminController.getAllUsers);
 adminRouter.patch('/superadmin/users/:id/toggle-activation', authenticate, authorize(['superadmin']), adminController.toggleUserActivation);
 
-// // Manage Top Companies
-// adminRouter.get(
-//     '/superadmin/company-profile/all', 
-//     authenticate, 
-//     authorize(['superadmin', 'admin']), 
-//     adminController.getAllCompanyProfiles
-// );
+// Featured Jobs (Curated Content)
+adminRouter.put('/featured-jobs', authenticate, authorize(['hr-admin', 'superadmin']), adminController.updateFeaturedJobs);
+adminRouter.get('/featured-jobs/fetch-all', adminController.getFeaturedJobs); // Publicly accessible for Home Page
 
-// adminRouter.put(
-//     '/superadmin/company-profile/update/:id', 
-//     authenticate, 
-//     authorize(['superadmin', 'admin']), 
-//     adminController.updateCompanyTopStatus
-// );
+// Featured Companies (Curated Content)
+adminRouter.put('/featured-company', authenticate, authorize(['hr-admin', 'superadmin']), adminController.updateFeaturedCompanies);
+adminRouter.get('/featured-company/fetch-all', adminController.getFeaturedCompanies); // Publicly accessible for Home Page
 
-
-
-// Public route - Put this BEFORE any auth middleware if you want the public to see the homepage
-adminRouter.get('/homepage/settings', adminController.getHomepageSettings);
-
-// CMS Update route - Restricted to superadmin
-adminRouter.post(
-    '/homepage/update', 
-    authenticate, 
-    authorize(['superadmin']), 
-    adminController.updateHomepageCMS
-);
 
 export default adminRouter;

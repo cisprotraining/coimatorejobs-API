@@ -104,91 +104,72 @@ adminController.toggleUserActivation = async (req, res, next) => {
     }
 };
 
-// Fetch all company profiles for the management table
-adminController.getAllCompanyProfiles = async (req, res, next) => {
+
+
+// PUT: Update Featured Jobs
+adminController.updateFeaturedJobs = async (req, res, next) => {
     try {
-        // Fetching all profiles; adjust the model name 'CompanyProfile' as per your project
-        const profiles = await CompanyProfile.find().sort({ createdAt: -1 });
-
-        return res.status(200).json({
-            success: true,
-            message: 'Company profiles retrieved successfully',
-            profiles // Frontend expects 'profiles' in the response
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-// Toggle the 'isTopCompany' status
-adminController.updateCompanyTopStatus = async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const { isTopCompany } = req.body;
-
-        const updatedProfile = await CompanyProfile.findByIdAndUpdate(
-            id,
-            { isTopCompany },
-            { new: true } // Returns the updated document
+        const { featuredIds } = req.body;
+        const updated = await Homepage.findOneAndUpdate(
+            {}, 
+            { featuredJobs: featuredIds }, 
+            { upsert: true, new: true }
         );
-
-        if (!updatedProfile) {
-            return res.status(404).json({
-                success: false,
-                message: 'Company profile not found'
-            });
-        }
-
         return res.status(200).json({
             success: true,
-            message: isTopCompany ? 'Added to Top Companies' : 'Removed from Top Companies',
-            data: updatedProfile
+            message: 'Featured jobs selection updated successfully'
         });
     } catch (error) {
         next(error);
     }
 };
 
-
-// GET: Public settings for the frontend (No auth required for viewing)
-adminController.getHomepageSettings = async (req, res, next) => {
+// GET: Fetch Featured Jobs for UI
+adminController.getFeaturedJobs = async (req, res, next) => {
     try {
-        const settings = await Homepage.find();
+        const homeData = await Homepage.findOne().populate({
+            path: 'featuredJobs',
+            populate: { path: 'companyProfile' } // Getting the logo/name for the card
+        });
         return res.status(200).json({
             success: true,
-            message: 'Homepage settings retrieved successfully',
-            data: settings
+            featuredJobs: homeData ? homeData.featuredJobs : []
         });
     } catch (error) {
         next(error);
     }
 };
 
-// POST: Update settings (Accessible to superadmins)
-adminController.updateHomepageCMS = async (req, res, next) => {
+// PUT: Update Featured Companies
+adminController.updateFeaturedCompanies = async (req, res, next) => {
     try {
-        const { sections } = req.body; // Expects an array of section objects
-
-        const bulkOps = sections.map((section) => ({
-            updateOne: {
-                filter: { section_id: section.section_id },
-                update: { 
-                    visible: section.visible, 
-                    settings: section.settings 
-                },
-                upsert: true,
-            },
-        }));
-
-        await Homepage.bulkWrite(bulkOps);
-
+        const { featuredIds } = req.body;
+        await Homepage.findOneAndUpdate(
+            {}, 
+            { featuredCompanies: featuredIds }, 
+            { upsert: true }
+        );
         return res.status(200).json({
             success: true,
-            message: 'Homepage CMS updated successfully'
+            message: 'Top companies selection updated successfully'
         });
     } catch (error) {
         next(error);
     }
 };
+
+// GET: Fetch Featured Companies for UI
+adminController.getFeaturedCompanies = async (req, res, next) => {
+    try {
+        const homeData = await Homepage.findOne().populate('featuredCompanies');
+        return res.status(200).json({
+            success: true,
+            companies: homeData ? homeData.featuredCompanies : []
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 
 export default adminController;
