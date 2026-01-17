@@ -468,12 +468,13 @@ authentication.getUsersByRole = async (req, res, next) => {
   try {
     const { roles } = req.query;
     const loggedInUser = req.user;
- 
+
     // Default roles
-   const roleFilter = roles
-      ? roles.split(',').map(r => r.trim())
-      : ['employer', 'candidate'];
- 
+    let roleFilter = ['candidate', 'employer'];
+    if (roles) {
+      roleFilter = roles.split(',').map(r => r.trim());
+    }
+
     // Base query
     let query = {
       role: { $in: roleFilter },
@@ -483,36 +484,32 @@ authentication.getUsersByRole = async (req, res, next) => {
         { isDeleted: { $exists: false } }
       ]
     };
- 
- 
-    // console.log("ehfvbekuyfvb", query);
-   
- 
+
+
+    console.log("ehfvbekuyfvb", query);
+    
+
     /**
      * HR-ADMIN RULE:
      * Show only users assigned to this HR-admin
      */
-    // if (loggedInUser.role === 'hr-admin') {
-    //   query.createdBy = loggedInUser.id;
-    // }
- 
+    if (loggedInUser.role === 'hr-admin') {
+      query.createdBy = loggedInUser.id; 
+    }
+
     /**
      * SUPERADMIN:
      * No restriction
      */
- 
-    // const users = await User.find(query, { password: 0 })
-    //   .sort({ createdAt: -1 });
-    const users = await User.find(query, {
-      password: 0
-    }).sort({ createdAt: -1 });
- 
+
+    const users = await User.find(query, { password: 0 })
+      .sort({ createdAt: -1 });
+
     res.status(200).json({
       success: true,
       count: users.length,
       data: users
     });
- 
   } catch (error) {
     console.error('Error in getUsersByRole:', error);
     next(error);

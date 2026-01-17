@@ -3,13 +3,13 @@ import mongoose from 'mongoose';
 const companyProfileSchema = new mongoose.Schema({
   employer: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'users',
+    ref: 'User',
     required: true,
     // unique: true   // Uncomment if each employer can have only one profile
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'users',
+    ref: 'User',
     required: true
   },
   companyName: {
