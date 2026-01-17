@@ -240,7 +240,7 @@ candidateController.getCandidateProfile = async (req, res, next) => {
     }
 
     // Check permissions
-    if (req.user.role !== 'superadmin' && req.user.role !== 'employer' && req.user.role !== 'admin'  && profile.candidate.toString() !== req.user.id.toString()) {
+    if (req.user.role !== 'superadmin' && req.user.role !== 'employer' && req.user.role !== 'hr-admin'  && profile.candidate.toString() !== req.user.id.toString()) {
       throw new ForbiddenError('You do not have permission to access this profile');
     }
 
