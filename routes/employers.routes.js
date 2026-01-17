@@ -160,60 +160,24 @@ employerRouter.get('/hr-admin/employers/applicants-summary', authenticate, autho
 
 
 // Platform statistics overview
-employerRouter.get(
-  '/hr-admin-dashboard/platform-stats',
-  authenticate,
-  authorize(['hr-admin', 'superadmin']),
-  hrAdminDashboardController.getPlatformStats
-);
+employerRouter.get('/hr-admin-dashboard/platform-stats', authenticate, authorize(['hr-admin', 'superadmin']),hrAdminDashboardController.getPlatformStats);
 
 // Assigned employers overview
-employerRouter.get(
-  '/hr-admin-dashboard/assigned-employers',
-  authenticate,
-  authorize(['hr-admin', 'superadmin']),
-  hrAdminDashboardController.getAssignedEmployers
-);
+employerRouter.get('/hr-admin-dashboard/assigned-employers', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getAssignedEmployers);
 
 // Job performance metrics
-employerRouter.get(
-  '/hr-admin-dashboard/job-performance',
-  authenticate,
-  authorize(['hr-admin', 'superadmin']),
-  hrAdminDashboardController.getJobPerformance
-);
+employerRouter.get('/hr-admin-dashboard/job-performance',  authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getJobPerformance);
 
 // Application trends across platform
-employerRouter.get(
-  '/hr-admin-dashboard/application-trends',
-  authenticate,
-  authorize(['hr-admin', 'superadmin']),
-  hrAdminDashboardController.getApplicationTrends
-);
+employerRouter.get('/hr-admin-dashboard/application-trends', authenticate, authorize(['hr-admin', 'superadmin']),  hrAdminDashboardController.getApplicationTrends);
 
 // Candidate analytics
-employerRouter.get(
-  '/hr-admin-dashboard/candidate-analytics',
-  authenticate,
-  authorize(['hr-admin', 'superadmin']),
-  hrAdminDashboardController.getCandidateAnalytics
-);
+employerRouter.get( '/hr-admin-dashboard/candidate-analytics', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getCandidateAnalytics);
 
 // Pending approvals and actions
-employerRouter.get(
-  '/hr-admin-dashboard/pending-actions',
-  authenticate,
-  authorize(['hr-admin', 'superadmin']),
-  hrAdminDashboardController.getPendingActions
-);
+employerRouter.get('/hr-admin-dashboard/pending-actions', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getPendingActions);
 
 // Revenue/reporting metrics
-employerRouter.get(
-  '/hr-admin-dashboard/revenue-metrics',
-  authenticate,
-  authorize(['hr-admin', 'superadmin']),
-  hrAdminDashboardController.getRevenueMetrics
-);
-
+employerRouter.get('/hr-admin-dashboard/revenue-metrics', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getRevenueMetrics);
 
 export default employerRouter;

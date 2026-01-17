@@ -18,131 +18,190 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    let employerMatch = {};
-    let jobMatch = {};
-    let companyMatch = {};
+    let employerIds = user.employerIds || [];
+    let companyFilter = {};
+    let jobFilter = {};
 
-    // For HR-Admin, filter by assigned employers
-    if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
-      const employerObjectIds = user.employerIds.map(id => new mongoose.Types.ObjectId(id));
-      employerMatch._id = { $in: employerObjectIds };
-      jobMatch.employer = { $in: user.employerIds };
-      companyMatch.employer = { $in: user.employerIds };
+    if (user.role === 'hr-admin') {
+      companyFilter = {
+        $or: [
+          { employer: { $in: employerIds } },
+          { createdBy: user.id }
+        ]
+      };
+
+      jobFilter = {
+        $or: [
+          { employer: { $in: employerIds } },
+          { postedBy: user.id }
+        ]
+      };
+    } else if (user.role === 'superadmin') {
+      companyFilter = {};
+      jobFilter = {};
+    } else {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
     }
 
-    // Get counts
-    const [
+   const [
       totalEmployers,
       activeCompanies,
       totalJobs,
       activeJobs,
       totalApplications,
       recentApplications,
+      shortlistedApplications,
       totalCandidates,
       recentCandidates,
       lastMonthStats,
     ] = await Promise.all([
-      // Total employers (active users)
-      User.countDocuments({ 
-        role: 'employer', 
-        isActive: true,
-        ...employerMatch 
-      }),
+      user.role === 'hr-admin' 
+        ? employerIds.length 
+        : User.countDocuments({ role: 'employer', isActive: true }),
 
-      // Approved company profiles
-      CompanyProfile.countDocuments({ 
+      CompanyProfile.countDocuments({
         status: 'approved',
-        ...companyMatch 
+        ...companyFilter
       }),
 
-      // Total jobs
-      JobPost.countDocuments(jobMatch),
+      JobPost.countDocuments(jobFilter),
 
-      // Active jobs (not expired)
-      JobPost.countDocuments({ 
-        ...jobMatch,
-        applicationDeadline: { $gte: new Date() },
-        status: 'Published'
+      JobPost.countDocuments({
+        ...jobFilter,
+        status: 'Published',
+        applicationDeadline: { $gte: new Date() }
       }),
 
-      // Total applications
-      Application.countDocuments(), // Will filter in aggregation if needed
+      // FIXED: Total applications
+      Application.aggregate([
+        { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'job' } },
+        { $unwind: '$job' },
+        {
+          $match: {
+            $or: [
+              { 'job.employer': { $in: employerIds } },
+              { 'job.postedBy': user.id }
+            ]
+          }
+        },
+        { $count: 'total' }
+      ]).then(r => r[0]?.total || 0),
 
-      // Recent applications (last 30 days)
-      Application.countDocuments({ 
-        createdAt: { $gte: thirtyDaysAgo }
-      }),
+      // FIXED: Recent applications
+      Application.aggregate([
+        { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'job' } },
+        { $unwind: '$job' },
+        {
+          $match: {
+            $or: [
+              { 'job.employer': { $in: employerIds } },
+              { 'job.postedBy': user.id }
+            ],
+            createdAt: { $gte: thirtyDaysAgo }
+          }
+        },
+        { $count: 'total' }
+      ]).then(r => r[0]?.total || 0),
 
-      // Total candidates
-      User.countDocuments({ 
-        role: 'candidate', 
-        isActive: true 
-      }),
+      // FIXED: Shortlisted applications
+      Application.aggregate([
+        { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'job' } },
+        { $unwind: '$job' },
+        {
+          $match: {
+            $or: [
+              { 'job.employer': { $in: employerIds } },
+              { 'job.postedBy': user.id }
+            ],
+            shortlisted: true
+          }
+        },
+        { $count: 'total' }
+      ]).then(r => r[0]?.total || 0),
 
-      // New candidates (last 30 days)
-      User.countDocuments({ 
-        role: 'candidate', 
+      User.countDocuments({ role: 'candidate', isActive: true }),
+
+      User.countDocuments({
+        role: 'candidate',
         isActive: true,
         createdAt: { $gte: thirtyDaysAgo }
       }),
 
-      // Last month stats for growth calculation
-      getLastMonthStats(user),
+      getLastMonthStats(user, employerIds, jobFilter, companyFilter),
     ]);
-
-    // Calculate growth percentages
-    const employerGrowth = lastMonthStats.totalEmployers > 0 
+    
+    // Growth percentages (Month-over-Month)
+    const employerGrowth = lastMonthStats.totalEmployers > 0
       ? Math.round(((totalEmployers - lastMonthStats.totalEmployers) / lastMonthStats.totalEmployers) * 100)
       : totalEmployers > 0 ? 100 : 0;
 
-    const jobGrowth = lastMonthStats.totalJobs > 0 
+    const jobGrowth = lastMonthStats.totalJobs > 0
       ? Math.round(((totalJobs - lastMonthStats.totalJobs) / lastMonthStats.totalJobs) * 100)
       : totalJobs > 0 ? 100 : 0;
 
-    const applicationGrowth = lastMonthStats.totalApplications > 0 
+    const applicationGrowth = lastMonthStats.totalApplications > 0
       ? Math.round(((totalApplications - lastMonthStats.totalApplications) / lastMonthStats.totalApplications) * 100)
       : totalApplications > 0 ? 100 : 0;
 
-    const candidateGrowth = lastMonthStats.totalCandidates > 0 
+    const candidateGrowth = lastMonthStats.totalCandidates > 0
       ? Math.round(((totalCandidates - lastMonthStats.totalCandidates) / lastMonthStats.totalCandidates) * 100)
       : totalCandidates > 0 ? 100 : 0;
 
+    // Industry-standard derived metrics
+
+    // 1. Average Applications per Job
+    // Real-world name: "Applications per Job Posting"
+    // Typical range: 20–80 for most roles (higher for entry-level)
+    const avgApplicationsPerJob = totalJobs > 0 
+      ? Number((totalApplications / totalJobs).toFixed(1))   // e.g. 37.4
+      : 0;
+
+    // 2. Open Jobs Rate (most honest & widely used)
+    // % of jobs still accepting applications (Published & not expired)
+    // Typical good range: 40–80%
+    const openJobsRate = totalJobs > 0 
+      ? Math.round((activeJobs / totalJobs) * 100) 
+      : 0;
+
+    // 3. Shortlist Conversion Rate
+    // Industry standard: % of applications that get shortlisted
+    // Typical range: 5–20% (higher for high-volume, lower for selective roles)
+    const shortlistConversionRate = totalApplications > 0 
+      ? Math.round((shortlistedApplications / totalApplications) * 100) 
+      : 0;
+
     const stats = {
-      // User counts
+      // Core counts
       totalEmployers,
       totalCandidates,
       newCandidates: recentCandidates,
-      
-      // Company/Job counts
+
       activeCompanies,
       totalJobs,
       activeJobs,
-      
-      // Application counts
+
       totalApplications,
       recentApplications,
-      
-      // Growth percentages
+      shortlistedApplications,
+
+      // Growth rates (MoM)
       employerGrowth,
       jobGrowth,
       applicationGrowth,
       candidateGrowth,
-      
-      // Additional metrics
-      averageApplicationsPerJob: totalJobs > 0 ? Math.round(totalApplications / totalJobs) : 0,
-      jobFillRate: totalJobs > 0 ? Math.round((totalApplications / (totalJobs * 10)) * 100) : 0, // Assuming 10 positions per job avg
-      conversionRate: totalApplications > 0 ? Math.round((recentApplications / totalApplications) * 100) : 0,
-      
-      // Metadata
+
+      // Industry-standard derived metrics
+      avgApplicationsPerJob,
+      openJobsRate,
+      shortlistConversionRate,
+
+      // Scope info
       scope: user.role === 'hr-admin' ? 'assigned-employers' : 'platform-wide',
-      assignedEmployerCount: user.role === 'hr-admin' ? (user.employerIds?.length || 0) : null,
-      lastUpdated: new Date(),
+      assignedEmployerCount: user.role === 'hr-admin' ? employerIds.length : null,
+      lastUpdated: new Date().toISOString(),
     };
 
-    return res.status(200).json({
-      success: true,
-      stats,
-    });
+    return res.status(200).json({ success: true, stats });
   } catch (error) {
     next(error);
   }
@@ -295,228 +354,357 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
  * @access Private (HR-Admin, Superadmin)
  */
 hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
-  try {
-    const user = req.user;
-    const { period = 'monthly', limit = 10 } = req.query;
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    try {
+        const user = req.user;
+        const { period = 'monthly', limit = 10, months = 6 } = req.query;
 
-    let jobMatch = {};
+        // Calculate start date based on months parameter
+        const startDate = new Date();
+        startDate.setMonth(startDate.getMonth() - parseInt(months));
 
-    // For HR-Admin, filter by assigned employers
-    if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
-      jobMatch.employer = { $in: user.employerIds };
-    }
+        let jobMatch = {};
+        let applicationMatch = {};
 
-    // Get top performing jobs by applications
-    const topJobs = await JobPost.aggregate([
-      { $match: jobMatch },
-      {
-        $lookup: {
-          from: 'applications',
-          localField: '_id',
-          foreignField: 'jobPost',
-          as: 'applications',
-        },
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'employer',
-          foreignField: '_id',
-          as: 'employer',
-        },
-      },
-      { $unwind: '$employer' },
-      {
-        $lookup: {
-          from: 'companyprofiles',
-          localField: 'companyProfile',
-          foreignField: '_id',
-          as: 'company',
-        },
-      },
-      { $unwind: { path: '$company', preserveNullAndEmptyArrays: true } },
-      {
-        $project: {
-          title: 1,
-          status: 1,
-          location: 1,
-          jobType: 1,
-          offeredSalary: 1,
-          applicationDeadline: 1,
-          createdAt: 1,
-          totalApplications: { $size: '$applications' },
-          recentApplications: {
-            $size: {
-              $filter: {
-                input: '$applications',
-                as: 'app',
-                cond: { $gte: ['$$app.createdAt', thirtyDaysAgo] },
-              },
-            },
-          },
-          shortlistedCount: {
-            $size: {
-              $filter: {
-                input: '$applications',
-                as: 'app',
-                cond: { $eq: ['$$app.shortlisted', true] },
-              },
-            },
-          },
-          acceptanceRate: {
-            $cond: {
-              if: { $gt: [{ $size: '$applications' }, 0] },
-              then: {
-                $multiply: [
-                  {
-                    $divide: [
-                      {
-                        $size: {
-                          $filter: {
-                            input: '$applications',
-                            as: 'app',
-                            cond: { $eq: ['$$app.status', 'Accepted'] },
-                          },
-                        },
-                      },
-                      { $size: '$applications' },
-                    ],
-                  },
-                  100,
-                ],
-              },
-              else: 0,
-            },
-          },
-          employerName: '$employer.name',
-          companyName: '$company.companyName',
-          positionsRemaining: '$positions.remaining',
-          positionsTotal: '$positions.total',
-          fillPercentage: {
-            $cond: {
-              if: { $gt: ['$positions.total', 0] },
-              then: {
-                $multiply: [
-                  {
-                    $divide: [
-                      { $subtract: ['$positions.total', '$positions.remaining'] },
-                      '$positions.total',
-                    ],
-                  },
-                  100,
-                ],
-              },
-              else: 0,
-            },
-          },
-        },
-      },
-      { $sort: { totalApplications: -1 } },
-      { $limit: parseInt(limit) },
-    ]);
+        // For HR-Admin, filter by assigned employers
+        if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
+            jobMatch.employer = { $in: user.employerIds };
+            const assignedJobIds = await JobPost.find(jobMatch).distinct('_id');
+            applicationMatch.jobPost = { $in: assignedJobIds };
+        }
 
-    // Get job status distribution
-    const jobStatusDistribution = await JobPost.aggregate([
-      { $match: jobMatch },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 },
-          totalApplications: { $sum: '$applicantCount' },
-          avgApplications: { $avg: '$applicantCount' },
-        },
-      },
-      { $sort: { count: -1 } },
-    ]);
-
-    // console.log("testttttt", jobStatusDistribution);
-    
-
-    // Get job type distribution
-    // const jobTypeDistribution = await JobPost.aggregate([
-    //   { $match: jobMatch },
-    //   {
-    //     $group: {
-    //       _id: '$jobType',
-    //       count: { $sum: 1 },
-    //       avgSalary: { $avg: { $toDouble: { $substr: ['$offeredSalary', 1, 10] } } },
-    //     },
-    //   },
-    //   { $sort: { count: -1 } },
-    // ]);
-
-    const jobTypeDistribution = await JobPost.aggregate([
-        { $match: jobMatch },
-
-        // Extract numeric parts safely
-        {
-            $addFields: {
-            salaryNumbers: {
-                $regexFindAll: {
-                input: "$offeredSalary",
-                regex: /[0-9]+(\.[0-9]+)?/g
-                }
-            }
-            }
-        },
-
-        // Convert array → average salary (handles ranges)
-        {
-            $addFields: {
-            numericSalary: {
-                $cond: [
-                { $gt: [{ $size: "$salaryNumbers" }, 0] },
-                {
-                    $avg: {
-                    $map: {
-                        input: "$salaryNumbers",
-                        as: "s",
-                        in: { $toDouble: "$$s.match" }
-                    }
-                    }
+        // Get top performing jobs by applications
+        const topJobs = await JobPost.aggregate([
+            { $match: { ...jobMatch, createdAt: { $gte: startDate } } },
+            {
+                $lookup: {
+                    from: 'applications',
+                    localField: '_id',
+                    foreignField: 'jobPost',
+                    as: 'applications',
                 },
-                null
-                ]
-            }
-            }
-        },
-
-        // Group by job type
-        {
-            $group: {
-            _id: "$jobType",
-            count: { $sum: 1 },
-            avgSalary: { $avg: "$numericSalary" }
-            }
-        },
-
-        { $sort: { count: -1 } }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: 'employer',
+                    foreignField: '_id',
+                    as: 'employer',
+                },
+            },
+            { $unwind: '$employer' },
+            {
+                $lookup: {
+                    from: 'companyprofiles',
+                    localField: 'companyProfile',
+                    foreignField: '_id',
+                    as: 'company',
+                },
+            },
+            { $unwind: { path: '$company', preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    title: 1,
+                    status: 1,
+                    location: 1,
+                    jobType: 1,
+                    offeredSalary: 1,
+                    applicationDeadline: 1,
+                    createdAt: 1,
+                    totalApplications: { $size: '$applications' },
+                    recentApplications: {
+                        $size: {
+                            $filter: {
+                                input: '$applications',
+                                as: 'app',
+                                cond: { $gte: ['$$app.createdAt', startDate] }
+                            }
+                        }
+                    },
+                    shortlistedCount: {
+                        $size: {
+                            $filter: {
+                                input: '$applications',
+                                as: 'app',
+                                cond: { $eq: ['$$app.shortlisted', true] }
+                            }
+                        }
+                    },
+                    acceptedCount: {
+                        $size: {
+                            $filter: {
+                                input: '$applications',
+                                as: 'app',
+                                cond: { $eq: ['$$app.status', 'Accepted'] }
+                            }
+                        }
+                    },
+                    // Safe acceptanceRate – never divide by zero
+                    acceptanceRate: {
+                        $cond: {
+                            if: { $gt: [{ $size: '$applications' }, 0] },
+                            then: {
+                                $round: [
+                                    {
+                                        $multiply: [
+                                            {
+                                                $divide: [
+                                                    {
+                                                        $size: {
+                                                            $filter: {
+                                                                input: '$applications',
+                                                                as: 'app',
+                                                                cond: { $eq: ['$$app.status', 'Accepted'] }
+                                                            }
+                                                        }
+                                                    },
+                                                    { $size: '$applications' }
+                                                ]
+                                            },
+                                            100
+                                        ]
+                                    },
+                                    1
+                                ]
+                            },
+                            else: 0
+                        }
+                    },
+                    employerName: '$employer.name',
+                    companyName: { $ifNull: ['$company.companyName', 'N/A'] },
+                    positionsRemaining: { $ifNull: ['$positions.remaining', 0] },
+                    positionsTotal: { $ifNull: ['$positions.total', 0] },
+                    // Safe fillPercentage
+                    fillPercentage: {
+                        $cond: {
+                            if: { $gt: [{ $ifNull: ['$positions.total', 0] }, 0] },
+                            then: {
+                                $round: [
+                                    {
+                                        $multiply: [
+                                            {
+                                                $divide: [
+                                                    { $subtract: [{ $ifNull: ['$positions.total', 0] }, { $ifNull: ['$positions.remaining', 0] }] },
+                                                    { $ifNull: ['$positions.total', 0] }
+                                                ]
+                                            },
+                                            100
+                                        ]
+                                    },
+                                    1
+                                ]
+                            },
+                            else: 0
+                        }
+                    },
+                    // Safe viewsPerApplication
+                    viewsPerApplication: {
+                        $cond: {
+                            if: {
+                                $and: [
+                                    { $gt: [{ $ifNull: ['$profileViews', 0] }, 0] },
+                                    { $gt: [{ $size: '$applications' }, 0] }
+                                ]
+                            },
+                            then: {
+                                $round: [
+                                    { $divide: [{ $ifNull: ['$profileViews', 0] }, { $size: '$applications' }] },
+                                    1
+                                ]
+                            },
+                            else: 0
+                        }
+                    },
+                    // Safe timeToFirstApplication (in days)
+                    timeToFirstApplication: {
+                        $cond: {
+                            if: { $gt: [{ $size: '$applications' }, 0] },
+                            then: {
+                                $round: [
+                                    {
+                                        $divide: [
+                                            {
+                                                $min: {
+                                                    $map: {
+                                                        input: '$applications',
+                                                        as: 'app',
+                                                        in: { $subtract: ['$$app.createdAt', '$createdAt'] }
+                                                    }
+                                                }
+                                            },
+                                            1000 * 60 * 60 * 24
+                                        ]
+                                    },
+                                    0
+                                ]
+                            },
+                            else: null
+                        }
+                    },
+                    // Safe timeToFill (in days)
+                    timeToFill: {
+                        $cond: {
+                            if: { $eq: [{ $ifNull: ['$positions.remaining', 0] }, 0] },
+                            then: {
+                                $round: [
+                                    {
+                                        $divide: [
+                                            { $subtract: ['$updatedAt', '$createdAt'] },
+                                            1000 * 60 * 60 * 24
+                                        ]
+                                    },
+                                    0
+                                ]
+                            },
+                            else: null
+                        }
+                    }
+                }
+            },
+            { $sort: { totalApplications: -1 } },
+            { $limit: parseInt(limit) },
         ]);
 
+        // Format time metrics (convert ms to days)
+        const formattedTopJobs = topJobs.map(job => ({
+            ...job,
+            timeToFirstApplication: job.timeToFirstApplication
+                ? Math.round(job.timeToFirstApplication / (1000 * 60 * 60 * 24))  // ms to days
+                : null,
+            timeToFill: job.timeToFill
+                ? Math.round(job.timeToFill / (1000 * 60 * 60 * 24))
+                : null,
+        }));
 
-    // Calculate overall metrics
-    const totalJobs = await JobPost.countDocuments(jobMatch);
-    const totalApplications = await Application.countDocuments();
-    const avgApplicationsPerJob = totalJobs > 0 ? Math.round(totalApplications / totalJobs) : 0;
+        // Get job status distribution
+        const jobStatusDistribution = await JobPost.aggregate([
+            { $match: { ...jobMatch, createdAt: { $gte: startDate } } },
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 },
+                    totalApplications: { $sum: '$applicantCount' },
+                    avgApplications: { $avg: '$applicantCount' },
+                    avgFillRate: { $avg: { $subtract: ['$positions.total', '$positions.remaining'] } },
+                },
+            },
+            { $sort: { count: -1 } },
+        ]);
 
-    return res.status(200).json({
-      success: true,
-      topJobs,
-      jobStatusDistribution,
-      jobTypeDistribution,
-      metrics: {
-        totalJobs,
-        totalApplications,
-        avgApplicationsPerJob,
-        avgTimeToFill: 14, // Hardcoded for now, could calculate from job post to closure
-        avgAcceptanceRate: calculateAverageAcceptanceRate(topJobs),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
+        // Get job type distribution
+        const jobTypeDistribution = await JobPost.aggregate([
+            { $match: { ...jobMatch, createdAt: { $gte: startDate } } },
+            // Extract salary numbers
+            {
+                $addFields: {
+                    salaryNumbers: {
+                        $regexFindAll: {
+                            input: '$offeredSalary',
+                            regex: /[0-9]+(\.[0-9]+)?/g,
+                        },
+                    },
+                },
+            },
+            // Calculate average salary number
+            {
+                $addFields: {
+                    numericSalary: {
+                        $cond: [
+                            { $gt: [{ $size: '$salaryNumbers' }, 0] },
+                            {
+                                $avg: {
+                                    $map: {
+                                        input: '$salaryNumbers',
+                                        as: 's',
+                                        in: { $toDouble: '$$s.match' },
+                                    },
+                                },
+                            },
+                            null,
+                        ],
+                    },
+                },
+            },
+            // Group
+            {
+                $group: {
+                    _id: '$jobType',
+                    count: { $sum: 1 },
+                    avgSalary: { $avg: '$numericSalary' },
+                    totalApplications: { $sum: '$applicantCount' },
+                    avgApplications: { $avg: '$applicantCount' },
+                },
+            },
+            { $sort: { count: -1 } },
+        ]);
+
+        // Calculate overall metrics
+        const totalJobs = await JobPost.countDocuments({ ...jobMatch, createdAt: { $gte: startDate } });
+        const totalApplications = await Application.aggregate([
+            { $match: applicationMatch },
+            { $count: 'total' },
+        ]).then(r => r[0]?.total || 0);
+
+        const avgApplicationsPerJob = totalJobs > 0 ? Math.round(totalApplications / totalJobs) : 0;
+
+        const timeToFillStats = await JobPost.aggregate([
+            {
+                $match: {
+                    ...jobMatch,
+                    status: 'Closed',
+                    createdAt: { $gte: startDate },
+                    updatedAt: { $exists: true },     // safety: skip jobs without updatedAt
+                }
+            },
+            {
+                $project: {
+                    daysToFill: {
+                        $cond: {
+                            if: { $gt: ['$updatedAt', '$createdAt'] },
+                            then: {
+                                $divide: [{ $subtract: ['$updatedAt', '$createdAt'] }, 1000 * 60 * 60 * 24]
+                            },
+                            else: null
+                        }
+                    }
+                }
+            },
+            {
+                $match: { daysToFill: { $ne: null } }   // remove invalid entries
+            },
+            {
+                $group: {
+                    _id: null,
+                    avgTimeToFill: { $avg: '$daysToFill' },
+                    medianTimeToFill: {
+                        $median: {
+                            input: '$daysToFill',
+                            method: "approximate"         
+                        }
+                    },
+                    countFilled: { $sum: 1 }
+                }
+            }
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            period,
+            months: parseInt(months),
+            topJobs: formattedTopJobs,
+            jobStatusDistribution,
+            jobTypeDistribution,
+            metrics: {
+                totalJobs,
+                totalApplications,
+                avgApplicationsPerJob,
+                avgTimeToFill: timeToFillStats[0]?.avgTimeToFill ? Math.round(timeToFillStats[0].avgTimeToFill) : 0,
+                medianTimeToFill: timeToFillStats[0]?.medianTimeToFill ? Math.round(timeToFillStats[0].medianTimeToFill) : 0,
+                avgAcceptanceRate: calculateAverageAcceptanceRate(topJobs),
+            },
+        });
+    } catch (error) {
+        next(error);
+    }
 };
 
 /**
@@ -548,8 +736,6 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
 
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - parseInt(months));
-
-
 
     // Get application trends by period
     const trends = await Application.aggregate([
@@ -600,71 +786,59 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
     }));
 
     // Get top employers by applications
-    const topEmployers = await Application.aggregate([
+   // Top employers – improved
+    const topEmployersPipeline = [
+      { $match: { ...applicationMatch, createdAt: { $gte: startDate } } },
       {
-        $match: {
-          createdAt: { $gte: startDate },
-          ...applicationMatch,
-        },
-      },
-      {
-        $lookup: {
-          from: 'jobposts',
-          localField: 'jobPost',
-          foreignField: '_id',
-          as: 'job',
-        },
+        $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'job' },
       },
       { $unwind: '$job' },
       {
-        $lookup: {
-          from: 'users',
-          localField: 'job.employer',
-          foreignField: '_id',
-          as: 'employer',
+        $group: {
+          _id: '$job.employer',
+          totalApplications: { $sum: 1 },
+          shortlisted: { $sum: { $cond: [{ $eq: ['$shortlisted', true] }, 1, 0] } },
+          accepted: { $sum: { $cond: [{ $eq: ['$status', 'Accepted'] }, 1, 0] } },
+          lastActivity: { $max: '$createdAt' },
         },
+      },
+      {
+        $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'employer' },
       },
       { $unwind: '$employer' },
       {
-        $lookup: {
-          from: 'companyprofiles',
-          localField: 'job.employer',
-          foreignField: 'employer',
-          as: 'company',
-        },
+        $lookup: { from: 'companyprofiles', localField: '_id', foreignField: 'employer', as: 'company' },
       },
       { $unwind: { path: '$company', preserveNullAndEmptyArrays: true } },
       {
-        $group: {
-          _id: '$job.employer',
-          employerName: { $first: '$employer.name' },
-          companyName: { $first: '$company.companyName' },
-          totalApplications: { $sum: 1 },
-          acceptedApplications: {
-            $sum: { $cond: [{ $eq: ['$status', 'Accepted'] }, 1, 0] },
+        $project: {
+          employerId: '$_id',
+          employerName: '$employer.name',
+          companyName: { $ifNull: ['$company.companyName', 'N/A'] },
+          totalApplications: 1,
+          shortlistRate: { $cond: [{ $gt: ['$totalApplications', 0] }, { $round: [{ $multiply: [{ $divide: ['$shortlisted', '$totalApplications'] }, 100] }, 1] }, 0] },
+          acceptanceRate: { $cond: [{ $gt: ['$totalApplications', 0] }, { $round: [{ $multiply: [{ $divide: ['$accepted', '$totalApplications'] }, 100] }, 1] }, 0] },
+          daysSinceLastActivity: {
+            $round: [{ $divide: [{ $subtract: [new Date(), '$lastActivity'] }, 1000 * 60 * 60 * 24] }, 0],
           },
-          avgTimeToResponse: { $avg: { $subtract: ['$updatedAt', '$createdAt'] } },
         },
       },
       { $sort: { totalApplications: -1 } },
       { $limit: 5 },
-    ]);
+    ];
 
-    // Format top employers
-    const formattedTopEmployers = topEmployers.map(employer => ({
-      employerId: employer._id,
-      employerName: employer.employerName,
-      companyName: employer.companyName || 'N/A',
-      totalApplications: employer.totalApplications,
-      acceptanceRate: employer.totalApplications > 0 
-        ? Math.round((employer.acceptedApplications / employer.totalApplications) * 100)
-        : 0,
-      avgResponseTime: employer.avgTimeToResponse 
-        ? Math.round(employer.avgTimeToResponse / (1000 * 60 * 60 * 24)) // Convert to days
-        : 0,
+    const topEmployers = await Application.aggregate(topEmployersPipeline);
+
+    // Format top employers data
+    const formattedTopEmployers = topEmployers.map(item => ({
+      employerId: item.employerId,
+      employerName: item.employerName,
+      companyName: item.companyName,
+      totalApplications: item.totalApplications,
+      shortlistRate: item.shortlistRate,
+      acceptanceRate: item.acceptanceRate,
+      daysSinceLastActivity: item.daysSinceLastActivity,
     }));
-
-    
 
     return res.status(200).json({
       success: true,
@@ -689,12 +863,11 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
  */
 hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
   try {
-    const user = req.user;
     const { days = 30 } = req.query;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - parseInt(days));
 
-    // Get candidate registration trends
+    // 1. Registration trends (daily)
     const registrationTrends = await User.aggregate([
       {
         $match: {
@@ -714,181 +887,139 @@ hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
         },
       },
       { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
-      { $limit: parseInt(days) },
     ]);
 
-    // Get candidate profile completion stats
+    // 2. Profile completion stats (improved – no profileCompletion field needed)
     const profileStats = await CandidateProfile.aggregate([
-    {
-        $lookup: {
-        from: 'users',
-        localField: 'candidate',
-        foreignField: '_id',
-        as: 'user',
-        },
-    },
-    { $unwind: '$user' },
-    {
+      {
         $group: {
-        _id: null,
-        totalCandidates: { $sum: 1 },
-
-        withResume: {
+          _id: null,
+          totalProfiles: { $sum: 1 },
+          withResume: {
+            $sum: { $cond: [{ $ne: ['$resume', null] }, 1, 0] },
+          },
+          withPhoto: {
+            $sum: { $cond: [{ $ne: ['$profilePhoto', null] }, 1, 0] },
+          },
+          withSkills: {
             $sum: {
-            $cond: [{ $ne: ['$resume', null] }, 1, 0],
-            },
-        },
-
-        withPhoto: {
-            $sum: {
-            $cond: [{ $ne: ['$profilePhoto', null] }, 1, 0],
-            },
-        },
-
-        // ✅ SAFE SKILLS CHECK (array OR missing)
-        withSkills: {
-            $sum: {
-            $cond: [
-                {
-                $and: [
-                    { $isArray: '$skills' },
-                    { $gt: [{ $size: '$skills' }, 0] },
-                ],
-                },
+              $cond: [
+                { $and: [{ $isArray: '$skills' }, { $gt: [{ $size: '$skills' }, 0] }] },
                 1,
                 0,
-            ],
-            },
-        },
-
-        // ✅ EXPERIENCE IS STRING → check not null & not empty
-        withExperience: {
-            $sum: {
-            $cond: [
-                {
-                $and: [
-                    { $ne: ['$experience', null] },
-                    { $ne: ['$experience', ''] },
-                ],
-                },
-                1,
-                0,
-            ],
-            },
-        },
-
-        avgProfileCompletion: {
-            $avg: { $ifNull: ['$profileCompletion', 0] },
-        },
-        },
-    },
-    ]);
-
-
-
-    console.log("testtt", profileStats);
-    
-
-    // Get top candidate skills in demand
-    const topSkills = await CandidateProfile.aggregate([
-    {
-        $match: {
-        skills: { $exists: true, $type: 'array', $ne: [] },
-        },
-    },
-    { $unwind: '$skills' },
-    {
-        $group: {
-        _id: '$skills',
-        count: { $sum: 1 },
-        },
-    },
-    { $sort: { count: -1 } },
-    { $limit: 10 },
-    ]);
-
-
-    // Get candidate application behavior
-    const applicationBehavior = await Application.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: startDate },
-        },
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'candidate',
-          foreignField: '_id',
-          as: 'candidate',
-        },
-      },
-      { $unwind: '$candidate' },
-      {
-        $group: {
-          _id: '$candidate._id',
-          totalApplications: { $sum: 1 },
-          avgResponseTime: { $avg: { $subtract: ['$updatedAt', '$createdAt'] } },
-          acceptanceRate: {
-            $avg: {
-              $cond: [{ $eq: ['$status', 'Accepted'] }, 1, 0],
+              ],
             },
           },
+          withExperience: {
+            $sum: {
+              $cond: [{ $and: [{ $ne: ['$experience', null] }, { $ne: ['$experience', ''] }] }, 1, 0],
+            },
+          },
+          withLocation: {
+            $sum: { $cond: [{ $ne: ['$location.city', null] }, 1, 0] },
+          },
+          // ────────────────────────────────────────────────
+          // Calculate average profile completion percentage
+          // Each field contributes 20% → total 100%
+          // ────────────────────────────────────────────────
+          avgCompletionPercentage: {
+            $avg: {
+              $add: [
+                { $cond: [{ $ne: ['$resume', null] }, 20, 0] },           // 20% for resume
+                { $cond: [{ $ne: ['$profilePhoto', null] }, 20, 0] },     // 20% for photo
+                { $cond: [{ $and: [{ $isArray: '$skills' }, { $gt: [{ $size: '$skills' }, 0] }] }, 20, 0] },  // 20% for skills
+                { $cond: [{ $and: [{ $ne: ['$experience', null] }, { $ne: ['$experience', ''] }] }, 20, 0] }, // 20% for experience
+                { $cond: [{ $ne: ['$location.city', null] }, 20, 0] }     // 20% for location
+              ]
+            }
+          },
+        },
+      },
+    ]);
+
+    // 3. Top 10 skills
+    const topSkills = await CandidateProfile.aggregate([
+      { $match: { skills: { $exists: true, $type: 'array', $ne: [] } } },
+      { $unwind: '$skills' },
+      { $group: { _id: '$skills', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+    ]);
+
+
+    // 4. Application behavior
+    const applicationBehavior = await Application.aggregate([
+      { $match: { createdAt: { $gte: startDate } } },
+      {
+        $group: {
+          _id: '$candidate',
+          totalApplications: { $sum: 1 },
+          firstApplication: { $min: '$createdAt' },
+          lastApplication: { $max: '$createdAt' },
         },
       },
       {
         $group: {
           _id: null,
+          totalActiveCandidates: { $sum: 1 },
           avgApplicationsPerCandidate: { $avg: '$totalApplications' },
-          candidatesWithMultipleApplications: {
+          candidatesWithMultipleApps: {
             $sum: { $cond: [{ $gt: ['$totalApplications', 1] }, 1, 0] },
           },
-          totalActiveCandidates: { $sum: 1 },
+          avgDaysBetweenApps: {
+            $avg: {
+              $cond: [
+                { $gt: ['$totalApplications', 1] },
+                { $divide: [{ $subtract: ['$lastApplication', '$firstApplication'] }, 1000 * 60 * 60 * 24] },
+                0,
+              ],
+            },
+          },
         },
       },
     ]);
 
-    // Format response
-    const formattedRegistrationTrends = registrationTrends.map(item => ({
-      date: `${item._id.year}-${String(item._id.month).padStart(2, '0')}-${String(item._id.day).padStart(2, '0')}`,
-      registrations: item.count,
-    }));
-
-    const profileCompletion = profileStats[0] || {
-      totalCandidates: 0,
+    const stats = profileStats[0] || {
+      totalProfiles: 0,
       withResume: 0,
       withPhoto: 0,
       withSkills: 0,
       withExperience: 0,
-      avgProfileCompletion: 0,
+      withLocation: 0,
     };
 
-    const behaviorStats = applicationBehavior[0] || {
-      avgApplicationsPerCandidate: 0,
-      candidatesWithMultipleApplications: 0,
+    const behavior = applicationBehavior[0] || {
       totalActiveCandidates: 0,
+      avgApplicationsPerCandidate: 0,
+      candidatesWithMultipleApps: 0,
+      avgDaysBetweenApps: 0,
     };
 
     return res.status(200).json({
       success: true,
-      registrationTrends: formattedRegistrationTrends,
-      profileCompletion: {
-        totalCandidates: profileCompletion.totalCandidates,
-        resumeUploadRate: Math.round((profileCompletion.withResume / profileCompletion.totalCandidates) * 100) || 0,
-        photoUploadRate: Math.round((profileCompletion.withPhoto / profileCompletion.totalCandidates) * 100) || 0,
-        skillsAddedRate: Math.round((profileCompletion.withSkills / profileCompletion.totalCandidates) * 100) || 0,
-        experienceAddedRate: Math.round((profileCompletion.withExperience / profileCompletion.totalCandidates) * 100) || 0,
-        avgCompletionPercentage: Math.round(profileCompletion.avgProfileCompletion) || 0,
-      },
-      topSkills,
-      applicationBehavior: {
-        avgApplicationsPerCandidate: Math.round(behaviorStats.avgApplicationsPerCandidate * 100) / 100,
-        candidatesWithMultipleApplications: behaviorStats.candidatesWithMultipleApplications,
-        activeCandidatesPercentage: profileCompletion.totalCandidates > 0 
-          ? Math.round((behaviorStats.totalActiveCandidates / profileCompletion.totalCandidates) * 100)
-          : 0,
-      },
       periodDays: parseInt(days),
+      registrationTrends: registrationTrends.map(t => ({
+        date: `${t._id.year}-${String(t._id.month).padStart(2, '0')}-${String(t._id.day).padStart(2, '0')}`,
+        registrations: t.count,
+      })),
+      profileCompletion: {
+        totalProfiles: stats.totalProfiles,
+        resumeUploadRate: stats.totalProfiles ? Math.round((stats.withResume / stats.totalProfiles) * 100) : 0,
+        photoUploadRate: stats.totalProfiles ? Math.round((stats.withPhoto / stats.totalProfiles) * 100) : 0,
+        skillsAddedRate: stats.totalProfiles ? Math.round((stats.withSkills / stats.totalProfiles) * 100) : 0,
+        experienceAddedRate: stats.totalProfiles ? Math.round((stats.withExperience / stats.totalProfiles) * 100) : 0,
+        locationAddedRate: stats.totalProfiles ? Math.round((stats.withLocation / stats.totalProfiles) * 100) : 0,
+        avgCompletionPercentage: Math.round(stats.avgCompletionPercentage) || 0,    
+      },
+      topSkills: topSkills.map(s => ({ skill: s._id, count: s.count })),
+      applicationBehavior: {
+        totalActiveCandidates: behavior.totalActiveCandidates,
+        avgApplicationsPerCandidate: Number(behavior.avgApplicationsPerCandidate.toFixed(1)),
+        multipleApplicationRate: behavior.totalActiveCandidates
+          ? Math.round((behavior.candidatesWithMultipleApps / behavior.totalActiveCandidates) * 100)
+          : 0,
+        avgDaysBetweenApplications: Number(behavior.avgDaysBetweenApps.toFixed(1)),
+      },
     });
   } catch (error) {
     next(error);
@@ -1015,25 +1146,18 @@ hrAdminDashboardController.getRevenueMetrics = async (req, res, next) => {
           // Assuming revenue calculation based on job type/level
           estimatedRevenue: {
             $sum: {
-              $switch: {
+                $switch: {
                 branches: [
-                  {
-                    case: { $eq: ['$jobType', 'Full-time'] },
-                    then: 1000,
-                  },
-                  {
-                    case: { $eq: ['$jobType', 'Part-time'] },
-                    then: 500,
-                  },
-                  {
-                    case: { $eq: ['$jobType', 'Contract'] },
-                    then: 300,
-                  },
+                    { case: { $eq: ['$jobType', 'Full-time'] },   then: 3500 },
+                    { case: { $eq: ['$jobType', 'Part-time'] },   then: 1800 },
+                    { case: { $eq: ['$jobType', 'Contract'] },    then: 2500 },
+                    { case: { $eq: ['$jobType', 'Freelance'] },   then: 1200 },
+                    { case: { $eq: ['$jobType', 'Internship'] },  then: 800  },
                 ],
-                default: 200,
-              },
-            },
-          },
+                default: 2000,
+                }
+            }
+         },
         },
       },
       { $sort: { '_id.year': 1, '_id.month': 1 } },
@@ -1126,21 +1250,11 @@ hrAdminDashboardController.getRevenueMetrics = async (req, res, next) => {
   }
 };
 
-// Helper functions
-async function getLastMonthStats(user) {
+
+// Helper: Last month's baseline stats for growth calculation
+async function getLastMonthStats(user, employerIds, jobFilter, companyFilter) {
   const lastMonth = new Date();
   lastMonth.setMonth(lastMonth.getMonth() - 1);
-  
-  let employerMatch = {};
-  let jobMatch = {};
-
-  if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
-    employerMatch._id = { $in: user.employerIds };
-    jobMatch.employer = { $in: user.employerIds };
-  }
-
-  const twoMonthsAgo = new Date(lastMonth);
-  twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 1);
 
   const [
     totalEmployers,
@@ -1148,30 +1262,23 @@ async function getLastMonthStats(user) {
     totalApplications,
     totalCandidates,
   ] = await Promise.all([
-    User.countDocuments({ 
-      role: 'employer', 
-      isActive: true,
-      createdAt: { $lt: lastMonth },
-      ...employerMatch 
-    }),
-    JobPost.countDocuments({ 
-      createdAt: { $lt: lastMonth },
-      ...jobMatch 
-    }),
-    Application.countDocuments({ createdAt: { $lt: lastMonth } }),
-    User.countDocuments({ 
-      role: 'candidate', 
-      isActive: true,
-      createdAt: { $lt: lastMonth } 
-    }),
+    user.role === 'hr-admin' 
+      ? employerIds.length 
+      : User.countDocuments({ role: 'employer', isActive: true, createdAt: { $lt: lastMonth } }),
+
+    JobPost.countDocuments({ createdAt: { $lt: lastMonth }, ...jobFilter }),
+
+    Application.aggregate([
+      { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'job' } },
+      { $unwind: '$job' },
+      { $match: { ...jobFilter, createdAt: { $lt: lastMonth } } },
+      { $count: 'total' }
+    ]).then(r => r[0]?.total || 0),
+
+    User.countDocuments({ role: 'candidate', isActive: true, createdAt: { $lt: lastMonth } }),
   ]);
 
-  return {
-    totalEmployers,
-    totalJobs,
-    totalApplications,
-    totalCandidates,
-  };
+  return { totalEmployers, totalJobs, totalApplications, totalCandidates };
 }
 
 function calculateAverageAcceptanceRate(jobs) {
