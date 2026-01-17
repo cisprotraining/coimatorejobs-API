@@ -198,6 +198,61 @@ employerController.createCompanyProfile = async (req, res, next) => {
   }
 };
 
+/**
+ * Get all pending company profiles
+ * Accessible by HR-Admin and Superadmin
+ *
+ * HR-Admin:
+ *  - Sees only company profiles created by employers assigned to them
+ *
+ * Superadmin:
+ *  - Sees all pending company profiles
+ */
+employerController.getPendingCompanyProfiles = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+
+    // Base filter: only pending profiles
+    const filter = {
+      status: 'pending',
+    };
+
+    // Optional future: restrict HR-Admin to assigned employers
+    // const user = req.user;
+    // if (user.role === 'hr-admin') {
+    //   if (!user.employerIds || user.employerIds.length === 0) {
+    //     return res.status(200).json({ success: true, profiles: [], pagination: { ... } });
+    //   }
+    //   filter.employer = { $in: user.employerIds };
+    // }
+
+    // Fetch pending company profiles
+    const profiles = await CompanyProfile.find(filter)
+      .populate('employer', 'name email')     // ref: 'User'
+      .populate('createdBy', 'name email')    // ref: 'User'
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * Number(limit))
+      .limit(Number(limit))
+      .select('-__v');
+
+    // Total count for pagination
+    const total = await CompanyProfile.countDocuments(filter);
+
+    return res.status(200).json({
+      success: true,
+      profiles,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / limit),
+        total,
+        limit: Number(limit),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 /**
  * Get all company profiles (Admin / Superadmin)

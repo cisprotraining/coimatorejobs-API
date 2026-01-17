@@ -482,6 +482,7 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
       resume: app.resume,
       applicationId: app._id,
       jobTitle: app.jobPost?.title || 'N/A',
+      candidateProfileId: app.candidateProfile?._id || null,
       employerId: app.jobPost?.employer,
     }));
 

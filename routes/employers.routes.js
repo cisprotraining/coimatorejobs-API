@@ -28,8 +28,11 @@ employerRouter.get('/company-profile/get/:id', authenticate, authorize(['employe
 // Get company profiles for logged-in employer
 employerRouter.get('/company-profile/my-profiles', authenticate, authorize(['employer']), employerController.getCompanyProfilesForEmployer);
 
-// Get all company profiles
+// Give approval to company profile
 employerRouter.put( '/company-profile/approve/:id', authenticate, authorize(['hr-admin', 'superadmin']),employerController.approveCompanyProfile);
+
+// List pending company profiles
+employerRouter.get('/company-profile/pending', authenticate, authorize(['hr-admin', 'superadmin']), employerController.getPendingCompanyProfiles);
 
 // Delete company profile
 employerRouter.delete('/company-profile/delete/:id',authenticate,authorizeEmployerLike(),employerController.deleteCompanyProfile);
