@@ -215,7 +215,7 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
 hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
   try {
     const user = req.user;
-    console.log("user in assigned employers:", user);
+    // console.log("user in assigned employers:", user);
     const { limit = 10, page = 1 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -289,8 +289,19 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
           email: 1,
           createdAt: 1,
           lastLoginAt: 1,
+          companyProfileId: '$companyProfile._id',
           companyName: '$companyProfile.companyName',
           companyStatus: '$companyProfile.status',
+
+        // Job post IDs (NEW)
+        jobPostIds: {
+        $map: {
+            input: '$jobs',
+            as: 'job',
+            in: '$$job._id',
+        },
+        },
+
           totalJobs: { $size: '$jobs' },
           activeJobs: {
             $size: {
@@ -306,6 +317,23 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
               },
             },
           },
+
+           //  Applications (NEW)
+            applications: {
+            $map: {
+                input: '$applications',
+                as: 'app',
+                in: {
+                applicationId: '$$app._id',
+                jobPostId: '$$app.jobPost',
+                candidateId: '$$app.candidate',
+                candidateProfileId: '$$app.candidateProfile',
+                status: '$$app.status',
+                createdAt: '$$app.createdAt',
+                },
+            },
+            },
+
           totalApplications: { $size: '$applications' },
           pendingApplications: {
             $size: {
