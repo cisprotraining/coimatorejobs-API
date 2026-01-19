@@ -201,25 +201,7 @@ authentication.getAssignedUsers = async (req, res, next) => {
  
     // HR-ADMIN → ONLY ASSIGNED USERS
     if (loggedInUser.role === 'hr-admin') {
-      const ids = [];
- 
-      if (roleFilter.includes('employer')) {
-        ids.push(...(loggedInUser.employerIds || []));
-      }
-      if (roleFilter.includes('candidate')) {
-        ids.push(...(loggedInUser.candidateIds || []));
-      }
- 
-      // IMPORTANT guard
-      if (!ids.length) {
-        return res.status(200).json({
-          success: true,
-          count: 0,
-          data: []
-        });
-      }
- 
-      query._id = { $in: ids };
+      query.createdBy = loggedInUser.id; 
     }
  
     // SUPERADMIN → sees all
@@ -493,9 +475,9 @@ authentication.getUsersByRole = async (req, res, next) => {
      * HR-ADMIN RULE:
      * Show only users assigned to this HR-admin
      */
-    if (loggedInUser.role === 'hr-admin') {
-      query.createdBy = loggedInUser.id; 
-    }
+    // if (loggedInUser.role === 'hr-admin') {
+    //   query.createdBy = loggedInUser.id; 
+    // }
 
     /**
      * SUPERADMIN:
@@ -653,7 +635,7 @@ authentication.googleLogin = async (req, res, next) => {
                 email: email,
                 password: hashedPassword,
                 role: role || 'candidate', // Uses the role from the frontend tab
-                status: 'approved',        // Auto-approve verified Google users
+                status: 'pending',        // Auto-approve verified Google users changed to pending
                 isActive: true,
                 isDeleted: false
             });
