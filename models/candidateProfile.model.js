@@ -10,6 +10,11 @@ const candidateProfileSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
   fullName: {
     type: String,
     required: [true, 'Full name is required'],
@@ -77,6 +82,29 @@ const candidateProfileSchema = new mongoose.Schema({
   allowInSearch: {
     type: Boolean,
     default: true,
+  },
+  // Approval status from hr-admin or superadmin
+  status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending',
+    index: true
+  },
+  // Approval status from hr-admin or superadmin
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'users',
+    default: null
+  },
+  // timstamp of when the profile was approved
+  approvedAt: {
+    type: Date,
+    default: null
+  },
+  // rejection reason from hr-admin or superadmin
+  rejectionReason: {
+    type: String,
+    trim: true
   },
   description: {
     type: String,

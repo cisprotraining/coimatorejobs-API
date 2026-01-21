@@ -14,10 +14,10 @@ const candidateRouter = Router();
 candidateRouter.get('/profile/fetch-all', candidateController.getAllCandidateProfiles);
 
 // Create candidate profile (with file upload)
-candidateRouter.post('/profile/create', authenticate, authorize(['candidate']), candidateUpload, normalizeBody, candidateController.createCandidateProfile);
+candidateRouter.post('/profile/create', authenticate, authorize(['candidate', 'hr-admin', 'superadmin']), candidateUpload, normalizeBody, candidateController.createCandidateProfile);
 
 // Update candidate profile (with file upload)
-candidateRouter.put('/profile/update/:id', authenticate, authorize(['candidate','hr-admin', 'employer', 'superadmin']), candidateUpload, normalizeBody, candidateController.updateCandidateProfile);
+candidateRouter.put('/profile/update/:id', authenticate, authorize(['candidate','hr-admin', 'superadmin']), candidateUpload, normalizeBody, candidateController.updateCandidateProfile);
 
 // Get single candidate profile
 candidateRouter.get('/profile/get/:id', authenticate, authorize(['candidate', 'employer', 'hr-admin', 'superadmin']),trackCandidateView, candidateController.getCandidateProfile);
@@ -29,6 +29,13 @@ candidateRouter.get('/profile/my-profiles', authenticate, authorize(['candidate'
 candidateRouter.delete('/profile/delete/:id', authenticate, authorize(['candidate', 'superadmin']), candidateController.deleteCandidateProfile);
 
 candidateRouter.get( '/candidate-profile/assigned', authenticate, authorize(['hr-admin', 'superadmin']), candidateController.getAssignedCandidateProfiles);
+
+
+// Give approval to candidate profile
+candidateRouter.put( '/candidate-profile/approve/:id', authenticate, authorize(['hr-admin', 'superadmin']),candidateController.approveCandidateProfile);
+
+// List pending company profiles
+candidateRouter.get('/candidate-profile/pending', authenticate, authorize(['hr-admin', 'superadmin']), candidateController.getPendingCandidateProfiles);
 
 
 // View all job posts (public for candidates)

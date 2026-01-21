@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import CandidateProfile from "../models/candidateProfile.model.js";
+import User from '../models/user.model.js';
 import JobPost from '../models/jobs.model.js';
 import JobApply from "../models/jobApply.model.js";
 import SavedJob from '../models/savedJob.model.js';
@@ -35,62 +36,176 @@ candidateController.getAllCandidateProfiles = async (req, res, next) => {
  * @param {Object} res - Response object to send back the result
  * @param {Function} next - Next middleware function
  */
+// candidateController.createCandidateProfile = async (req, res, next) => {
+//   try {
+//     const candidateId = req.user.id;
+
+//     // Use req.body directly (normalized by middleware)
+//     const profileData = req.body;
+
+//     const { 
+//       fullName, jobTitle, phone, email, website, currentSalary, expectedSalary, experience, age, gender, educationLevels, languages, categories, allowInSearch, description,jobType, socialMedia, location
+//     } = profileData;
+
+//     // Validate required fields
+//     const requiredFields = ['fullName', 'jobTitle', 'phone', 'email', 'educationLevels', 'languages', 'categories', 'description', 'jobType', 'age', 'gender', 'location'];
+//     const missingFields = requiredFields.filter(field => !profileData[field] || (field === 'location' && (!profileData[field].city || !profileData[field].completeAddress)));
+//     if (missingFields.length > 0) {
+//       throw new BadRequestError(`Missing or incomplete required fields: ${missingFields.join(', ')}`);
+//     }
+
+//     // Check if profile already exists
+//     const existingProfile = await CandidateProfile.findOne({ candidate: candidateId });
+//     if (existingProfile) {
+//       throw new BadRequestError('Candidate profile already exists for this user');
+//     }
+
+//     // Handle file uploads
+//     const files = req.files || {};
+//     const profilePhoto = files.profilePhoto ? `/uploads/candidate/${files.profilePhoto[0].filename}` : null;
+//     const resume = files.resume ? `/uploads/candidate/${files.resume[0].filename}` : null;
+
+//     // Create new profile
+//     const newProfile = new CandidateProfile({
+//       candidate: candidateId,
+//       fullName,
+//       jobTitle,
+//       phone,
+//       email,
+//       website,
+//       currentSalary,
+//       expectedSalary,
+//       experience,
+//       age,
+//       gender,
+//       educationLevels: Array.isArray(educationLevels) ? educationLevels : (typeof educationLevels === 'string' ? JSON.parse(educationLevels) : [educationLevels]),
+//       languages: Array.isArray(languages) ? languages : (typeof languages === 'string' ? JSON.parse(languages) : [languages]),
+//       categories: Array.isArray(categories) ? categories : (typeof categories === 'string' ? JSON.parse(categories) : [categories]),
+//       allowInSearch: allowInSearch !== undefined ? allowInSearch : true,
+//       description,
+//       jobType,
+//       socialMedia: typeof socialMedia === 'object' ? socialMedia : (socialMedia ? JSON.parse(socialMedia) : {}),
+//       location: typeof location === 'object' ? location : (location ? JSON.parse(location) : {}),
+//       profilePhoto,
+//       resume
+//     });
+
+//     // console.log("Creating candidate profile with data:", newProfile);
+    
+
+//     await newProfile.save();
+
+//     return res.status(201).json({
+//       success: true,
+//       message: 'Candidate profile created successfully',
+//       profile: newProfile
+//     });
+//   } catch (error) {
+//     // Cleanup uploaded files if an error occurs after upload
+//     if (req.files) {
+//       const files = req.files;
+//       if (files.profilePhoto && files.profilePhoto[0]) {
+//         const photoPath = path.join(process.cwd(), 'public', `/uploads/candidate/${files.profilePhoto[0].filename}`);
+//         if (fs.existsSync(photoPath)) fs.unlinkSync(photoPath);
+//       }
+//       if (files.resume && files.resume[0]) {
+//         const resumePath = path.join(process.cwd(), 'public', `/uploads/candidate/${files.resume[0].filename}`);
+//         if (fs.existsSync(resumePath)) fs.unlinkSync(resumePath);
+//       }
+//     }
+
+//     next(error);
+//   }
+// };
+
+
 candidateController.createCandidateProfile = async (req, res, next) => {
   try {
-    const candidateId = req.user.id;
+    // 1. Resolve logged-in User (handle both ._id and .id)
+    const loggedInUserId = req.user?._id || req.user?.id;
+    const { role } = req.user;
 
-    // Use req.body directly (normalized by middleware)
-    const profileData = req.body;
-
-    const { 
-      fullName, jobTitle, phone, email, website, currentSalary, expectedSalary, experience, age, gender, educationLevels, languages, categories, allowInSearch, description,jobType, socialMedia, location
-    } = profileData;
-
-    // Validate required fields
-    const requiredFields = ['fullName', 'jobTitle', 'phone', 'email', 'educationLevels', 'languages', 'categories', 'description', 'jobType', 'age', 'gender', 'location'];
-    const missingFields = requiredFields.filter(field => !profileData[field] || (field === 'location' && (!profileData[field].city || !profileData[field].completeAddress)));
-    if (missingFields.length > 0) {
-      throw new BadRequestError(`Missing or incomplete required fields: ${missingFields.join(', ')}`);
+    if (!loggedInUserId) {
+      throw new BadRequestError('User session not found');
     }
 
-    // Check if profile already exists
+    // 2. Parse nested "data" blob from FormData
+    let profileData = {};
+    if (req.body.data) {
+      try {
+        profileData = JSON.parse(req.body.data);
+      } catch (err) {
+        throw new BadRequestError("Invalid JSON format in 'data' field");
+      }
+    } else {
+      profileData = req.body;
+    }
+
+    // 3. Resolve Target Candidate Identity
+    let candidateId = loggedInUserId;
+    if (['hr-admin', 'superadmin'].includes(role)) {
+      if (!profileData.candidateId) {
+        throw new BadRequestError('candidateId is required for Admin/HR-Admin');
+      }
+      candidateId = profileData.candidateId;
+    }
+
+    // 4. Validate Target User
+    const targetUser = await User.findById(candidateId);
+    if (!targetUser || targetUser.role !== 'candidate') {
+      throw new BadRequestError('Target user must have a candidate role');
+    }
+
+    if (targetUser.status !== 'approved') {
+      throw new BadRequestError(
+        'Candidate is not approved yet'
+      );
+    }
+
+    // 5. Prevent Duplicates
     const existingProfile = await CandidateProfile.findOne({ candidate: candidateId });
     if (existingProfile) {
       throw new BadRequestError('Candidate profile already exists for this user');
     }
 
-    // Handle file uploads
+    const isAdminCreator = ['hr-admin', 'superadmin'].includes(role);
+
+    // 6. Handle File Paths
     const files = req.files || {};
     const profilePhoto = files.profilePhoto ? `/uploads/candidate/${files.profilePhoto[0].filename}` : null;
     const resume = files.resume ? `/uploads/candidate/${files.resume[0].filename}` : null;
 
-    // Create new profile
+    // 7. Create New Profile
     const newProfile = new CandidateProfile({
       candidate: candidateId,
-      fullName,
-      jobTitle,
-      phone,
-      email,
-      website,
-      currentSalary,
-      expectedSalary,
-      experience,
-      age,
-      gender,
-      educationLevels: Array.isArray(educationLevels) ? educationLevels : (typeof educationLevels === 'string' ? JSON.parse(educationLevels) : [educationLevels]),
-      languages: Array.isArray(languages) ? languages : (typeof languages === 'string' ? JSON.parse(languages) : [languages]),
-      categories: Array.isArray(categories) ? categories : (typeof categories === 'string' ? JSON.parse(categories) : [categories]),
-      allowInSearch: allowInSearch !== undefined ? allowInSearch : true,
-      description,
-      jobType,
-      socialMedia: typeof socialMedia === 'object' ? socialMedia : (socialMedia ? JSON.parse(socialMedia) : {}),
-      location: typeof location === 'object' ? location : (location ? JSON.parse(location) : {}),
+      createdBy: loggedInUserId, // Fixes the "createdBy is required" error
+
+
+      status: isAdminCreator ? 'approved' : 'pending',
+      approvedBy: isAdminCreator ? loggedInUserId : null,
+      approvedAt: isAdminCreator ? new Date() : null,
+
+      fullName: profileData.fullName,
+      jobTitle: profileData.jobTitle,
+      phone: profileData.phone,
+      email: profileData.email,
+      website: profileData.website,
+      currentSalary: profileData.currentSalary,
+      expectedSalary: profileData.expectedSalary,
+      experience: profileData.experience,
+      age: profileData.age,
+      gender: profileData.gender,
+      educationLevels: Array.isArray(profileData.educationLevels) ? profileData.educationLevels : [],
+      languages: Array.isArray(profileData.languages) ? profileData.languages : [],
+      categories: Array.isArray(profileData.categories) ? profileData.categories : [],
+      allowInSearch: profileData.allowInSearch !== undefined ? profileData.allowInSearch : true,
+      description: profileData.description,
+      jobType: profileData.jobType,
+      socialMedia: profileData.socialMedia || {},
+      location: profileData.location || {},
       profilePhoto,
       resume
     });
-
-    // console.log("Creating candidate profile with data:", newProfile);
-    
 
     await newProfile.save();
 
@@ -99,23 +214,20 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       message: 'Candidate profile created successfully',
       profile: newProfile
     });
-  } catch (error) {
-    // Cleanup uploaded files if an error occurs after upload
-    if (req.files) {
-      const files = req.files;
-      if (files.profilePhoto && files.profilePhoto[0]) {
-        const photoPath = path.join(process.cwd(), 'public', `/uploads/candidate/${files.profilePhoto[0].filename}`);
-        if (fs.existsSync(photoPath)) fs.unlinkSync(photoPath);
-      }
-      if (files.resume && files.resume[0]) {
-        const resumePath = path.join(process.cwd(), 'public', `/uploads/candidate/${files.resume[0].filename}`);
-        if (fs.existsSync(resumePath)) fs.unlinkSync(resumePath);
-      }
-    }
 
+  } catch (error) {
+    // 8. Cleanup uploaded files on failure
+    if (req.files) {
+      Object.values(req.files).flat().forEach(file => {
+        const filePath = path.join(process.cwd(), 'public', 'uploads', 'candidate', file.filename);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      });
+    }
+    console.error("Profile Creation Error:", error);
     next(error);
   }
 };
+
 
 /**
  * Updates a candidate profile for an authenticated candidate
@@ -142,7 +254,7 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
     }
 
     // Check permissions
-    if (req.user.role !== 'superadmin' && profile.candidate.toString() !== candidateId.toString()) {
+    if (req.user.role !== 'superadmin' && req.user.role !== 'hr-admin' && profile.candidate.toString() !== candidateId.toString()) {
       throw new ForbiddenError('You do not have permission to update this profile');
     }
 
@@ -311,6 +423,99 @@ candidateController.deleteCandidateProfile = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Candidate profile deleted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Approve or reject candidate profile
+ * HR-Admin / Superadmin only
+ */
+candidateController.approveCandidateProfile = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, rejectionReason } = req.body;
+    const adminId = req.user.id;
+
+    if (!['approved', 'rejected'].includes(status)) {
+      throw new BadRequestError('Invalid status value');
+    }
+
+    const profile = await CandidateProfile.findById(id);
+    if (!profile) {
+      throw new NotFoundError('Candidate profile not found');
+    }
+
+    profile.status = status;
+    profile.approvedBy = adminId;
+    profile.approvedAt = new Date();
+    profile.rejectionReason =
+      status === 'rejected' ? rejectionReason : null;
+
+    await profile.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Candidate profile ${status} successfully`,
+      profile
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+/**
+ * Get all pending candidate profiles
+ * Accessible by HR-Admin and Superadmin
+ *
+ * HR-Admin:
+ *  - Sees only candidate profiles created by candidates assigned to them
+ *
+ * Superadmin:
+ *  - Sees all pending candidate profiles
+ */
+candidateController.getPendingCandidateProfiles = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+
+    // Base filter: only pending profiles
+    const filter = {
+      status: 'pending',
+    };
+
+    // Optional future: restrict HR-Admin to assigned employers
+    // const user = req.user;
+    // if (user.role === 'hr-admin') {
+    //   if (!user.candidateIds || user.candidateIds.length === 0) {
+    //     return res.status(200).json({ success: true, profiles: [], pagination: { ... } });
+    //   }
+    //   filter.candidate = { $in: user.candidateIds };
+    // }
+
+    // Fetch pending candidate profiles
+    const profiles = await CandidateProfile.find(filter)
+      .populate('candidate', 'name email')     // ref: 'User'
+      .populate('createdBy', 'name email')    // ref: 'User'
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * Number(limit))
+      .limit(Number(limit))
+      .select('-__v');
+
+    // Total count for pagination
+    const total = await CandidateProfile.countDocuments(filter);
+
+    return res.status(200).json({
+      success: true,
+      profiles,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / limit),
+        total,
+        limit: Number(limit),
+      },
     });
   } catch (error) {
     next(error);
