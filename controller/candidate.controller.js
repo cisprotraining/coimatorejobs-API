@@ -128,7 +128,7 @@ candidateController.createCandidateProfile = async (req, res, next) => {
     if (!loggedInUserId) {
       throw new BadRequestError('User session not found');
     }
-
+    
     // 2. Parse nested "data" blob from FormData
     let profileData = {};
     if (req.body.data) {
@@ -140,7 +140,7 @@ candidateController.createCandidateProfile = async (req, res, next) => {
     } else {
       profileData = req.body;
     }
-
+    
     // 3. Resolve Target Candidate Identity
     let candidateId = loggedInUserId;
     if (['hr-admin', 'superadmin'].includes(role)) {
@@ -149,27 +149,34 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       }
       candidateId = profileData.candidateId;
     }
-
+    
     // 4. Validate Target User
     const targetUser = await User.findById(candidateId);
     if (!targetUser || targetUser.role !== 'candidate') {
       throw new BadRequestError('Target user must have a candidate role');
     }
-
+    
     if (targetUser.status !== 'approved') {
       throw new BadRequestError(
         'Candidate is not approved yet'
       );
     }
-
+    
     // 5. Prevent Duplicates
     const existingProfile = await CandidateProfile.findOne({ candidate: candidateId });
     if (existingProfile) {
       throw new BadRequestError('Candidate profile already exists for this user');
     }
-
+    
+    // Validate required fields
+    const requiredFields = ['fullName', 'jobTitle', 'phone', 'email', 'educationLevels', 'languages', 'categories', 'description', 'jobType', 'age', 'gender', 'location'];
+    const missingFields = requiredFields.filter(field => !profileData[field] || (field === 'location' && (!profileData[field].city || !profileData[field].completeAddress)));
+    if (missingFields.length > 0) {
+      throw new BadRequestError(`Missing or incomplete required fields: ${missingFields.join(', ')}`);
+    }
+    
     const isAdminCreator = ['hr-admin', 'superadmin'].includes(role);
-
+    
     // 6. Handle File Paths
     const files = req.files || {};
     const profilePhoto = files.profilePhoto ? `/uploads/candidate/${files.profilePhoto[0].filename}` : null;

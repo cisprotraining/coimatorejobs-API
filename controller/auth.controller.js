@@ -272,7 +272,8 @@ authentication.signin = async (req, res, next) => {
                 id: user._id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                status: user.status
             }
         });
     } catch (error) {
@@ -280,6 +281,7 @@ authentication.signin = async (req, res, next) => {
         next(error);
     }
 };
+
 
 /**
  * Allows an authenticated user to change their password
