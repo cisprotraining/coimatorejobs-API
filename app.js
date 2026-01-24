@@ -12,6 +12,8 @@ import employerRouter from './routes/employers.routes.js';
 import candidateRouter from './routes/candidate.routes.js';
 import jobAlertRouter from './routes/jobAlert.routes.js';
 
+import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail } from './utils/mailer.js';
+
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
@@ -88,6 +90,19 @@ app.get('/health', (req, res) => {
 //     message: `Route ${req.originalUrl} not found`
 //   });
 // });
+
+app.get("/test-mail", async (req, res) => {
+  await sendWelcomeEmail({ recipient: "aravindakumar3315@gmail.com", name: "Test User" });
+  await new Promise(r => setTimeout(r, 1500));
+  await sendSuperadminAlertEmail({ 
+    superadminEmail: 'saravind406@gmail.com', 
+    newUserEmail: "aravindakumar3315@gmail.com", 
+    newUserRole: "candidate" 
+  });
+
+  res.send("Emails sent");
+});
+
 
 // common error handler middleware(global error handler)
 app.use(errorMiddleware);

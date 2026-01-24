@@ -630,7 +630,7 @@ employerController.unsaveCandidate = async (req, res, next) => {
     const employerId = req.user.id;
     const savedId = req.params.savedId;
 
-    console.log("testtttt", savedId);
+    // console.log("testtttt", savedId);
     
 
     const saved = await SavedCandidate.findById(savedId);

@@ -4,6 +4,8 @@ import Application from '../models/jobApply.model.js';
 import CompanyProfile from '../models/companyProfile.model.js';
 import User from '../models/user.model.js';
 import CandidateProfile from '../models/candidateProfile.model.js';
+import CandidateResume from '../models/candidateResume.model.js';
+import ExcelJS from 'exceljs';
 
 const hrAdminDashboardController = {};
 
@@ -391,26 +393,34 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
         startDate.setMonth(startDate.getMonth() - parseInt(months));
 
         let jobMatch = {};
-        let applicationMatch = {};
 
         // For HR-Admin, filter by assigned employers
         if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
             jobMatch.employer = { $in: user.employerIds };
-            const assignedJobIds = await JobPost.find(jobMatch).distinct('_id');
-            applicationMatch.jobPost = { $in: assignedJobIds };
         }
+
+        // First, get all job IDs from assigned employers
+        const assignedJobIds = await JobPost.find(jobMatch).distinct('_id');
+        
+        // Get applications for these jobs separately
+        const applications = await Application.find({
+            jobPost: { $in: assignedJobIds },
+            createdAt: { $gte: startDate }
+        }).lean();
+
+        // Create a map of jobId -> applications
+        const applicationsByJobId = {};
+        applications.forEach(app => {
+            const jobId = app.jobPost.toString();
+            if (!applicationsByJobId[jobId]) {
+                applicationsByJobId[jobId] = [];
+            }
+            applicationsByJobId[jobId].push(app);
+        });
 
         // Get top performing jobs by applications
         const topJobs = await JobPost.aggregate([
             { $match: { ...jobMatch, createdAt: { $gte: startDate } } },
-            {
-                $lookup: {
-                    from: 'applications',
-                    localField: '_id',
-                    foreignField: 'jobPost',
-                    as: 'applications',
-                },
-            },
             {
                 $lookup: {
                     from: 'users',
@@ -438,296 +448,206 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
                     offeredSalary: 1,
                     applicationDeadline: 1,
                     createdAt: 1,
-                    totalApplications: { $size: '$applications' },
-                    recentApplications: {
-                        $size: {
-                            $filter: {
-                                input: '$applications',
-                                as: 'app',
-                                cond: { $gte: ['$$app.createdAt', startDate] }
-                            }
-                        }
-                    },
-                    shortlistedCount: {
-                        $size: {
-                            $filter: {
-                                input: '$applications',
-                                as: 'app',
-                                cond: { $eq: ['$$app.shortlisted', true] }
-                            }
-                        }
-                    },
-                    acceptedCount: {
-                        $size: {
-                            $filter: {
-                                input: '$applications',
-                                as: 'app',
-                                cond: { $eq: ['$$app.status', 'Accepted'] }
-                            }
-                        }
-                    },
-                    // Safe acceptanceRate – never divide by zero
-                    acceptanceRate: {
-                        $cond: {
-                            if: { $gt: [{ $size: '$applications' }, 0] },
-                            then: {
-                                $round: [
-                                    {
-                                        $multiply: [
-                                            {
-                                                $divide: [
-                                                    {
-                                                        $size: {
-                                                            $filter: {
-                                                                input: '$applications',
-                                                                as: 'app',
-                                                                cond: { $eq: ['$$app.status', 'Accepted'] }
-                                                            }
-                                                        }
-                                                    },
-                                                    { $size: '$applications' }
-                                                ]
-                                            },
-                                            100
-                                        ]
-                                    },
-                                    1
-                                ]
-                            },
-                            else: 0
-                        }
-                    },
+                    updatedAt: 1,
+                    profileViews: 1,
+                    applicantCount: 1,
+                    positions: 1,
                     employerName: '$employer.name',
                     companyName: { $ifNull: ['$company.companyName', 'N/A'] },
-                    positionsRemaining: { $ifNull: ['$positions.remaining', 0] },
-                    positionsTotal: { $ifNull: ['$positions.total', 0] },
-                    // Safe fillPercentage
-                    fillPercentage: {
-                        $cond: {
-                            if: { $gt: [{ $ifNull: ['$positions.total', 0] }, 0] },
-                            then: {
-                                $round: [
-                                    {
-                                        $multiply: [
-                                            {
-                                                $divide: [
-                                                    { $subtract: [{ $ifNull: ['$positions.total', 0] }, { $ifNull: ['$positions.remaining', 0] }] },
-                                                    { $ifNull: ['$positions.total', 0] }
-                                                ]
-                                            },
-                                            100
-                                        ]
-                                    },
-                                    1
-                                ]
-                            },
-                            else: 0
-                        }
-                    },
-                    // Safe viewsPerApplication
-                    viewsPerApplication: {
-                        $cond: {
-                            if: {
-                                $and: [
-                                    { $gt: [{ $ifNull: ['$profileViews', 0] }, 0] },
-                                    { $gt: [{ $size: '$applications' }, 0] }
-                                ]
-                            },
-                            then: {
-                                $round: [
-                                    { $divide: [{ $ifNull: ['$profileViews', 0] }, { $size: '$applications' }] },
-                                    1
-                                ]
-                            },
-                            else: 0
-                        }
-                    },
-                    // Safe timeToFirstApplication (in days)
-                    timeToFirstApplication: {
-                        $cond: {
-                            if: { $gt: [{ $size: '$applications' }, 0] },
-                            then: {
-                                $round: [
-                                    {
-                                        $divide: [
-                                            {
-                                                $min: {
-                                                    $map: {
-                                                        input: '$applications',
-                                                        as: 'app',
-                                                        in: { $subtract: ['$$app.createdAt', '$createdAt'] }
-                                                    }
-                                                }
-                                            },
-                                            1000 * 60 * 60 * 24
-                                        ]
-                                    },
-                                    0
-                                ]
-                            },
-                            else: null
-                        }
-                    },
-                    // Safe timeToFill (in days)
-                    timeToFill: {
-                        $cond: {
-                            if: { $eq: [{ $ifNull: ['$positions.remaining', 0] }, 0] },
-                            then: {
-                                $round: [
-                                    {
-                                        $divide: [
-                                            { $subtract: ['$updatedAt', '$createdAt'] },
-                                            1000 * 60 * 60 * 24
-                                        ]
-                                    },
-                                    0
-                                ]
-                            },
-                            else: null
-                        }
-                    }
                 }
             },
-            { $sort: { totalApplications: -1 } },
+            { $sort: { applicantCount: -1 } },
             { $limit: parseInt(limit) },
         ]);
 
-        // Format time metrics (convert ms to days)
-        const formattedTopJobs = topJobs.map(job => ({
-            ...job,
-            timeToFirstApplication: job.timeToFirstApplication
-                ? Math.round(job.timeToFirstApplication / (1000 * 60 * 60 * 24))  // ms to days
-                : null,
-            timeToFill: job.timeToFill
-                ? Math.round(job.timeToFill / (1000 * 60 * 60 * 24))
-                : null,
-        }));
+        // Now enrich jobs with application data
+        const enrichedTopJobs = topJobs.map(job => {
+            const jobId = job._id.toString();
+            const jobApplications = applicationsByJobId[jobId] || [];
+            
+            // Calculate application metrics
+            const totalApplications = jobApplications.length;
+            const recentApplications = jobApplications.filter(app => 
+                app.createdAt >= startDate
+            ).length;
+            const shortlistedCount = jobApplications.filter(app => 
+                app.shortlisted === true
+            ).length;
+            const acceptedCount = jobApplications.filter(app => 
+                app.status === 'Accepted'
+            ).length;
+            
+            // Calculate acceptance rate
+            const acceptanceRate = totalApplications > 0 
+                ? Math.round((acceptedCount / totalApplications) * 100) 
+                : 0;
+            
+            // Calculate fill percentage
+            const positionsTotal = job.positions?.total || 0;
+            const positionsRemaining = job.positions?.remaining || 0;
+            const fillPercentage = positionsTotal > 0 
+                ? Math.round(((positionsTotal - positionsRemaining) / positionsTotal) * 100)
+                : 0;
+            
+            // Calculate views per application
+            const viewsPerApplication = (job.profileViews || 0) > 0 && totalApplications > 0
+                ? Math.round((job.profileViews || 0) / totalApplications)
+                : 0;
+            
+            // Calculate time to first application
+            let timeToFirstApplication = null;
+            if (totalApplications > 0) {
+                const firstApp = jobApplications.reduce((earliest, app) => 
+                    earliest < app.createdAt ? earliest : app.createdAt, 
+                    new Date()
+                );
+                timeToFirstApplication = Math.round(
+                    (firstApp - job.createdAt) / (1000 * 60 * 60 * 24)
+                );
+            }
+            
+            // Calculate time to fill
+            let timeToFill = null;
+            if (job.status === 'Closed' && job.updatedAt && job.createdAt && positionsRemaining === 0) {
+                timeToFill = Math.round(
+                    (job.updatedAt - job.createdAt) / (1000 * 60 * 60 * 24)
+                );
+            }
+
+            return {
+                ...job,
+                totalApplications,
+                recentApplications,
+                shortlistedCount,
+                acceptedCount,
+                acceptanceRate,
+                positionsRemaining,
+                positionsTotal,
+                fillPercentage,
+                viewsPerApplication,
+                timeToFirstApplication,
+                timeToFill
+            };
+        });
 
         // Get job status distribution
-        const jobStatusDistribution = await JobPost.aggregate([
-            { $match: { ...jobMatch, createdAt: { $gte: startDate } } },
-            {
-                $group: {
-                    _id: '$status',
-                    count: { $sum: 1 },
-                    totalApplications: { $sum: '$applicantCount' },
-                    avgApplications: { $avg: '$applicantCount' },
-                    avgFillRate: { $avg: { $subtract: ['$positions.total', '$positions.remaining'] } },
-                },
-            },
-            { $sort: { count: -1 } },
-        ]);
+        const allJobs = await JobPost.find({ ...jobMatch, createdAt: { $gte: startDate } }).lean();
+        
+        const jobStatusDistribution = {};
+        allJobs.forEach(job => {
+            const status = job.status || 'Unknown';
+            if (!jobStatusDistribution[status]) {
+                jobStatusDistribution[status] = {
+                    count: 0,
+                    totalApplications: 0,
+                    totalPositions: 0,
+                    filledPositions: 0
+                };
+            }
+            
+            const jobId = job._id.toString();
+            const jobApps = applicationsByJobId[jobId] || [];
+            
+            jobStatusDistribution[status].count++;
+            jobStatusDistribution[status].totalApplications += jobApps.length;
+            jobStatusDistribution[status].totalPositions += (job.positions?.total || 0);
+            jobStatusDistribution[status].filledPositions += (job.positions?.total || 0) - (job.positions?.remaining || 0);
+        });
+
+        const formattedStatusDistribution = Object.entries(jobStatusDistribution).map(([status, data]) => ({
+            _id: status,
+            count: data.count,
+            totalApplications: data.totalApplications,
+            avgApplications: Math.round(data.totalApplications / data.count) || 0,
+            avgFillRate: Math.round(data.filledPositions / data.count) || 0
+        })).sort((a, b) => b.count - a.count);
 
         // Get job type distribution
-        const jobTypeDistribution = await JobPost.aggregate([
-            { $match: { ...jobMatch, createdAt: { $gte: startDate } } },
-            // Extract salary numbers
-            {
-                $addFields: {
-                    salaryNumbers: {
-                        $regexFindAll: {
-                            input: '$offeredSalary',
-                            regex: /[0-9]+(\.[0-9]+)?/g,
-                        },
-                    },
-                },
-            },
-            // Calculate average salary number
-            {
-                $addFields: {
-                    numericSalary: {
-                        $cond: [
-                            { $gt: [{ $size: '$salaryNumbers' }, 0] },
-                            {
-                                $avg: {
-                                    $map: {
-                                        input: '$salaryNumbers',
-                                        as: 's',
-                                        in: { $toDouble: '$$s.match' },
-                                    },
-                                },
-                            },
-                            null,
-                        ],
-                    },
-                },
-            },
-            // Group
-            {
-                $group: {
-                    _id: '$jobType',
-                    count: { $sum: 1 },
-                    avgSalary: { $avg: '$numericSalary' },
-                    totalApplications: { $sum: '$applicantCount' },
-                    avgApplications: { $avg: '$applicantCount' },
-                },
-            },
-            { $sort: { count: -1 } },
-        ]);
-
-        // Calculate overall metrics
-        const totalJobs = await JobPost.countDocuments({ ...jobMatch, createdAt: { $gte: startDate } });
-        const totalApplications = await Application.aggregate([
-            { $match: applicationMatch },
-            { $count: 'total' },
-        ]).then(r => r[0]?.total || 0);
-
-        const avgApplicationsPerJob = totalJobs > 0 ? Math.round(totalApplications / totalJobs) : 0;
-
-        const timeToFillStats = await JobPost.aggregate([
-            {
-                $match: {
-                    ...jobMatch,
-                    status: 'Closed',
-                    createdAt: { $gte: startDate },
-                    updatedAt: { $exists: true },     // safety: skip jobs without updatedAt
-                }
-            },
-            {
-                $project: {
-                    daysToFill: {
-                        $cond: {
-                            if: { $gt: ['$updatedAt', '$createdAt'] },
-                            then: {
-                                $divide: [{ $subtract: ['$updatedAt', '$createdAt'] }, 1000 * 60 * 60 * 24]
-                            },
-                            else: null
-                        }
-                    }
-                }
-            },
-            {
-                $match: { daysToFill: { $ne: null } }   // remove invalid entries
-            },
-            {
-                $group: {
-                    _id: null,
-                    avgTimeToFill: { $avg: '$daysToFill' },
-                    medianTimeToFill: {
-                        $median: {
-                            input: '$daysToFill',
-                            method: "approximate"         
-                        }
-                    },
-                    countFilled: { $sum: 1 }
+        const jobTypeDistribution = {};
+        allJobs.forEach(job => {
+            const jobType = job.jobType || 'Unknown';
+            if (!jobTypeDistribution[jobType]) {
+                jobTypeDistribution[jobType] = {
+                    count: 0,
+                    totalApplications: 0,
+                    totalSalary: 0,
+                    salaryCount: 0
+                };
+            }
+            
+            const jobId = job._id.toString();
+            const jobApps = applicationsByJobId[jobId] || [];
+            
+            jobTypeDistribution[jobType].count++;
+            jobTypeDistribution[jobType].totalApplications += jobApps.length;
+            
+            // Extract salary from offeredSalary if possible
+            if (job.offeredSalary && job.offeredSalary !== 'Negotiable') {
+                const salaryMatch = job.offeredSalary.match(/[0-9]+(\.[0-9]+)?/g);
+                if (salaryMatch && salaryMatch.length > 0) {
+                    const avgSalary = salaryMatch.reduce((sum, num) => sum + parseFloat(num), 0) / salaryMatch.length;
+                    jobTypeDistribution[jobType].totalSalary += avgSalary;
+                    jobTypeDistribution[jobType].salaryCount++;
                 }
             }
-        ]);
+        });
+
+        const formattedTypeDistribution = Object.entries(jobTypeDistribution).map(([jobType, data]) => ({
+            _id: jobType,
+            count: data.count,
+            avgSalary: data.salaryCount > 0 ? Math.round(data.totalSalary / data.salaryCount) : 0,
+            totalApplications: data.totalApplications,
+            avgApplications: Math.round(data.totalApplications / data.count) || 0
+        })).sort((a, b) => b.count - a.count);
+
+        // Calculate overall metrics
+        const totalJobs = allJobs.length;
+        const totalApplications = applications.length;
+        const avgApplicationsPerJob = totalJobs > 0 ? Math.round(totalApplications / totalJobs) : 0;
+
+        // Calculate time to fill stats
+        const filledJobs = allJobs.filter(job => 
+            job.status === 'Closed' && 
+            job.updatedAt && 
+            job.createdAt && 
+            (job.positions?.remaining || 0) === 0
+        );
+        
+        const timeToFillStats = filledJobs.map(job => 
+            Math.round((job.updatedAt - job.createdAt) / (1000 * 60 * 60 * 24))
+        );
+        
+        const avgTimeToFill = timeToFillStats.length > 0 
+            ? Math.round(timeToFillStats.reduce((a, b) => a + b, 0) / timeToFillStats.length)
+            : 0;
+        
+        const medianTimeToFill = timeToFillStats.length > 0
+            ? timeToFillStats.sort((a, b) => a - b)[Math.floor(timeToFillStats.length / 2)]
+            : 0;
+
+        // Calculate average acceptance rate from enriched jobs
+        const validAcceptanceRates = enrichedTopJobs
+            .filter(job => job.totalApplications > 0)
+            .map(job => job.acceptanceRate);
+        
+        const avgAcceptanceRate = validAcceptanceRates.length > 0
+            ? Math.round(validAcceptanceRates.reduce((a, b) => a + b, 0) / validAcceptanceRates.length)
+            : 0;
 
         return res.status(200).json({
             success: true,
             period,
             months: parseInt(months),
-            topJobs: formattedTopJobs,
-            jobStatusDistribution,
-            jobTypeDistribution,
+            topJobs: enrichedTopJobs,
+            jobStatusDistribution: formattedStatusDistribution,
+            jobTypeDistribution: formattedTypeDistribution,
             metrics: {
                 totalJobs,
                 totalApplications,
                 avgApplicationsPerJob,
-                avgTimeToFill: timeToFillStats[0]?.avgTimeToFill ? Math.round(timeToFillStats[0].avgTimeToFill) : 0,
-                medianTimeToFill: timeToFillStats[0]?.medianTimeToFill ? Math.round(timeToFillStats[0].medianTimeToFill) : 0,
-                avgAcceptanceRate: calculateAverageAcceptanceRate(topJobs),
+                avgTimeToFill,
+                medianTimeToFill,
+                avgAcceptanceRate,
             },
         });
     } catch (error) {
@@ -745,7 +665,7 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
     const user = req.user;
     const { period = 'monthly', months = 6 } = req.query;
 
-    console.log("testtt", user);
+    // console.log("testtt", user);
 
 
     let jobMatch = {};
@@ -1274,6 +1194,838 @@ hrAdminDashboardController.getRevenueMetrics = async (req, res, next) => {
       periodMonths: parseInt(months),
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ *  MONTHLY PERFORMANCE REPORT
+ * @route GET /api/v1/hr-admin-dashboard/reports/monthly-performance
+ * @param {string} month - YYYY-MM format
+ */
+hrAdminDashboardController.getMonthlyPerformanceReport = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const { month = new Date().toISOString().slice(0, 7) } = req.query;
+
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return res.status(400).json({ success: false, message: 'Invalid month format. Use YYYY-MM' });
+    }
+
+    const [year, monthNum] = month.split('-').map(Number);
+    const startDate = new Date(year, monthNum - 1, 1);
+    const endDate = new Date(year, monthNum, 0, 23, 59, 59, 999);
+
+    // Role-based filters
+    let jobFilter = {};
+    if (user.role === 'hr-admin' && user.employerIds?.length) {
+      jobFilter = { employer: { $in: user.employerIds } };
+    }
+
+    // Get essential data only
+    const [
+      jobs,
+      applications,
+      candidates,
+      topJobs
+    ] = await Promise.all([
+      // Basic job metrics
+      JobPost.aggregate([
+        { $match: { ...jobFilter, createdAt: { $gte: startDate, $lte: endDate } } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            published: { $sum: { $cond: [{ $eq: ['$status', 'Published'] }, 1, 0] } },
+            closed: { $sum: { $cond: [{ $eq: ['$status', 'Closed'] }, 1, 0] } },
+            avgTimeToFill: {
+              $avg: {
+                $cond: [
+                  { $eq: ['$status', 'Closed'] },
+                  { $divide: [{ $subtract: ['$updatedAt', '$createdAt'] }, 86400000] },
+                  null
+                ]
+              }
+            }
+          }
+        }
+      ]),
+
+      // Basic application metrics
+      Application.aggregate([
+        { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
+        {
+          $lookup: {
+            from: 'jobposts',
+            localField: 'jobPost',
+            foreignField: '_id',
+            as: 'job'
+          }
+        },
+        { $unwind: '$job' },
+        {
+          $match: user.role === 'hr-admin' && user.employerIds?.length ? {
+            'job.employer': { $in: user.employerIds }
+          } : {}
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            shortlisted: { $sum: { $cond: [{ $eq: ['$shortlisted', true] }, 1, 0] } },
+            accepted: { $sum: { $cond: [{ $eq: ['$status', 'Accepted'] }, 1, 0] } },
+            conversionRate: {
+              $avg: {
+                $cond: [
+                  { $eq: ['$status', 'Accepted'] },
+                  1,
+                  0
+                ]
+              }
+            }
+          }
+        }
+      ]),
+
+      // Candidate registrations
+      User.countDocuments({
+        role: 'candidate',
+        isActive: true,
+        createdAt: { $gte: startDate, $lte: endDate }
+      }),
+
+      // Top 5 performing jobs
+      JobPost.aggregate([
+        { $match: { ...jobFilter, createdAt: { $gte: startDate, $lte: endDate } } },
+        {
+          $lookup: {
+            from: 'applications',
+            localField: '_id',
+            foreignField: 'jobPost',
+            as: 'applications'
+          }
+        },
+        {
+          $lookup: {
+            from: 'companyprofiles',
+            localField: 'companyProfile',
+            foreignField: '_id',
+            as: 'company'
+          }
+        },
+        { $unwind: { path: '$company', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            title: 1,
+            companyName: '$company.companyName',
+            applications: { $size: '$applications' },
+            accepted: {
+              $size: {
+                $filter: {
+                  input: '$applications',
+                  as: 'app',
+                  cond: { $eq: ['$$app.status', 'Accepted'] }
+                }
+              }
+            },
+            status: 1
+          }
+        },
+        { $sort: { applications: -1 } },
+        { $limit: 5 }
+      ])
+    ]);
+
+    // Generate simple Excel report
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'HR Dashboard';
+    
+    // 1. Summary Sheet
+    const summary = workbook.addWorksheet('Monthly Summary');
+    
+    // Header
+    summary.mergeCells('A1:B1');
+    summary.getCell('A1').value = `Performance Report - ${month}`;
+    summary.getCell('A1').font = { bold: true, size: 14 };
+    
+    summary.addRow([]);
+    
+    // KPIs
+    summary.addRow(['Key Metrics', 'Value']);
+    summary.addRow(['Total Jobs Posted', jobs[0]?.total || 0]);
+    summary.addRow(['Active Jobs', jobs[0]?.published || 0]);
+    summary.addRow(['Jobs Filled', jobs[0]?.closed || 0]);
+    summary.addRow(['Avg Time to Fill (Days)', Math.round(jobs[0]?.avgTimeToFill || 0)]);
+    summary.addRow(['Total Applications', applications[0]?.total || 0]);
+    summary.addRow(['Shortlisted', applications[0]?.shortlisted || 0]);
+    summary.addRow(['Hired', applications[0]?.accepted || 0]);
+    summary.addRow(['Conversion Rate', `${Math.round((applications[0]?.conversionRate || 0) * 100)}%`]);
+    summary.addRow(['New Candidates', candidates]);
+    
+    // 2. Top Jobs Sheet
+    const topJobsSheet = workbook.addWorksheet('Top Performing Jobs');
+    topJobsSheet.addRow(['Top 5 Jobs by Applications']);
+    topJobsSheet.addRow(['Job Title', 'Company', 'Applications', 'Hired', 'Status']);
+    
+    topJobs.forEach(job => {
+      topJobsSheet.addRow([
+        job.title,
+        job.companyName || 'N/A',
+        job.applications,
+        job.accepted,
+        job.status
+      ]);
+    });
+    
+    // Simple styling
+    [summary, topJobsSheet].forEach(sheet => {
+      sheet.getRow(1).font = { bold: true };
+      sheet.getRow(2).font = { bold: true };
+      
+      sheet.columns.forEach(column => {
+        column.width = column.values.reduce((max, value) => {
+          return Math.max(max, value ? value.toString().length : 0);
+        }, 10) + 2;
+      });
+    });
+    
+    // Set headers and send
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=performance-${month}.xlsx`);
+    
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * EMPLOYER ACTIVITY REPORT
+ * @route GET /api/v1/hr-admin-dashboard/reports/employer-activity
+ * @param {string} months - Last X months (default: 3)
+ */
+hrAdminDashboardController.getEmployerActivityReport = async (req, res, next) => {
+  try {
+     const user = req.user;
+    const { months = 3 } = req.query;
+    const monthsNum = parseInt(months, 10);
+
+    if (isNaN(monthsNum) || monthsNum < 1 || monthsNum > 24) {
+      return res.status(400).json({ success: false, message: 'Invalid months value' });
+    }
+    
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - monthsNum);
+    
+    // Role-based filter
+    let employerFilter = {};
+    if (user.role === 'hr-admin' && user.employerIds?.length) {
+      employerFilter = { _id: { $in: user.employerIds } };
+    }
+    
+    // First, get all employers
+    const employers = await User.aggregate([
+      {
+        $match: {
+          role: 'employer',
+          isActive: true,
+          ...employerFilter
+        }
+      },
+      {
+        $lookup: {
+          from: 'companyprofiles',
+          localField: '_id',
+          foreignField: 'employer',
+          as: 'company'
+        }
+      },
+      { $unwind: { path: '$company', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          name: 1,
+          email: 1,
+          companyName: '$company.companyName',
+          isVerified: '$company.isVerified',
+          lastLogin: 1,
+          status: 1,
+          employerId: '$_id'
+        }
+      },
+      { $sort: { name: 1 } }
+    ]);
+    
+    // Now, for each employer, get their job and application counts
+    const employersWithStats = await Promise.all(
+      employers.map(async (employer) => {
+        const employerId = employer.employerId;
+        
+        // Get jobs posted by this employer in the period
+        const jobs = await JobPost.find({
+          employer: employerId,
+          createdAt: { $gte: startDate }
+        }).select('_id status applicationDeadline');
+        
+        const jobsPosted = jobs.length;
+        const activeJobs = jobs.filter(job => 
+          job.status === 'Published' && 
+          job.applicationDeadline >= new Date()
+        ).length;
+        
+        // Get job IDs for this employer
+        const jobIds = jobs.map(job => job._id);
+        
+        // Count applications for these jobs in the period
+        let totalApplications = 0;
+        if (jobIds.length > 0) {
+          totalApplications = await Application.countDocuments({
+            jobPost: { $in: jobIds },
+            createdAt: { $gte: startDate }
+          });
+        }
+        
+        return {
+          ...employer,
+          jobsPosted,
+          activeJobs,
+          totalApplications
+        };
+      })
+    );
+    
+    // Sort by jobs posted (descending)
+    employersWithStats.sort((a, b) => b.jobsPosted - a.jobsPosted);
+    
+    // Generate Excel Report
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'HR Dashboard System';
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet('Employer Activity');
+
+    // Title
+    sheet.mergeCells('A1:G1');
+    sheet.getCell('A1').value = 'Employer Activity Report';
+    sheet.getCell('A1').font = { size: 16, bold: true };
+    sheet.getCell('A1').alignment = { horizontal: 'center' };
+    
+    sheet.mergeCells('A2:G2');
+    sheet.getCell('A2').value = `Last ${monthsNum} months (${startDate.toLocaleDateString()} - ${new Date().toLocaleDateString()})`;
+    sheet.getCell('A2').font = { italic: true };
+    sheet.getCell('A2').alignment = { horizontal: 'center' };
+    
+    sheet.addRow([]);
+
+    // Header row
+    sheet.addRow([
+      'Employer',
+      'Company',
+      'Email',
+      'Jobs Posted',
+      'Active Jobs',
+      'Applications',
+      'Verified'
+    ]);
+
+    const headerRow = sheet.getRow(4);
+    headerRow.font = { bold: true };
+    headerRow.alignment = { horizontal: 'center' };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' }
+    };
+
+    // Data rows
+    employersWithStats.forEach(emp => {
+      sheet.addRow([
+        emp.name,
+        emp.companyName || 'N/A',
+        emp.email || 'N/A',
+        emp.jobsPosted,
+        emp.activeJobs || 0,
+        emp.totalApplications,
+        emp.isVerified ? '✅ Yes' : '❌ No'
+      ]);
+    });
+
+    // Summary
+    const summaryRow = employersWithStats.length + 5;
+    sheet.addRow([]);
+    sheet.mergeCells(`A${summaryRow}:G${summaryRow}`);
+    sheet.getCell(`A${summaryRow}`).value = 'Summary Statistics';
+    sheet.getCell(`A${summaryRow}`).font = { bold: true, size: 12 };
+
+    const activeEmployers = employersWithStats.filter(e => e.jobsPosted > 0).length;
+    const totalJobs = employersWithStats.reduce((sum, e) => sum + e.jobsPosted, 0);
+    const totalActiveJobs = employersWithStats.reduce((sum, e) => sum + (e.activeJobs || 0), 0);
+    const totalApps = employersWithStats.reduce((sum, e) => sum + e.totalApplications, 0);
+    const verifiedCompanies = employersWithStats.filter(e => e.isVerified).length;
+    // console.log("efegregreg", totalApps);
+    
+    sheet.addRow(['Active Employers', activeEmployers]);
+    sheet.addRow(['Total Employers', employersWithStats.length]);
+    sheet.addRow(['Total Jobs Posted', totalJobs]);
+    sheet.addRow(['Currently Active Jobs', totalActiveJobs]);
+    sheet.addRow(['Total Applications', totalApps]);
+    sheet.addRow(['Verified Companies', verifiedCompanies]);
+    sheet.addRow([
+      'Avg Applications per Job',
+      totalJobs > 0 ? Math.round(totalApps / totalJobs) : 0
+    ]);
+
+    // Styling
+    sheet.columns = [
+      { width: 20 },
+      { width: 25 },
+      { width: 25 },
+      { width: 12 },
+      { width: 12 },
+      { width: 15 },
+      { width: 10 }
+    ];
+
+    // Add borders
+    for (let i = 4; i <= employersWithStats.length + 4; i++) {
+      sheet.getRow(i).eachCell(cell => {
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+      });
+    }
+
+    // Summary borders
+    for (let i = summaryRow; i <= sheet.rowCount; i++) {
+      sheet.getRow(i).getCell(1).border = {
+        left: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      sheet.getRow(i).getCell(2).border = {
+        right: { style: 'thin' }
+      };
+    }
+    
+    // Freeze header
+    sheet.views = [{ state: 'frozen', ySplit: 4 }];
+    
+    // Send file
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=employer-activity-${monthsNum}-months.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * SKILLS DEMAND REPORT 
+ * @route GET /api/v1/hr-admin-dashboard/reports/skills-demand
+ * @param {string} months - Last X months (default: 6)
+ */
+hrAdminDashboardController.getSkillsDemandReport = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const { months = 6 } = req.query;
+    const monthsNum = parseInt(months, 10);
+
+    if (isNaN(monthsNum) || monthsNum < 1 || monthsNum > 24) {
+      return res.status(400).json({ success: false, message: 'Invalid months value' });
+    }
+    
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - monthsNum);
+    
+    // Role-based filter for jobs
+    let jobFilter = {};
+    if (user.role === 'hr-admin' && user.employerIds?.length) {
+      jobFilter = { employer: { $in: user.employerIds } };
+    }
+
+    console.log("Fetching skills data for last", monthsNum, "months...");
+
+    // GET SKILLS DEMAND (FROM JOBS - specialisms)
+    const jobSkills = await JobPost.aggregate([
+      {
+        $match: {
+          ...jobFilter,
+          createdAt: { $gte: startDate },
+          specialisms: { $exists: true, $ne: [] }
+        }
+      },
+      { $unwind: '$specialisms' },
+      {
+        $group: {
+          _id: '$specialisms',
+          demandCount: { $sum: 1 },
+          totalJobs: { $sum: 1 },
+          // Get some job details for context
+          sampleTitles: { $push: '$title' },
+          avgApplicantCount: { $avg: '$applicantCount' }
+        }
+      },
+      { $sort: { demandCount: -1 } },
+      { $limit: 50 }
+    ]);
+
+    console.log("Skills from job specialisms:", jobSkills.length);
+
+    // GET SKILLS SUPPLY (FROM CANDIDATE RESUME - skills field)
+    const candidateResumeSkills = await CandidateResume.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+          skills: { $exists: true, $ne: [] }
+        }
+      },
+      { $unwind: '$skills' },
+      {
+        $group: {
+          _id: '$skills',
+          supplyCount: { $sum: 1 },
+          totalCandidates: { $sum: 1 },
+          // Get candidate experience from resume if available
+          avgExperienceCount: { 
+            $avg: { 
+              $cond: [
+                { $gt: [{ $size: '$experience' }, 0] },
+                { $size: '$experience' },
+                null
+              ]
+            }
+          }
+        }
+      },
+      { $sort: { supplyCount: -1 } },
+      { $limit: 50 }
+    ]);
+
+    console.log("Skills from candidate resumes:", candidateResumeSkills.length);
+
+    // COMBINE DEMAND AND SUPPLY DATA
+    const skillsMap = new Map();
+    
+    // Normalize skill names (case-insensitive, trimmed)
+    const normalizeSkill = (skill) => {
+      if (!skill || typeof skill !== 'string') return '';
+      return skill.trim().toLowerCase();
+    };
+
+    // Add demand skills from job specialisms
+    jobSkills.forEach(jobSkill => {
+      const skillName = normalizeSkill(jobSkill._id);
+      if (!skillName) return;
+      
+      skillsMap.set(skillName, {
+        skill: jobSkill._id, // Keep original case for display
+        normalizedSkill: skillName,
+        demand: jobSkill.demandCount || 0,
+        supply: 0,
+        source: 'Job Specialism',
+        jobCount: jobSkill.totalJobs || 0,
+        avgApplicants: Math.round(jobSkill.avgApplicantCount || 0),
+        sampleJobTitles: jobSkill.sampleTitles?.slice(0, 3) || []
+      });
+    });
+    
+    // Add supply skills from candidate resumes
+    candidateResumeSkills.forEach(candidateSkill => {
+      const skillName = normalizeSkill(candidateSkill._id);
+      if (!skillName) return;
+      
+      if (skillsMap.has(skillName)) {
+        const existing = skillsMap.get(skillName);
+        existing.supply = candidateSkill.supplyCount || 0;
+        existing.candidateCount = candidateSkill.totalCandidates || 0;
+        existing.source = 'Both';
+      } else {
+        skillsMap.set(skillName, {
+          skill: candidateSkill._id,
+          normalizedSkill: skillName,
+          demand: 0,
+          supply: candidateSkill.supplyCount || 0,
+          source: 'Candidate Resume',
+          candidateCount: candidateSkill.totalCandidates || 0,
+          avgExperienceCount: Math.round(candidateSkill.avgExperienceCount || 0)
+        });
+      }
+    });
+
+    // CALCULATE METRICS AND GAPS
+    const skillsData = Array.from(skillsMap.values())
+      .map(skill => {
+        const gap = skill.demand - skill.supply;
+        
+        // Calculate gap status
+        let status = '';
+        let statusColor = '';
+        let priority = 0;
+        
+        if (skill.demand === 0) {
+          status = 'Surplus';
+          statusColor = 'FFCCE5FF';
+          priority = 3;
+        } else if (skill.supply === 0) {
+          status = 'Critical Shortage';
+          statusColor = 'FFFFCCCC';
+          priority = 1;
+        } else {
+          const ratio = skill.supply / skill.demand;
+          if (ratio >= 1.5) {
+            status = 'High Surplus';
+            statusColor = 'FFCCE5FF';
+            priority = 4;
+          } else if (ratio >= 1.0) {
+            status = 'Balanced';
+            statusColor = 'FFCCFFCC';
+            priority = 3;
+          } else if (ratio >= 0.5) {
+            status = 'Moderate Gap';
+            statusColor = 'FFFFFFCC';
+            priority = 2;
+          } else {
+            status = 'High Gap';
+            statusColor = 'FFFFE5CC';
+            priority = 1;
+          }
+        }
+        
+        // Calculate gap percentage
+        const gapPercentage = skill.demand > 0 
+          ? Math.round((gap / skill.demand) * 100)
+          : skill.supply > 0 ? -100 : 0;
+        
+        return {
+          ...skill,
+          gap,
+          gapPercentage,
+          status,
+          statusColor,
+          priority
+        };
+      })
+      .sort((a, b) => {
+        // Sort by priority (critical shortages first), then by demand, then by gap
+        if (a.priority !== b.priority) return a.priority - b.priority;
+        if (b.demand !== a.demand) return b.demand - a.demand;
+        return Math.abs(b.gap) - Math.abs(a.gap);
+      })
+      .slice(0, 40); // Top 40 skills
+
+    console.log("Final skills data count:", skillsData.length);
+
+    // GENERATE EXCEL REPORT
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'HR Dashboard System';
+    workbook.created = new Date();
+
+    // Sheet 1: Skills Analysis
+    const sheet = workbook.addWorksheet('Skills Analysis');
+    
+    // Title
+    sheet.mergeCells('A1:D1');
+    sheet.getCell('A1').value = 'Skills Demand vs Supply Analysis';
+    sheet.getCell('A1').font = { size: 16, bold: true };
+    sheet.getCell('A1').alignment = { horizontal: 'center' };
+    
+    sheet.mergeCells('A2:D2');
+    sheet.getCell('A2').value = `Last ${monthsNum} months (${startDate.toLocaleDateString('en-IN')} - ${new Date().toLocaleDateString('en-IN')})`;
+    sheet.getCell('A2').font = { italic: true };
+    sheet.getCell('A2').alignment = { horizontal: 'center' };
+    
+    sheet.addRow([]);
+    
+    // Summary stats
+    const totalDemand = skillsData.reduce((sum, s) => sum + s.demand, 0);
+    const totalSupply = skillsData.reduce((sum, s) => sum + s.supply, 0);
+    const criticalShortages = skillsData.filter(s => s.status === 'Critical Shortage').length;
+    const highGaps = skillsData.filter(s => s.status === 'High Gap').length;
+    const balanced = skillsData.filter(s => s.status === 'Balanced').length;
+    const surplus = skillsData.filter(s => s.status.includes('Surplus')).length;
+    
+    sheet.addRow(['Summary Statistics', '']);
+    sheet.getRow(sheet.rowCount).font = { bold: true };
+    
+    sheet.addRow(['Total Skills Analyzed', skillsData.length]);
+    sheet.addRow(['Total Demand (Job Posts)', totalDemand]);
+    sheet.addRow(['Total Supply (Candidates)', totalSupply]);
+    sheet.addRow(['Overall Gap', totalDemand - totalSupply]);
+    sheet.addRow(['Critical Shortage Skills', criticalShortages]);
+    sheet.addRow(['High Gap Skills', highGaps]);
+    sheet.addRow(['Balanced Skills', balanced]);
+    sheet.addRow(['Surplus Skills', surplus]);
+    
+    sheet.addRow([]);
+    
+    // Header row
+    const headerRowNum = sheet.rowCount + 1;
+    sheet.addRow([
+      'Skill',
+      'Demand (Jobs)',
+      'Supply (Candidates)',
+      'Gap',
+      'Status'
+    ]);
+    
+    const headerRow = sheet.getRow(headerRowNum);
+    headerRow.font = { bold: true };
+    headerRow.alignment = { horizontal: 'center' };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' }
+    };
+    
+    // Data rows
+    skillsData.forEach(skill => {
+      const row = sheet.addRow([
+        skill.skill,
+        skill.demand,
+        skill.supply,
+        skill.gap,
+        skill.status
+      ]);
+      
+      // Color coding based on status
+      const statusCell = row.getCell(5);
+      switch(skill.status) {
+        case 'Critical Shortage':
+          statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFCCCC' } };
+          statusCell.font = { color: { argb: 'FF990000' }, bold: true };
+          break;
+        case 'High Gap':
+          statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE5CC' } };
+          statusCell.font = { color: { argb: 'FFE66A00' } };
+          break;
+        case 'Moderate Gap':
+          statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFCC' } };
+          statusCell.font = { color: { argb: 'FFCC9900' } };
+          break;
+        case 'Balanced':
+          statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCCFFCC' } };
+          statusCell.font = { color: { argb: 'FF006600' } };
+          break;
+        case 'Surplus':
+        case 'High Surplus':
+          statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCCE5FF' } };
+          statusCell.font = { color: { argb: 'FF003366' } };
+          break;
+      }
+    });
+
+    // Sheet 2: Top Skills Breakdown
+    const breakdownSheet = workbook.addWorksheet('Top Skills Breakdown');
+    
+    breakdownSheet.mergeCells('A1:D1');
+    breakdownSheet.getCell('A1').value = 'Top Skills Breakdown';
+    breakdownSheet.getCell('A1').font = { size: 16, bold: true };
+    breakdownSheet.addRow([]);
+    
+    // Top 10 demanded skills
+    const topDemanded = [...skillsData]
+      .filter(s => s.demand > 0)
+      .sort((a, b) => b.demand - a.demand)
+      .slice(0, 10);
+    
+    breakdownSheet.addRow(['Top 10 Most Demanded Skills']);
+    breakdownSheet.getRow(breakdownSheet.rowCount).font = { bold: true };
+    breakdownSheet.addRow(['Skill', 'Jobs', 'Candidates Available', 'Gap', 'Status']);
+    
+    topDemanded.forEach(skill => {
+      breakdownSheet.addRow([
+        skill.skill,
+        skill.demand,
+        skill.supply,
+        skill.gap,
+        skill.status
+      ]);
+    });
+    
+    breakdownSheet.addRow([]);
+    
+    // Top 10 surplus skills
+    const topSurplus = [...skillsData]
+      .filter(s => s.supply > s.demand)
+      .sort((a, b) => b.supply - a.supply)
+      .slice(0, 10);
+    
+    breakdownSheet.addRow(['Top 10 Skills with Candidate Surplus']);
+    breakdownSheet.getRow(breakdownSheet.rowCount).font = { bold: true };
+    breakdownSheet.addRow(['Skill', 'Candidates', 'Job Demand', 'Surplus', 'Source']);
+    
+    topSurplus.forEach(skill => {
+      breakdownSheet.addRow([
+        skill.skill,
+        skill.supply,
+        skill.demand,
+        skill.supply - skill.demand,
+        skill.source
+      ]);
+    });
+    
+    breakdownSheet.addRow([]);
+    
+    // Critical shortages
+    const criticalSkills = skillsData.filter(s => s.status === 'Critical Shortage');
+    if (criticalSkills.length > 0) {
+      breakdownSheet.addRow(['Critical Shortage Skills (Immediate Action Required)']);
+      breakdownSheet.getRow(breakdownSheet.rowCount).font = { bold: true, color: { argb: 'FF990000' } };
+      breakdownSheet.addRow(['Skill', 'Job Demand', 'Candidates Available', 'Gap', 'Sample Job Titles']);
+      
+      criticalSkills.slice(0, 10).forEach(skill => {
+        breakdownSheet.addRow([
+          skill.skill,
+          skill.demand,
+          skill.supply,
+          skill.gap,
+          skill.sampleJobTitles?.join(', ') || 'N/A'
+        ]);
+      });
+    }
+
+    // Styling
+    [sheet, breakdownSheet].forEach(s => {
+      s.columns = [
+        { width: 30 },
+        { width: 15 },
+        { width: 15 },
+        { width: 10 },
+        { width: 15 }
+      ];
+      
+      // Add borders to data tables
+      const headerRow = s.name === 'Skills Analysis' ? headerRowNum : 3;
+      const dataEnd = s.name === 'Skills Analysis' 
+        ? skillsData.length + headerRow 
+        : (topDemanded.length + topSurplus.length + criticalSkills.length + 15);
+      
+      for (let i = headerRow; i <= dataEnd; i++) {
+        if (s.getRow(i) && s.getRow(i).cellCount > 0) {
+          s.getRow(i).eachCell(cell => {
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            };
+          });
+        }
+      }
+    });
+    
+    // Send file
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=skills-demand-analysis-${monthsNum}-months.xlsx`);
+    
+    await workbook.xlsx.write(res);
+    res.end();
+    
+  } catch (error) {
+    console.error('Error in skills demand report:', error);
     next(error);
   }
 };

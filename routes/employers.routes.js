@@ -183,4 +183,14 @@ employerRouter.get('/hr-admin-dashboard/pending-actions', authenticate, authoriz
 // Revenue/reporting metrics
 employerRouter.get('/hr-admin-dashboard/revenue-metrics', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getRevenueMetrics);
 
+// monthly performance report
+employerRouter.get('/hr-admin-dashboard/reports/monthly-performance', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getMonthlyPerformanceReport);
+
+//employer activity report
+employerRouter.get('/hr-admin-dashboard/reports/employer-activity', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getEmployerActivityReport
+);
+
+//skill demand report
+employerRouter.get('/hr-admin-dashboard/reports/skills-demand', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getSkillsDemandReport);
+
 export default employerRouter;
