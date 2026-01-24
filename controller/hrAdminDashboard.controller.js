@@ -393,26 +393,34 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
         startDate.setMonth(startDate.getMonth() - parseInt(months));
 
         let jobMatch = {};
-        let applicationMatch = {};
 
         // For HR-Admin, filter by assigned employers
         if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
             jobMatch.employer = { $in: user.employerIds };
-            const assignedJobIds = await JobPost.find(jobMatch).distinct('_id');
-            applicationMatch.jobPost = { $in: assignedJobIds };
         }
+
+        // First, get all job IDs from assigned employers
+        const assignedJobIds = await JobPost.find(jobMatch).distinct('_id');
+        
+        // Get applications for these jobs separately
+        const applications = await Application.find({
+            jobPost: { $in: assignedJobIds },
+            createdAt: { $gte: startDate }
+        }).lean();
+
+        // Create a map of jobId -> applications
+        const applicationsByJobId = {};
+        applications.forEach(app => {
+            const jobId = app.jobPost.toString();
+            if (!applicationsByJobId[jobId]) {
+                applicationsByJobId[jobId] = [];
+            }
+            applicationsByJobId[jobId].push(app);
+        });
 
         // Get top performing jobs by applications
         const topJobs = await JobPost.aggregate([
             { $match: { ...jobMatch, createdAt: { $gte: startDate } } },
-            {
-                $lookup: {
-                    from: 'applications',
-                    localField: '_id',
-                    foreignField: 'jobPost',
-                    as: 'applications',
-                },
-            },
             {
                 $lookup: {
                     from: 'users',
@@ -440,296 +448,206 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
                     offeredSalary: 1,
                     applicationDeadline: 1,
                     createdAt: 1,
-                    totalApplications: { $size: '$applications' },
-                    recentApplications: {
-                        $size: {
-                            $filter: {
-                                input: '$applications',
-                                as: 'app',
-                                cond: { $gte: ['$$app.createdAt', startDate] }
-                            }
-                        }
-                    },
-                    shortlistedCount: {
-                        $size: {
-                            $filter: {
-                                input: '$applications',
-                                as: 'app',
-                                cond: { $eq: ['$$app.shortlisted', true] }
-                            }
-                        }
-                    },
-                    acceptedCount: {
-                        $size: {
-                            $filter: {
-                                input: '$applications',
-                                as: 'app',
-                                cond: { $eq: ['$$app.status', 'Accepted'] }
-                            }
-                        }
-                    },
-                    // Safe acceptanceRate – never divide by zero
-                    acceptanceRate: {
-                        $cond: {
-                            if: { $gt: [{ $size: '$applications' }, 0] },
-                            then: {
-                                $round: [
-                                    {
-                                        $multiply: [
-                                            {
-                                                $divide: [
-                                                    {
-                                                        $size: {
-                                                            $filter: {
-                                                                input: '$applications',
-                                                                as: 'app',
-                                                                cond: { $eq: ['$$app.status', 'Accepted'] }
-                                                            }
-                                                        }
-                                                    },
-                                                    { $size: '$applications' }
-                                                ]
-                                            },
-                                            100
-                                        ]
-                                    },
-                                    1
-                                ]
-                            },
-                            else: 0
-                        }
-                    },
+                    updatedAt: 1,
+                    profileViews: 1,
+                    applicantCount: 1,
+                    positions: 1,
                     employerName: '$employer.name',
                     companyName: { $ifNull: ['$company.companyName', 'N/A'] },
-                    positionsRemaining: { $ifNull: ['$positions.remaining', 0] },
-                    positionsTotal: { $ifNull: ['$positions.total', 0] },
-                    // Safe fillPercentage
-                    fillPercentage: {
-                        $cond: {
-                            if: { $gt: [{ $ifNull: ['$positions.total', 0] }, 0] },
-                            then: {
-                                $round: [
-                                    {
-                                        $multiply: [
-                                            {
-                                                $divide: [
-                                                    { $subtract: [{ $ifNull: ['$positions.total', 0] }, { $ifNull: ['$positions.remaining', 0] }] },
-                                                    { $ifNull: ['$positions.total', 0] }
-                                                ]
-                                            },
-                                            100
-                                        ]
-                                    },
-                                    1
-                                ]
-                            },
-                            else: 0
-                        }
-                    },
-                    // Safe viewsPerApplication
-                    viewsPerApplication: {
-                        $cond: {
-                            if: {
-                                $and: [
-                                    { $gt: [{ $ifNull: ['$profileViews', 0] }, 0] },
-                                    { $gt: [{ $size: '$applications' }, 0] }
-                                ]
-                            },
-                            then: {
-                                $round: [
-                                    { $divide: [{ $ifNull: ['$profileViews', 0] }, { $size: '$applications' }] },
-                                    1
-                                ]
-                            },
-                            else: 0
-                        }
-                    },
-                    // Safe timeToFirstApplication (in days)
-                    timeToFirstApplication: {
-                        $cond: {
-                            if: { $gt: [{ $size: '$applications' }, 0] },
-                            then: {
-                                $round: [
-                                    {
-                                        $divide: [
-                                            {
-                                                $min: {
-                                                    $map: {
-                                                        input: '$applications',
-                                                        as: 'app',
-                                                        in: { $subtract: ['$$app.createdAt', '$createdAt'] }
-                                                    }
-                                                }
-                                            },
-                                            1000 * 60 * 60 * 24
-                                        ]
-                                    },
-                                    0
-                                ]
-                            },
-                            else: null
-                        }
-                    },
-                    // Safe timeToFill (in days)
-                    timeToFill: {
-                        $cond: {
-                            if: { $eq: [{ $ifNull: ['$positions.remaining', 0] }, 0] },
-                            then: {
-                                $round: [
-                                    {
-                                        $divide: [
-                                            { $subtract: ['$updatedAt', '$createdAt'] },
-                                            1000 * 60 * 60 * 24
-                                        ]
-                                    },
-                                    0
-                                ]
-                            },
-                            else: null
-                        }
-                    }
                 }
             },
-            { $sort: { totalApplications: -1 } },
+            { $sort: { applicantCount: -1 } },
             { $limit: parseInt(limit) },
         ]);
 
-        // Format time metrics (convert ms to days)
-        const formattedTopJobs = topJobs.map(job => ({
-            ...job,
-            timeToFirstApplication: job.timeToFirstApplication
-                ? Math.round(job.timeToFirstApplication / (1000 * 60 * 60 * 24))  // ms to days
-                : null,
-            timeToFill: job.timeToFill
-                ? Math.round(job.timeToFill / (1000 * 60 * 60 * 24))
-                : null,
-        }));
+        // Now enrich jobs with application data
+        const enrichedTopJobs = topJobs.map(job => {
+            const jobId = job._id.toString();
+            const jobApplications = applicationsByJobId[jobId] || [];
+            
+            // Calculate application metrics
+            const totalApplications = jobApplications.length;
+            const recentApplications = jobApplications.filter(app => 
+                app.createdAt >= startDate
+            ).length;
+            const shortlistedCount = jobApplications.filter(app => 
+                app.shortlisted === true
+            ).length;
+            const acceptedCount = jobApplications.filter(app => 
+                app.status === 'Accepted'
+            ).length;
+            
+            // Calculate acceptance rate
+            const acceptanceRate = totalApplications > 0 
+                ? Math.round((acceptedCount / totalApplications) * 100) 
+                : 0;
+            
+            // Calculate fill percentage
+            const positionsTotal = job.positions?.total || 0;
+            const positionsRemaining = job.positions?.remaining || 0;
+            const fillPercentage = positionsTotal > 0 
+                ? Math.round(((positionsTotal - positionsRemaining) / positionsTotal) * 100)
+                : 0;
+            
+            // Calculate views per application
+            const viewsPerApplication = (job.profileViews || 0) > 0 && totalApplications > 0
+                ? Math.round((job.profileViews || 0) / totalApplications)
+                : 0;
+            
+            // Calculate time to first application
+            let timeToFirstApplication = null;
+            if (totalApplications > 0) {
+                const firstApp = jobApplications.reduce((earliest, app) => 
+                    earliest < app.createdAt ? earliest : app.createdAt, 
+                    new Date()
+                );
+                timeToFirstApplication = Math.round(
+                    (firstApp - job.createdAt) / (1000 * 60 * 60 * 24)
+                );
+            }
+            
+            // Calculate time to fill
+            let timeToFill = null;
+            if (job.status === 'Closed' && job.updatedAt && job.createdAt && positionsRemaining === 0) {
+                timeToFill = Math.round(
+                    (job.updatedAt - job.createdAt) / (1000 * 60 * 60 * 24)
+                );
+            }
+
+            return {
+                ...job,
+                totalApplications,
+                recentApplications,
+                shortlistedCount,
+                acceptedCount,
+                acceptanceRate,
+                positionsRemaining,
+                positionsTotal,
+                fillPercentage,
+                viewsPerApplication,
+                timeToFirstApplication,
+                timeToFill
+            };
+        });
 
         // Get job status distribution
-        const jobStatusDistribution = await JobPost.aggregate([
-            { $match: { ...jobMatch, createdAt: { $gte: startDate } } },
-            {
-                $group: {
-                    _id: '$status',
-                    count: { $sum: 1 },
-                    totalApplications: { $sum: '$applicantCount' },
-                    avgApplications: { $avg: '$applicantCount' },
-                    avgFillRate: { $avg: { $subtract: ['$positions.total', '$positions.remaining'] } },
-                },
-            },
-            { $sort: { count: -1 } },
-        ]);
+        const allJobs = await JobPost.find({ ...jobMatch, createdAt: { $gte: startDate } }).lean();
+        
+        const jobStatusDistribution = {};
+        allJobs.forEach(job => {
+            const status = job.status || 'Unknown';
+            if (!jobStatusDistribution[status]) {
+                jobStatusDistribution[status] = {
+                    count: 0,
+                    totalApplications: 0,
+                    totalPositions: 0,
+                    filledPositions: 0
+                };
+            }
+            
+            const jobId = job._id.toString();
+            const jobApps = applicationsByJobId[jobId] || [];
+            
+            jobStatusDistribution[status].count++;
+            jobStatusDistribution[status].totalApplications += jobApps.length;
+            jobStatusDistribution[status].totalPositions += (job.positions?.total || 0);
+            jobStatusDistribution[status].filledPositions += (job.positions?.total || 0) - (job.positions?.remaining || 0);
+        });
+
+        const formattedStatusDistribution = Object.entries(jobStatusDistribution).map(([status, data]) => ({
+            _id: status,
+            count: data.count,
+            totalApplications: data.totalApplications,
+            avgApplications: Math.round(data.totalApplications / data.count) || 0,
+            avgFillRate: Math.round(data.filledPositions / data.count) || 0
+        })).sort((a, b) => b.count - a.count);
 
         // Get job type distribution
-        const jobTypeDistribution = await JobPost.aggregate([
-            { $match: { ...jobMatch, createdAt: { $gte: startDate } } },
-            // Extract salary numbers
-            {
-                $addFields: {
-                    salaryNumbers: {
-                        $regexFindAll: {
-                            input: '$offeredSalary',
-                            regex: /[0-9]+(\.[0-9]+)?/g,
-                        },
-                    },
-                },
-            },
-            // Calculate average salary number
-            {
-                $addFields: {
-                    numericSalary: {
-                        $cond: [
-                            { $gt: [{ $size: '$salaryNumbers' }, 0] },
-                            {
-                                $avg: {
-                                    $map: {
-                                        input: '$salaryNumbers',
-                                        as: 's',
-                                        in: { $toDouble: '$$s.match' },
-                                    },
-                                },
-                            },
-                            null,
-                        ],
-                    },
-                },
-            },
-            // Group
-            {
-                $group: {
-                    _id: '$jobType',
-                    count: { $sum: 1 },
-                    avgSalary: { $avg: '$numericSalary' },
-                    totalApplications: { $sum: '$applicantCount' },
-                    avgApplications: { $avg: '$applicantCount' },
-                },
-            },
-            { $sort: { count: -1 } },
-        ]);
-
-        // Calculate overall metrics
-        const totalJobs = await JobPost.countDocuments({ ...jobMatch, createdAt: { $gte: startDate } });
-        const totalApplications = await Application.aggregate([
-            { $match: applicationMatch },
-            { $count: 'total' },
-        ]).then(r => r[0]?.total || 0);
-
-        const avgApplicationsPerJob = totalJobs > 0 ? Math.round(totalApplications / totalJobs) : 0;
-
-        const timeToFillStats = await JobPost.aggregate([
-            {
-                $match: {
-                    ...jobMatch,
-                    status: 'Closed',
-                    createdAt: { $gte: startDate },
-                    updatedAt: { $exists: true },     // safety: skip jobs without updatedAt
-                }
-            },
-            {
-                $project: {
-                    daysToFill: {
-                        $cond: {
-                            if: { $gt: ['$updatedAt', '$createdAt'] },
-                            then: {
-                                $divide: [{ $subtract: ['$updatedAt', '$createdAt'] }, 1000 * 60 * 60 * 24]
-                            },
-                            else: null
-                        }
-                    }
-                }
-            },
-            {
-                $match: { daysToFill: { $ne: null } }   // remove invalid entries
-            },
-            {
-                $group: {
-                    _id: null,
-                    avgTimeToFill: { $avg: '$daysToFill' },
-                    medianTimeToFill: {
-                        $median: {
-                            input: '$daysToFill',
-                            method: "approximate"         
-                        }
-                    },
-                    countFilled: { $sum: 1 }
+        const jobTypeDistribution = {};
+        allJobs.forEach(job => {
+            const jobType = job.jobType || 'Unknown';
+            if (!jobTypeDistribution[jobType]) {
+                jobTypeDistribution[jobType] = {
+                    count: 0,
+                    totalApplications: 0,
+                    totalSalary: 0,
+                    salaryCount: 0
+                };
+            }
+            
+            const jobId = job._id.toString();
+            const jobApps = applicationsByJobId[jobId] || [];
+            
+            jobTypeDistribution[jobType].count++;
+            jobTypeDistribution[jobType].totalApplications += jobApps.length;
+            
+            // Extract salary from offeredSalary if possible
+            if (job.offeredSalary && job.offeredSalary !== 'Negotiable') {
+                const salaryMatch = job.offeredSalary.match(/[0-9]+(\.[0-9]+)?/g);
+                if (salaryMatch && salaryMatch.length > 0) {
+                    const avgSalary = salaryMatch.reduce((sum, num) => sum + parseFloat(num), 0) / salaryMatch.length;
+                    jobTypeDistribution[jobType].totalSalary += avgSalary;
+                    jobTypeDistribution[jobType].salaryCount++;
                 }
             }
-        ]);
+        });
+
+        const formattedTypeDistribution = Object.entries(jobTypeDistribution).map(([jobType, data]) => ({
+            _id: jobType,
+            count: data.count,
+            avgSalary: data.salaryCount > 0 ? Math.round(data.totalSalary / data.salaryCount) : 0,
+            totalApplications: data.totalApplications,
+            avgApplications: Math.round(data.totalApplications / data.count) || 0
+        })).sort((a, b) => b.count - a.count);
+
+        // Calculate overall metrics
+        const totalJobs = allJobs.length;
+        const totalApplications = applications.length;
+        const avgApplicationsPerJob = totalJobs > 0 ? Math.round(totalApplications / totalJobs) : 0;
+
+        // Calculate time to fill stats
+        const filledJobs = allJobs.filter(job => 
+            job.status === 'Closed' && 
+            job.updatedAt && 
+            job.createdAt && 
+            (job.positions?.remaining || 0) === 0
+        );
+        
+        const timeToFillStats = filledJobs.map(job => 
+            Math.round((job.updatedAt - job.createdAt) / (1000 * 60 * 60 * 24))
+        );
+        
+        const avgTimeToFill = timeToFillStats.length > 0 
+            ? Math.round(timeToFillStats.reduce((a, b) => a + b, 0) / timeToFillStats.length)
+            : 0;
+        
+        const medianTimeToFill = timeToFillStats.length > 0
+            ? timeToFillStats.sort((a, b) => a - b)[Math.floor(timeToFillStats.length / 2)]
+            : 0;
+
+        // Calculate average acceptance rate from enriched jobs
+        const validAcceptanceRates = enrichedTopJobs
+            .filter(job => job.totalApplications > 0)
+            .map(job => job.acceptanceRate);
+        
+        const avgAcceptanceRate = validAcceptanceRates.length > 0
+            ? Math.round(validAcceptanceRates.reduce((a, b) => a + b, 0) / validAcceptanceRates.length)
+            : 0;
 
         return res.status(200).json({
             success: true,
             period,
             months: parseInt(months),
-            topJobs: formattedTopJobs,
-            jobStatusDistribution,
-            jobTypeDistribution,
+            topJobs: enrichedTopJobs,
+            jobStatusDistribution: formattedStatusDistribution,
+            jobTypeDistribution: formattedTypeDistribution,
             metrics: {
                 totalJobs,
                 totalApplications,
                 avgApplicationsPerJob,
-                avgTimeToFill: timeToFillStats[0]?.avgTimeToFill ? Math.round(timeToFillStats[0].avgTimeToFill) : 0,
-                medianTimeToFill: timeToFillStats[0]?.medianTimeToFill ? Math.round(timeToFillStats[0].medianTimeToFill) : 0,
-                avgAcceptanceRate: calculateAverageAcceptanceRate(topJobs),
+                avgTimeToFill,
+                medianTimeToFill,
+                avgAcceptanceRate,
             },
         });
     } catch (error) {
