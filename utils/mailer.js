@@ -6,7 +6,8 @@ import { BadRequestError } from './errors.js';
 
 const isProd = process.env.NODE_ENV === "production";
 
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+// mail delay helper
+// const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 
 console.log("NODE_ENV:", process.env.NODE_ENV);
