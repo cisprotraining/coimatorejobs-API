@@ -3452,3 +3452,29 @@ Response:
         }
     ]
 }
+
+HR-ADMIN-Dashboard Reports:
+
+Skill On Demand Report:
+
+{{local}}api/v1/employer-dashboard/hr-admin-dashboard/reports/skills-demand - GET 
+
+AUTH: Auth : hr-admin or superadmin token
+
+Employer Activity Report:
+
+{{local}}api/v1/employer-dashboard/hr-admin-dashboard/reports/employer-activity - GET 
+
+AUTH: Auth : hr-admin or superadmin token
+
+Monthly Performance Report:
+
+{{local}}api/v1/employer-dashboard/hr-admin-dashboard/reports/performance?month=2026-01
+
+AUTH: Auth : hr-admin or superadmin token
+
+Payload: 
+
+{
+    "month" : 2026-01
+}
