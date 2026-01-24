@@ -665,7 +665,7 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
     const user = req.user;
     const { period = 'monthly', months = 6 } = req.query;
 
-    console.log("testtt", user);
+    // console.log("testtt", user);
 
 
     let jobMatch = {};

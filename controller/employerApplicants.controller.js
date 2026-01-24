@@ -215,7 +215,7 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
 
     const jobs = await JobPost.find(jobQuery).select('_id');
 
-    console.log("testtttttttttttttttting", jobs.length);
+    // console.log("testtttttttttttttttting", jobs.length);
 
 
     if (!jobs.length) {

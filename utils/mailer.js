@@ -6,6 +6,8 @@ import { BadRequestError } from './errors.js';
 
 const isProd = process.env.NODE_ENV === "production";
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 
 console.log("NODE_ENV:", process.env.NODE_ENV);
 console.log("MAILTRAP_HOST:", process.env.MAILTRAP_HOST);
@@ -22,36 +24,56 @@ console.log("EMAIL_USER:", process.env.EMAIL_USER);
 const transporter = nodemailer.createTransport(
   isProd
     ? {
-        // ✅ PRODUCTION → Microsoft Outlook
-        host: "smtp.office365.com",
+
+       // Using Gmail SMTP for development testing
+        host: "smtp.gmail.com",
         port: 587,
-        secure: false,
+        secure: true,
         auth: {
-          user: process.env.EMAIL_USER, // no-reply@coimbatorejobs.in
-          pass: process.env.EMAIL_PASS, // Microsoft App Password
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
         },
-        tls: {
-          rejectUnauthorized: false,
-        },
+
+        // ✅ PRODUCTION → Microsoft Outlook
+        // host: "smtp.office365.com",
+        // port: 587,
+        // secure: false,
+        // auth: {
+        //   user: process.env.EMAIL_USER, // no-reply@coimbatorejobs.in
+        //   pass: process.env.EMAIL_PASS, // Microsoft App Password
+        // },
+        // tls: {
+        //   rejectUnauthorized: false,
+        // },
       }
     : {
         // 🧪 DEVELOPMENT → Mailtrap
-        host: process.env.MAILTRAP_HOST,
-        port: process.env.MAILTRAP_PORT,
+        // host: process.env.MAILTRAP_HOST,
+        // port: process.env.MAILTRAP_PORT,
+        // auth: {
+        //   user: process.env.MAILTRAP_USER,
+        //   pass: process.env.MAILTRAP_PASS,
+        // },
+
+        // Using Gmail SMTP for development testing
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
         auth: {
-          user: process.env.MAILTRAP_USER,
-          pass: process.env.MAILTRAP_PASS,
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
         },
       }
 );
 
 transporter.verify((error) => {
   if (error) {
-    console.error("❌ Email transporter error:", error);
+    console.error("❌ Gmail transporter error:", error);
   } else {
-    console.log(
-      `✅ Email transporter ready (${isProd ? "Microsoft Outlook" : "Mailtrap"})`
-    );
+     console.log("✅ Gmail SMTP connected successfully");
+    // console.log(
+    //   `✅ Email transporter ready (${isProd ? "Microsoft Outlook" : "Mailtrap"})`
+    // );
   }
 });
 
@@ -68,6 +90,22 @@ const sendMail = async ({ to, subject, html }) => {
     html,
   });
 };
+
+// export const sendWelcomeEmail = async ({ recipient, name }) => {
+//   await sendMail({
+//     to: recipient,
+//     subject: "Welcome to Coimbatore Jobs",
+//     html: `<h2>Welcome ${name}</h2><p>Your account is ready.</p>`,
+//   });
+// };
+
+// export const sendSuperadminAlertEmail = async ({ superadminEmail }) => {
+//   await sendMail({
+//     to: superadminEmail,
+//     subject: "New User Registered",
+//     html: `<p>A new user has registered.</p>`,
+//   });
+// };
 
 // Function to send job alert email
 const sendJobAlertEmail = async ({ recipient, jobTitle, companyName, jobId }) => {
@@ -90,11 +128,6 @@ const sendJobAlertEmail = async ({ recipient, jobTitle, companyName, jobId }) =>
         <p>Best regards,<br><strong>Coimbatore Jobs Team</strong></p>
       `,
     });
-
-    if (error) {
-      console.error('Resend job alert error:', error);
-      throw new BadRequestError('Failed to send job alert email');
-    }
 
     console.log(`Job alert sent to ${recipient} for ${jobTitle}`);
   } catch (error) {
