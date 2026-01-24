@@ -28,10 +28,14 @@ const transporter = nodemailer.createTransport(
        // Using Gmail SMTP for development testing
         host: "smtp.gmail.com",
         port: 587,
-        secure: true,
+        secure: false,
         auth: {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASS,
+        },
+        tls: {
+          ciphers: "SSLv3",
+          rejectUnauthorized: false, // REQUIRED on Render
         },
 
         // ✅ PRODUCTION → Microsoft Outlook
