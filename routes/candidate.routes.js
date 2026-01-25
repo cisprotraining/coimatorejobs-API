@@ -26,9 +26,9 @@ candidateRouter.get('/profile/get/:id', authenticate, authorize(['candidate', 'e
 candidateRouter.get('/profile/my-profiles', authenticate, authorize(['candidate']), candidateController.getCandidateProfilesForCandidate);
 
 // Delete candidate profile
-candidateRouter.delete('/profile/delete/:id', authenticate, authorize(['candidate', 'superadmin']), candidateController.deleteCandidateProfile);
+candidateRouter.delete('/profile/delete/:id', authenticate, authorize(['candidate', 'superadmin', 'hr-admin']), candidateController.deleteCandidateProfile);
 
-candidateRouter.get( '/candidate-profile/assigned', authenticate, authorize(['hr-admin', 'superadmin']), candidateController.getAssignedCandidateProfiles);
+candidateRouter.get( '/candidate-profile/assigned', authenticate, authorize(['hr-admin', 'superadmin', 'hr-admin']), candidateController.getAssignedCandidateProfiles);
 
 
 // Give approval to candidate profile

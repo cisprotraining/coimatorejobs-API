@@ -75,7 +75,7 @@ const resumeAlertSchema = new mongoose.Schema({
     // Added for tracking alert performance
     emailsSent: { type: Number, default: 0 },
     totalMatches: { type: Number, default: 0 },
-    lastMatch: { type: Date },
+    lastMatch: { type: Date, default: null },
   },
 }, { timestamps: true });
 

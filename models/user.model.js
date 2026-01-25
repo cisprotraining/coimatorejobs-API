@@ -52,6 +52,15 @@ const userSchema = new mongoose.Schema({
         ref: 'User'
     },
     isActive: { type: Boolean, default: true },
+     // password reset
+    resetPasswordToken: {
+        type: String,
+        select: false   // hides it in normal queries
+    },
+    resetPasswordExpire: {
+        type: Date,
+        select: false
+    },
     createdAt: {
         type: Date,
         default: Date.now

@@ -5,6 +5,8 @@ import SavedCandidate from "../models/savedCandidate.model.js";
 import JobPost from "../models/jobs.model.js";
 import User from "../models/user.model.js";
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
+import { sendCompanyProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
+import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -173,6 +175,27 @@ employerController.createCompanyProfile = async (req, res, next) => {
     });
 
     await newProfile.save();
+
+    // Send notification emails
+    await sendCompanyProfileStatusEmail({
+      recipient: employerUser.email,
+      name: employerUser.name,
+      companyName: newProfile.companyName,
+      status: newProfile.status,
+      dashboardUrl: `${process.env.FRONTEND_URL}employer-dashboard/dashboard`
+    });
+
+      // WAIT 6 SECONDS (Mailtrap throttle workaround)
+    await new Promise(resolve => setTimeout(resolve, 8000)); //remove when in production
+
+    // Alert superadmin
+    await sendSuperadminAlertEmail({
+      superadminEmail: SUPERADMIN_EMAIL,
+      eventType: 'create_profile',
+      newUserEmail: employerUser.email,
+      newUserRole: 'employer',
+      message: `New company profile created for ${employerUser.email} by ${loggedInUserId}`
+    });
 
     return res.status(201).json({
       success: true,
@@ -503,9 +526,37 @@ employerController.deleteCompanyProfile = async (req, res, next) => {
       throw new NotFoundError('Company profile not found');
     }
 
+    // Fetch employer user from users collection
+    const employerUser = await User.findById(profile.employer).select('name email');
+
     // Check permissions: allow if user is superadmin or the original creator (employer)
-    if (user.role !== 'superadmin' && profile.employer.toString() !== user.id.toString()) {
+    const isAdmin = ['superadmin', 'hr-admin'].includes(req.user.role);
+    const isOwner = profile.employer._id.toString() === user.id.toString();
+
+    if (!isAdmin && !isOwner) {
       throw new ForbiddenError('You do not have permission to delete this profile');
+    }
+
+
+     // Determine name & email from user table
+    const employerName = employerUser?.name || profile.companyName;
+    const employerEmail = employerUser?.email || profile.email;
+
+     // Fetch deleting user
+    const deletingUser = await User.findById(user.id).select('email role');
+
+     let deletedByLabel = '';
+    let superadminMessage = '';
+
+    if (isOwner) {
+      deletedByLabel = employerEmail; // candidate/employer email
+      superadminMessage = `Employer ${employerEmail} deleted their own company profile`;
+    } else {
+      deletedByLabel =
+        deletingUser?.email ||
+        (deletingUser?.role === 'superadmin' ? 'Super Admin' : 'HR Admin');
+
+      superadminMessage = `Company profile deleted for ${employerEmail} by ${deletedByLabel}`;
     }
 
     // Delete associated files if they exist
@@ -533,6 +584,27 @@ employerController.deleteCompanyProfile = async (req, res, next) => {
 
     // Delete the profile from the database
     await CompanyProfile.findByIdAndDelete(profileId);
+
+    // Email employer
+    await sendProfileDeletionEmail({
+      recipient: employerEmail,
+      name: employerName,
+      role: 'employer',
+      deletedBy: deletedByLabel
+    });
+
+    // Mailtrap throttle workaround
+    await new Promise(resolve => setTimeout(resolve, 8000)); //remove when in production
+
+    // Notify superadmin
+    await sendSuperadminAlertEmail({
+      superadminEmail: SUPERADMIN_EMAIL,
+      eventType: 'deleted',
+      newUserEmail: employerEmail,
+      newUserRole: 'employer',
+      message: superadminMessage,
+      actorEmail: deletedByLabel
+    });
 
     return res.status(200).json({
       success: true,
@@ -562,6 +634,9 @@ employerController.approveCompanyProfile = async (req, res, next) => {
       throw new NotFoundError('Company profile not found');
     }
 
+     // Fetch employer user from users table
+    const employerUser = await User.findById(profile.employer).select("name email");
+
     profile.status = status;
     profile.approvedBy = adminId;
     profile.approvedAt = new Date();
@@ -569,6 +644,37 @@ employerController.approveCompanyProfile = async (req, res, next) => {
       status === 'rejected' ? rejectionReason : null;
 
     await profile.save();
+
+    // Who approved
+    const adminUser = await User.findById(req.user.id).select('email role');
+    const actionBy = adminUser?.email || (adminUser?.role === 'superadmin' ? 'Super Admin' : 'HR Admin');
+
+    const employerName = employerUser?.name || profile.companyName;
+    const employerEmail = employerUser?.email || profile.email;
+
+    // Send email to employer
+    await sendCompanyProfileStatusEmail({
+      recipient: employerEmail,
+      name: employerName,
+      companyName: profile.companyName,
+      status,
+      rejectionReason,
+      dashboardUrl: `${process.env.FRONTEND_URL}employer-dashboard/dashboard`,
+      actionBy
+    });
+
+    // Mailtrap throttle workaround
+    await new Promise(resolve => setTimeout(resolve, 8000));
+
+    // Notify superadmin
+    await sendSuperadminAlertEmail({
+      superadminEmail: SUPERADMIN_EMAIL,
+      eventType: status === 'approved' ? 'approved' : 'rejected',
+      newUserEmail: employerEmail,
+      newUserRole: 'employer',
+      message: `Company profile ${status} for ${employerEmail} by ${actionBy}`,
+      actorEmail: actionBy
+    });
 
     return res.status(200).json({
       success: true,

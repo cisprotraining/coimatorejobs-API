@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import { JWT_SECRET, JWT_EXPIRES_IN, SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import crypto from 'crypto';
-import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail } from '../utils/mailer.js';
+import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
 import { BadRequestError, ForbiddenError,NotFoundError} from '../utils/errors.js';
 
 import { log } from "console";
@@ -69,11 +69,15 @@ authentication.signup = async (req, res, next) => {
         // Send welcome email to new user
         await sendWelcomeEmail({ recipient: email, name });
 
-        // Send alert to superadmin
-        await sendSuperadminAlertEmail({ 
-          superadminEmail: SUPERADMIN_EMAIL, 
-          newUserEmail: email, 
-          newUserRole: safeRole 
+        // Small delay for Mailtrap
+        await new Promise(resolve => setTimeout(resolve, 6000)); //remove when in production
+
+        await sendSuperadminAlertEmail({
+          superadminEmail: SUPERADMIN_EMAIL,
+          eventType: 'new_registration',
+          userEmail: email,
+          userRole: safeRole,
+          message: 'New user registration via signup form'
         });
 
         // Send success response
@@ -156,6 +160,28 @@ authentication.createAdminUser = async (req, res, next) => {
 
     await session.commitTransaction();
     session.endSession();
+
+    const createdByLabel = creator.email || (creator.role === 'superadmin' ? 'Super Admin' : 'HR Admin');
+
+    // Welcome email to new user
+    await sendWelcomeEmail({
+      recipient: email,
+      name,
+      createdBy: createdByLabel,
+      role
+    });
+
+    // Small delay for Mailtrap
+    await new Promise(resolve => setTimeout(resolve, 6000)); //remove when in production
+
+    // Superadmin alert
+    await sendSuperadminAlertEmail({
+      superadminEmail: SUPERADMIN_EMAIL,
+      eventType: 'new_registration',
+      newUserEmail: email,
+      newUserRole: role,
+      message: `${role} account created by ${createdByLabel}`
+    });
 
     res.status(201).json({
       success: true,
@@ -347,7 +373,7 @@ authentication.forgotPassword = async (req, res, next) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: 'Email is required' });
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).select('+resetPasswordToken +resetPasswordExpire');
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     // Generate reset token
@@ -360,7 +386,7 @@ authentication.forgotPassword = async (req, res, next) => {
     await user.save();
 
     // Send reset email
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL}reset-password/${resetToken}`;
     await sendPasswordResetEmail({
       recipient: user.email,
       name: user.name || user.email,
@@ -407,6 +433,9 @@ authentication.resetPasswordWithToken = async (req, res, next) => {
 
     await user.save();
 
+    // Send password reset success email
+    await sendPasswordResetSuccessEmail({ recipient: user.email, name: user.name });
+
     res.status(200).json({ success: true, message: 'Password reset successful' });
   } catch (error) {
     console.error('Error in resetPasswordWithToken:', error);
@@ -428,6 +457,22 @@ authentication.adminResetUserPassword = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(newPassword, salt);
     await user.save();
+
+    // Send admin reset notification email to user
+    await sendAdminPasswordResetEmail({
+      recipient: user.email,
+      name: user.name,
+      adminEmail: req.user.email
+    });
+    // Send alert to superadmin
+    await sendSuperadminAlertEmail({
+      superadminEmail: SUPERADMIN_EMAIL,
+      eventType: 'password_reset',
+      newUserEmail: user.email,
+      newUserRole: user.role,
+      message: `Admin reset password for user ${user.email} by ${req.user.email}`,
+      actorEmail: req.user.email
+    });
 
     res.status(200).json({
       success: true,
@@ -522,6 +567,25 @@ authentication.updateUserStatus = async (req, res, next) => {
       { new: true }
     );
 
+    // Send status update email to user
+    await sendUserStatusUpdateEmail({
+      recipient: user.email,
+      name: user.name,
+      status: status,
+      role: user.role
+    });
+    // Send alert to superadmin (if not superadmin updating)
+    if (req.user.role !== 'superadmin') {
+      await sendSuperadminAlertEmail({
+        superadminEmail: SUPERADMIN_EMAIL,
+        eventType: status === 'approved' ? 'approved' : 'rejected',
+        newUserEmail: user.email,
+        newUserRole: user.role,
+        message: `User status updated to ${status} by ${req.user.email}`,
+        actorEmail: req.user.email
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: `User ${status} successfully`
@@ -598,6 +662,21 @@ authentication.deleteUserProfile = async (req, res, next) => {
 
     await targetUser.save();
 
+    // Send deletion confirmation email to user
+    await sendProfileDeletionEmail({
+      recipient: targetUser.email,
+      name: targetUser.name,
+      role: targetUser.role,
+      deletedBy: loggedInUser.email
+    });
+    // Send alert to superadmin
+    await sendSuperadminAlertEmail({
+      superadminEmail: SUPERADMIN_EMAIL,
+      newUserEmail: targetUser.email,
+      newUserRole: targetUser.role,
+      message: `User profile deleted by ${loggedInUser.email}`
+    });
+
     return res.status(200).json({
       success: true,
       message: 'User profile deleted successfully (soft delete)'
@@ -643,6 +722,15 @@ authentication.googleLogin = async (req, res, next) => {
             });
 
             await user.save();
+
+            // Send welcome email to new user
+            await sendWelcomeEmail({ recipient: email, name });
+            // Send alert to superadmin
+            await sendSuperadminAlertEmail({
+              superadminEmail: SUPERADMIN_EMAIL,
+              newUserEmail: email,
+              newUserRole: role || 'candidate'
+            });
         }
 
         // 4. Generate Application JWT (Matches your schema/middleware logic)

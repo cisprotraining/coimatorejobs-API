@@ -5,6 +5,8 @@ import JobPost from '../models/jobs.model.js';
 import JobApply from "../models/jobApply.model.js";
 import SavedJob from '../models/savedJob.model.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
+import { sendCandidateProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
+import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import fs from 'fs';
 import path from 'path';
 import natural from 'natural';  //library (for TF-IDF / cosine similarity)
@@ -216,6 +218,26 @@ candidateController.createCandidateProfile = async (req, res, next) => {
 
     await newProfile.save();
 
+    // Send notification emails
+    await sendCandidateProfileStatusEmail({
+      recipient: targetUser.email,
+      name: targetUser.name,
+      status: newProfile.status,
+      dashboardUrl: `${process.env.FRONTEND_URL}/candidate/dashboard`
+    });
+
+       // WAIT 6 SECONDS (Mailtrap throttle workaround)
+    await new Promise(resolve => setTimeout(resolve, 6000)); //remove when in production
+
+    // Alert superadmin
+    await sendSuperadminAlertEmail({
+      superadminEmail: SUPERADMIN_EMAIL,
+      eventType: 'create_profile',
+      newUserEmail: targetUser.email,
+      newUserRole: 'candidate',
+      message: `New candidate profile created for ${targetUser.email} by ${loggedInUserId}`
+    });
+
     return res.status(201).json({
       success: true,
       message: 'Candidate profile created successfully',
@@ -410,11 +432,36 @@ candidateController.deleteCandidateProfile = async (req, res, next) => {
       throw new NotFoundError('Candidate profile not found');
     }
 
-    // Check permissions
-    if (req.user.role !== 'superadmin' && profile.candidate.toString() !== req.user.id.toString()) {
+     // Permission check
+    const isAdmin = ['superadmin', 'hr-admin'].includes(req.user.role);
+    const isOwner = profile.candidate.toString() === req.user.id.toString();
+
+    if (!isAdmin && !isOwner) {
       throw new ForbiddenError('You do not have permission to delete this profile');
     }
 
+    // Fetch deleting user (email + role)
+    const deletingUser = await User.findById(req.user.id).select('email role');
+
+    //  Determine who deleted
+    let deletedByLabel = '';
+    let notifySuperadminMessage = '';
+
+    if (isOwner) {
+      // Candidate deleted their own profile
+      deletedByLabel = 'You';
+      notifySuperadminMessage = `Candidate ${profile.email} deleted their own profile`;
+    } else {
+      // Deleted by admin
+      deletedByLabel =
+        deletingUser?.email ||
+        (deletingUser?.role === 'superadmin'
+          ? 'Super Admin'
+          : 'HR Admin');
+
+      notifySuperadminMessage = `Candidate profile deleted for ${profile.email} by ${deletedByLabel}`;
+    }
+    
     // Delete associated files
     if (profile.profilePhoto) {
       const photoPath = path.join(process.cwd(), 'public', profile.profilePhoto);
@@ -426,6 +473,27 @@ candidateController.deleteCandidateProfile = async (req, res, next) => {
     }
 
     await CandidateProfile.findByIdAndDelete(profileId);
+
+    // Send deletion confirmation email to candidate
+    await sendProfileDeletionEmail({
+      recipient: profile.email,
+      name: profile.fullName,
+      role: 'candidate',
+      deletedBy: deletedByLabel
+    });
+
+     // WAIT 6 SECONDS (Mailtrap throttle workaround)
+    await new Promise(resolve => setTimeout(resolve, 6000)); //remove when in production
+
+    // Send alert to superadmin
+    await sendSuperadminAlertEmail({
+      superadminEmail: SUPERADMIN_EMAIL,
+      eventType: 'deleted',
+      newUserEmail: profile.email,
+      newUserRole: 'candidate',
+      message: notifySuperadminMessage,
+      actorEmail: deletedByLabel
+    });
 
     return res.status(200).json({
       success: true,
@@ -462,6 +530,31 @@ candidateController.approveCandidateProfile = async (req, res, next) => {
       status === 'rejected' ? rejectionReason : null;
 
     await profile.save();
+
+     // Fetch approving user (email + role)
+    const approvingUser = await User.findById(req.user.id).select('email role');
+
+    // Send status update email to candidate
+    await sendCandidateProfileStatusEmail({
+      recipient: profile.email,
+      name: profile.fullName,
+      status: status,
+      rejectionReason: status === 'rejected' ? rejectionReason : null,
+      dashboardUrl: `${process.env.FRONTEND_URL}/candidate-dashboard/dashboard`
+    });
+
+    // WAIT 5 SECONDS (Mailtrap throttle workaround)
+    await new Promise(resolve => setTimeout(resolve, 5000)); //remove when in production
+
+    // Send alert to superadmin
+    await sendSuperadminAlertEmail({
+      superadminEmail: SUPERADMIN_EMAIL,
+      eventType: status === 'approved' ? 'approved' : 'rejected',
+      newUserEmail: profile.email,
+      newUserRole: 'candidate',
+      message: `Candidate profile ${status} for ${profile.email} by ${approvingUser.email}`,
+      actorEmail: approvingUser.email
+    });
 
     return res.status(200).json({
       success: true,
