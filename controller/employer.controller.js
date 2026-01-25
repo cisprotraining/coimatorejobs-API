@@ -450,7 +450,21 @@ employerController.getCompanyProfile = async (req, res, next) => {
      * employer (others)  → approved only
      * hr-admin/superadmin→ always allowed
      */
-    if ( profile.status !== 'approved' && !isOwner && !isAdmin ) {
+    // if ( profile.status !== 'approved' && !isOwner && !isAdmin ) {
+    //   throw new ForbiddenError('Company profile is not approved yet');
+    // }
+
+    // Visibility Rules:
+    // candidate           → approved only
+    // employer (owner)    → always allowed
+    // employer (others)  → ❌ not allowed
+    // hr-admin/superadmin→ always allowed
+
+    if (role === 'employer' && !isOwner) {
+      throw new ForbiddenError('Access denied');
+    }
+
+    if (role === 'candidate' && profile.status !== 'approved') {
       throw new ForbiddenError('Company profile is not approved yet');
     }
 
