@@ -215,7 +215,7 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
 
     const jobs = await JobPost.find(jobQuery).select('_id');
 
-    // console.log("testtttttttttttttttting", jobs.length);
+    // console.log("testtttttttttttttttting", jobs);
 
 
     if (!jobs.length) {
@@ -296,6 +296,7 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
     const formattedApplicants = applicants.map(app => ({
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
+      candidateProfileId: app.candidateProfile?._id || '',
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location?.city || 'N/A',
       expectedSalary: app.candidateProfile?.expectedSalary || 'N/A',
@@ -601,8 +602,32 @@ employerApplicantsController.viewApplicant = async (req, res, next) => {
     //   throw new ForbiddenError('You do not have permission to view this application');
     // }
     // new ownership check using role helper
+    // if (!canManageJob(application.jobPost, req.user)) {
+    //   throw new ForbiddenError('Permission denied');
+    // }
+
+     //  Application not found
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+
+    //  Job post missing (data integrity check)
+    if (!application.jobPost) {
+      return res.status(400).json({
+        success: false,
+        message: 'Job post not associated with this application'
+      });
+    }
+
+    // Permission check
     if (!canManageJob(application.jobPost, req.user)) {
-      throw new ForbiddenError('Permission denied');
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied'
+      });
     }
 
 
