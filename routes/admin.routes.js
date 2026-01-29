@@ -1,6 +1,7 @@
 // admin.routes.js
 import { Router } from 'express';
 import adminController from '../controller/admin.controller.js';
+import contactController from '../controller/contact.controller.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 
 const adminRouter = Router();
@@ -23,6 +24,10 @@ adminRouter.get('/featured-jobs/fetch-all', adminController.getFeaturedJobs); //
 // Featured Companies (Curated Content)
 adminRouter.put('/featured-company', authenticate, authorize(['hr-admin', 'superadmin']), adminController.updateFeaturedCompanies);
 adminRouter.get('/featured-company/fetch-all', adminController.getFeaturedCompanies); // Publicly accessible for Home Page
+
+
+// for contact us form
+adminRouter.post('/contact-form/submit', contactController.submitContactForm);
 
 
 export default adminRouter;

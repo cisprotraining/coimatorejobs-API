@@ -616,4 +616,61 @@ const sendCandidateProfileStatusEmail = async ({ recipient, name, status, reject
   }
 };
 
+// CONTACT FORM EMAILS 
+export const sendContactEmails = async ({
+  name,
+  email,
+  subject,
+  message,
+  formType,
+  ipAddress
+}) => {
+  // Admin email
+  const adminHtml = `
+    <h2>📩 New Contact Form Submission</h2>
+    <p><strong>Form Type:</strong> ${formType}</p>
+    <p><strong>Name:</strong> ${name}</p>
+    <p><strong>Email:</strong> ${email}</p>
+    <p><strong>Subject:</strong> ${subject}</p>
+    <p><strong>Message:</strong></p>
+    <p style="white-space: pre-line">${message}</p>
+    <hr />
+    <p><strong>IP Address:</strong> ${ipAddress}</p>
+    <p><strong>Submitted At:</strong> ${new Date().toLocaleString()}</p>
+  `;
+
+  await sendMail({
+    to: process.env.MAIL_GENERAL || process.env.SUPERADMIN_EMAIL,
+    subject: `New Contact Inquiry (${formType})`,
+    html: adminHtml,
+    cc: [process.env.MAIL_SUPPORT]
+  });
+
+  // User auto-reply
+  const userHtml = `
+    <p>Hi ${name},</p>
+    <p>Thank you for contacting <strong>Coimbatore Jobs</strong>.</p>
+
+    <p>We’ve received your message and our team will respond within
+    <strong>24–48 hours</strong>.</p>
+
+    <blockquote style="background:#f8fafc;padding:10px;border-left:4px solid #2563eb">
+      ${message.substring(0, 200)}${message.length > 200 ? '...' : ''}
+    </blockquote>
+
+    <p>Regards,<br />
+    <strong>Coimbatore Jobs Team</strong></p>
+  `;
+
+   // Small delay for Mailtrap
+  await new Promise(resolve => setTimeout(resolve, 8000)); //remove when in production
+
+  await sendMail({
+    to: email,
+    subject: 'We received your message – Coimbatore Jobs',
+    html: userHtml
+  });
+};
+
+
 export { sendJobAlertEmail, sendResumeAlertEmail, sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendCompanyProfileStatusEmail, sendCandidateProfileStatusEmail };

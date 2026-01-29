@@ -3478,3 +3478,33 @@ Payload:
 {
     "month" : 2026-01
 }
+
+
+//contact form 
+
+localhost:5000/api/v1/admin/contact-form/submit - POST 
+
+Sample Payload: 
+
+{
+  "name": "Aravind Kumar",
+  "email": "avarvind3765@gmail.com",
+  "subject": "Job Posting Issue",
+  "message": "I am unable to post a job from my dashboard.",
+  "formType": "general"
+}
+
+
+Response: 
+
+{
+    "success": true,
+    "message": "Thank you! Your message has been sent successfully."
+}
+
+Failure: 
+
+{
+    "success": false,
+    "message": "Name is required"
+}
