@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import jobs from '../models/jobs.model.js';
+import jobs from '../models/jobs_new.model.js';
 import CompanyProfile from '../models/companyProfile.model.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 
