@@ -46,26 +46,26 @@ const jobPostSchema = new mongoose.Schema({
   jobType: {
     type: String,
     required: [true, 'Job type is required'],
-    enum: ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship', 'Temporary'],
+    // enum: ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship', 'Temporary'],
   },
   offeredSalary: {
     type: String,
     required: [true, 'Offered salary is required'],
-    enum: ['< ₹5 LPA', '₹5-10 LPA', '₹10-15 LPA', '₹15-20 LPA', '₹20-30 LPA', '₹30+ LPA', 'Negotiable'],
+    // enum: ['< ₹5 LPA', '₹5-10 LPA', '₹10-15 LPA', '₹15-20 LPA', '₹20-30 LPA', '₹30+ LPA', 'Negotiable'],
   },
   careerLevel: {
     type: String,
     required: [true, 'Career level is required'],
-    enum: ['Entry Level', 'Intermediate', 'Mid Level', 'Senior Level', 'Executive'],
+    // enum: ['Entry Level', 'Intermediate', 'Mid Level', 'Senior Level', 'Executive'],
   },
   experience: {
     type: String,
     required: [true, 'Experience is required'],
-    enum: ['Fresher', '1-3 years', '3-5 years', '5-10 years', '10+ years'],
+    // enum: ['Fresher', '1-3 years', '3-5 years', '5-10 years', '10+ years'],
   },
   gender: {
     type: String,
-    enum: ['Male', 'Female', 'Other', 'No Preference'],
+    // enum: ['Male', 'Female', 'Other', 'No Preference'],
     default: 'No Preference',
   },
   // industry: {
@@ -109,7 +109,7 @@ const jobPostSchema = new mongoose.Schema({
   qualification: {
     type: String,
     required: [true, 'Qualification is required'],
-    enum: [ '10th', '12th', 'Diploma', 'Bachelor', 'Master', 'Doctorate', 'Other' ],
+    // enum: [ '10th', '12th', 'Diploma', 'Bachelor', 'Master', 'Doctorate', 'Other' ],
   },
   applicationDeadline: {
     type: Date,
@@ -123,7 +123,8 @@ const jobPostSchema = new mongoose.Schema({
     },
     remaining: {
       type: Number,
-      default: 0,
+      // default: 0,
+      default: function() { return this.total; },
     },
   },
   applicantCount: {
@@ -150,7 +151,7 @@ const jobPostSchema = new mongoose.Schema({
   remoteWork: {
     // Added for 2025 trend: remote work options
     type: String,
-    enum: ['On-site', 'Hybrid', 'Remote'],
+    // enum: ['On-site', 'Hybrid', 'Remote'],
     default: 'On-site',
   },
   status: {
