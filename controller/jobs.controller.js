@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
-import jobs from '../models/jobs.model.js';
+import JobPost from '../models/jobs.model.js';
 import CompanyProfile from '../models/companyProfile.model.js';
+import Role from '../models/role.model.js';
+import Location from '../models/location.model.js';
+import Skill from '../models/skill.model.js';
+import Industry from '../models/industry.model.js';
+import FunctionalArea from '../models/functionalArea.model.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 
 const jobsController = {};
@@ -15,7 +20,7 @@ jobsController.createJobPost = async (req, res, next) => {
   try {
 
     // Extract employer ID from authenticated user
-    const { id: loggedInUserId, role } = req.user;
+    const { id: loggedInUserId, role: userRole } = req.user;
 
     /**
      * Resolve employerId & companyProfile
@@ -28,7 +33,7 @@ jobsController.createJobPost = async (req, res, next) => {
     let employerId = loggedInUserId;
 
     // For hr-admin and superadmin, employerId must be provided in body
-    if (['hr-admin', 'superadmin'].includes(role)) {
+    if (['hr-admin', 'superadmin'].includes(userRole)) {
       if (!req.body.employerId) {
         throw new BadRequestError('employerId is required for HR-Admin or Superadmin');
       }
@@ -56,7 +61,7 @@ jobsController.createJobPost = async (req, res, next) => {
       description,
       contactEmail,
       contactUsername,
-      specialisms,
+      // specialisms,
       jobType,
       offeredSalary,
       careerLevel,
@@ -69,13 +74,16 @@ jobsController.createJobPost = async (req, res, next) => {
       remoteWork,
       positions,
       companyProfile, // Added to allow explicit selection if needed
+      role, // singular ID
+      skills = [],
+      functionalAreas = [], // required array of IDs
     } = req.body;
 
     // Validate required fields
     const requiredFields = [
-      'title', 'description', 'contactEmail', 'specialisms', 'jobType',
-      'offeredSalary', 'careerLevel', 'experience', 'industry', 'qualification',
-      'applicationDeadline', 'location'
+      'title', 'description', 'contactEmail', 'jobType',
+      'offeredSalary', 'careerLevel', 'experience', 'qualification',
+      'applicationDeadline', 'positions', 'location', 'role', 'functionalAreas'
     ];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     if (missingFields.length > 0) {
@@ -85,13 +93,39 @@ jobsController.createJobPost = async (req, res, next) => {
     // console.log("Creating job post with data:", req.body);
     
     // Validate location object
-    if (!location.country || !location.city || !location.completeAddress) {
+    if (!location?.country || !location?.city || !location?.completeAddress) {
       throw new BadRequestError('Complete location details are required (country, city, completeAddress)');
     }
 
+    // commented out old specialism  for now
     // Validate specialisms
-    if (!Array.isArray(specialisms) || specialisms.length === 0) {
-      throw new BadRequestError('At least one specialism is required');
+    // if (!Array.isArray(specialisms) || specialisms.length === 0) {
+    //   throw new BadRequestError('At least one specialism is required');
+    // }
+
+    // Validate functionalAreas (array of IDs)
+    if (!Array.isArray(functionalAreas) || functionalAreas.length === 0) throw new BadRequestError('functionalAreas required (array)');
+    for (const id of functionalAreas) {
+      if (!mongoose.Types.ObjectId.isValid(id) || !(await FunctionalArea.findById(id))) {
+        throw new BadRequestError(`Invalid/missing functional area: ${id}`);
+      }
+    }
+
+    // Validate industry
+    if (!mongoose.Types.ObjectId.isValid(industry) || !(await Industry.findById(industry))) {
+      throw new BadRequestError('Invalid or missing industry');
+    }
+
+    // Validate role
+    if (!mongoose.Types.ObjectId.isValid(role) || !(await Role.findById(role))) {
+      throw new BadRequestError('Invalid or missing role');
+    }
+
+    // Validate skills
+    for (const id of skills) {
+      if (!mongoose.Types.ObjectId.isValid(id) || !(await Skill.findById(id))) {
+        throw new BadRequestError(`Invalid/missing skill: ${id}`);
+      }
     }
 
    if (!positions || !positions.total || Number(positions.total) < 1) {
@@ -104,6 +138,25 @@ jobsController.createJobPost = async (req, res, next) => {
       throw new BadRequestError('Invalid companyProfile ID');
     }
 
+
+    // Validate skills
+    if (skills && Array.isArray(skills)) {
+      for (const id of skills) {
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+          throw new BadRequestError(`Invalid skill ID: ${id}`);
+        }
+        if (!(await Skill.findById(id))) {
+          throw new NotFoundError(`Skill not found: ${id}`);
+        }
+      }
+    }
+
+    // Validate location.city (prefer seeded, but allow custom)
+    const cityLocation = await Location.findOne({ name: location.city });
+    if (!cityLocation) {
+      console.warn(`Custom city added: ${location.city}`); // For analytics
+    }
+
     // Create new job post
     const newJobPost = new jobs({
       employer: employerId,        // the actual company owner
@@ -113,13 +166,16 @@ jobsController.createJobPost = async (req, res, next) => {
       description,
       contactEmail,
       contactUsername,
-      specialisms,
+      // specialisms,
       jobType,
       offeredSalary,
       careerLevel,
       experience,
       gender: gender || 'No Preference',
+      functionalAreas,
       industry,
+      role,
+      skills,
       qualification,
       applicationDeadline,
       location: {
@@ -134,6 +190,21 @@ jobsController.createJobPost = async (req, res, next) => {
       remoteWork: remoteWork || 'On-site', // Default to On-site
       status: 'Published', // Default to Published
     });
+
+    // Validate functional areas
+    if (!Array.isArray(functionalAreas) || functionalAreas.length === 0) {
+      throw new BadRequestError('At least one functional area is required');
+    }
+
+    for (const faId of functionalAreas) {
+      if (!mongoose.Types.ObjectId.isValid(faId)) {
+        throw new BadRequestError(`Invalid functional area ID: ${faId}`);
+      }
+      if (!(await FunctionalArea.findById(faId))) {
+        throw new NotFoundError('Functional area not found');
+      }
+    }
+
 
     await newJobPost.save();
 
@@ -157,27 +228,30 @@ jobsController.createJobPost = async (req, res, next) => {
  */
 jobsController.getJobPosts = async (req, res, next) => {
   try {
-    const user = req.user;
-    const { role, id: userId } = user; 
+    const { role: userRole, id: userId } = req.user; 
 
     // Build base query
     let query = {};
 
     // Restrict to employer's own job posts unless superadmin, hr-admin
-    if (user.role === 'employer') {
+    if (userRole === 'employer') {
       // Employer → jobs of their company
       query.employer = userId;
     }
 
-    if (user.role === 'hr-admin') {
+    if (userRole === 'hr-admin') {
       // HR-Admin → jobs they posted
       query.postedBy = userId;
     }
     
 
     // Query and populate related company profile (only name and logo)
-    const jobPosts = await jobs.find(query)
+    const jobPosts = await JobPost.find(query)
       .populate('companyProfile', 'companyName logo')
+      .populate('functionalAreas', 'name slug')
+      .populate('industry', 'name slug')
+      .populate('role', 'name slug')
+      .populate('skills', 'name')
       .select('employer companyProfile title location applicantCount status createdAt applicationDeadline')
       .sort({ createdAt: -1 });  // Most recent first
 
@@ -207,7 +281,7 @@ jobsController.getJobPosts = async (req, res, next) => {
  */
 jobsController.getEmployerJobPosts = async (req, res, next) => {
   try {
-    const { role, id: userId } = req.user;
+    const { role: userRole, id: userId } = req.user;
 
     // Base MongoDB query
     let query = {};
@@ -218,7 +292,7 @@ jobsController.getEmployerJobPosts = async (req, res, next) => {
      * Employers should see ONLY the jobs
      * created under their own employer account.
      */
-    if (role === 'employer') {
+    if (userRole === 'employer') {
       query.employer = userId;
       query.postedBy = userId; // employer created it themselves
     }
@@ -230,12 +304,12 @@ jobsController.getEmployerJobPosts = async (req, res, next) => {
      * We identify employer-created jobs by checking:
      * postedBy === employer
      */
-    if (['hr-admin', 'superadmin'].includes(role)) {
+    if (['hr-admin', 'superadmin'].includes(userRole)) {
       query.$expr = { $eq: ['$postedBy', '$employer'] };
     }
 
     // Fetch jobs with minimal required fields
-    const jobPosts = await jobs.find(query)
+    const jobPosts = await JobPost.find(query)
       .populate('companyProfile', 'companyName logo')
       .populate('employer', 'name email')
       .select(
@@ -270,7 +344,7 @@ jobsController.getEmployerJobPosts = async (req, res, next) => {
  */
 jobsController.getAdminPostedJobs = async (req, res, next) => {
   try {
-    const { role, id: userId } = req.user;
+    const { role: userRole, id: userId } = req.user;
 
     // Base query for admin-created jobs
     let query = {
@@ -282,7 +356,7 @@ jobsController.getAdminPostedJobs = async (req, res, next) => {
      * ------------------------------------------------
      * HR-Admin can only see jobs posted by themselves.
      */
-    if (role === 'hr-admin') {
+    if (userRole === 'hr-admin') {
       query.postedBy = userId;
     }
 
@@ -293,7 +367,7 @@ jobsController.getAdminPostedJobs = async (req, res, next) => {
      * No additional filters required.
      */
 
-    const jobPosts = await jobs.find(query)
+    const jobPosts = await JobPost.find(query)
       .populate('companyProfile', 'companyName logo')
       .populate('employer', 'name email')
       .populate('postedBy', 'name role')
@@ -324,7 +398,7 @@ jobsController.getJobPost = async (req, res, next) => {
     const user = req.user;
     const jobPostId = req.params.id;
 
-    const jobPost = await jobs.findById(jobPostId)
+    const jobPost = await JobPost.findById(jobPostId)
       .populate('companyProfile', 'companyName logo')
       // .select('title description contactEmail contactUsername specialisms jobType offeredSalary careerLevel experience gender industry qualification applicationDeadline location remoteWork status companyProfile -__v')
       .select('-__v -applicantCount'); // fix here
@@ -355,50 +429,65 @@ jobsController.getJobPost = async (req, res, next) => {
  */
 jobsController.updateJobPost = async (req, res, next) => {
   try {
-    const user = req.user;
+    const { role: userRole, id: userId } = req.user;
     const jobPostId = req.params.id;
-    const {
-      title,
-      description,
-      contactEmail,
-      contactUsername,
-      specialisms,
-      jobType,
-      offeredSalary,
-      careerLevel,
-      experience,
-      gender,
-      industry,
-      qualification,
-      applicationDeadline,
-      location,
-      status,
-      positions
-    } = req.body;
 
-    const jobPost = await jobs.findById(jobPostId);
+    // commented out old destructuring for now
+    // const {
+    //   title,
+    //   description,
+    //   contactEmail,
+    //   contactUsername,
+    //   // specialisms,
+    //   jobType,
+    //   offeredSalary,
+    //   careerLevel,
+    //   experience,
+    //   gender,
+    //   functionalAreas,
+    //   industry,
+    //   role,
+    //   skills,
+    //   qualification,
+    //   applicationDeadline,
+    //   location,
+    //   status,
+    //   positions
+    // } = req.body;
+
+    const jobPost = await JobPost.findById(jobPostId);
     if (!jobPost) {
       throw new NotFoundError('Job post not found');
     }
 
     // Check permissions
-    const isOwner = jobPost.employer.toString() === user.id.toString();
-    const isPoster = jobPost.postedBy.toString() === user.id.toString();
-    const isAdmin = ['hr-admin', 'superadmin'].includes(user.role);
+    const isOwner = jobPost.employer.toString() === userId.toString();
+    const isPoster = jobPost.postedBy.toString() === userId.toString();
+    const isAdmin = ['hr-admin', 'superadmin'].includes(userRole);
 
     if (!isOwner && !isPoster && !isAdmin) {
       throw new ForbiddenError('You do not have permission to modify this job post');
     }
 
+    // commented out old specialisms for now
     // Parse specialisms if string
-    let parsedSpecialisms = specialisms;
-    if (typeof specialisms === 'string') {
-      try {
-        parsedSpecialisms = JSON.parse(specialisms);
-      } catch {
-        throw new BadRequestError('Invalid specialisms format');
-      }
-    }
+    // let parsedSpecialisms = specialisms;
+    // if (typeof specialisms === 'string') {
+    //   try {
+    //     parsedSpecialisms = JSON.parse(specialisms);
+    //   } catch {
+    //     throw new BadRequestError('Invalid specialisms format');
+    //   }
+    // }
+
+    const updateData = {};
+
+    // Simple fields
+    ['title', 'description', 'contactEmail', 'contactUsername', 'jobType',
+     'offeredSalary', 'careerLevel', 'experience', 'gender', 'qualification',
+     'applicationDeadline', 'remoteWork', 'status'].forEach(field => {
+      if (req.body[field] !== undefined) updateData[field] = req.body[field];
+    });
 
     // Parse location if string
     let parsedLocation;
@@ -412,23 +501,24 @@ jobsController.updateJobPost = async (req, res, next) => {
       parsedLocation = location;
     }
 
+    // commented out old update for now
     // Update fields
-    const updateData = {
-      title: title || jobPost.title,
-      description: description || jobPost.description,
-      contactEmail: contactEmail || jobPost.contactEmail,
-      contactUsername: contactUsername || jobPost.contactUsername,
-      specialisms: parsedSpecialisms ? (Array.isArray(parsedSpecialisms) ? parsedSpecialisms : [parsedSpecialisms]) : jobPost.specialisms,
-      jobType: jobType || jobPost.jobType,
-      offeredSalary: offeredSalary || jobPost.offeredSalary,
-      careerLevel: careerLevel || jobPost.careerLevel,
-      experience: experience || jobPost.experience,
-      gender: gender || jobPost.gender,
-      industry: industry || jobPost.industry,
-      qualification: qualification || jobPost.qualification,
-      applicationDeadline: applicationDeadline || jobPost.applicationDeadline,
-      status: status || jobPost.status,
-    };
+    // const updateData = {
+    //   title: title || jobPost.title,
+    //   description: description || jobPost.description,
+    //   contactEmail: contactEmail || jobPost.contactEmail,
+    //   contactUsername: contactUsername || jobPost.contactUsername,
+    //   specialisms: parsedSpecialisms ? (Array.isArray(parsedSpecialisms) ? parsedSpecialisms : [parsedSpecialisms]) : jobPost.specialisms,
+    //   jobType: jobType || jobPost.jobType,
+    //   offeredSalary: offeredSalary || jobPost.offeredSalary,
+    //   careerLevel: careerLevel || jobPost.careerLevel,
+    //   experience: experience || jobPost.experience,
+    //   gender: gender || jobPost.gender,
+    //   industry: industry || jobPost.industry,
+    //   qualification: qualification || jobPost.qualification,
+    //   applicationDeadline: applicationDeadline || jobPost.applicationDeadline,
+    //   status: status || jobPost.status,
+    // };
 
     if (parsedLocation) {
       updateData.location = {
@@ -436,6 +526,41 @@ jobsController.updateJobPost = async (req, res, next) => {
         city: parsedLocation.city || jobPost.location.city,
         completeAddress: parsedLocation.completeAddress || jobPost.location.completeAddress,
       };
+    }
+
+    // Taxonomy fields
+    // Handle arrays / refs if provided
+    if (req.body.functionalAreas) {
+      // Validate array of IDs
+      for (const id of req.body.functionalAreas) {
+        if (!mongoose.Types.ObjectId.isValid(id) || !(await FunctionalArea.findById(id))) {
+          throw new BadRequestError(`Invalid functional area: ${id}`);
+        }
+      }
+      updateData.functionalAreas = req.body.functionalAreas;
+    }
+
+    if (req.body.role) {
+      if (!mongoose.Types.ObjectId.isValid(req.body.role) || !(await Role.findById(req.body.role))) {
+        throw new BadRequestError('Invalid role');
+      }
+      updateData.role = req.body.role;
+    }
+
+    if (req.body.skills) {
+      for (const id of req.body.skills) {
+        if (!mongoose.Types.ObjectId.isValid(id) || !(await Skill.findById(id))) {
+          throw new BadRequestError(`Invalid skill: ${id}`);
+        }
+      }
+      updateData.skills = req.body.skills;
+    }
+
+    if (req.body.industry) {
+      if (!mongoose.Types.ObjectId.isValid(req.body.industry) || !(await Industry.findById(req.body.industry))) {
+        throw new BadRequestError('Invalid industry');
+      }
+      updateData.industry = req.body.industry;
     }
 
     // POSITIONS UPDATE
@@ -479,11 +604,11 @@ jobsController.updateJobPost = async (req, res, next) => {
     
 
     // Update job post
-    const updatedJobPost = await jobs.findByIdAndUpdate(
+    const updatedJobPost = await JobPost.findByIdAndUpdate(
       jobPostId,
       { $set: updateData },
       { new: true, runValidators: true }
-    ).select('-__v -applicantCount');
+    ).populate('functionalAreas role industry skills companyProfile').select('-__v -applicantCount');
 
     return res.status(200).json({
       success: true,
@@ -503,25 +628,25 @@ jobsController.updateJobPost = async (req, res, next) => {
  */
 jobsController.deleteJobPost = async (req, res, next) => {
   try {
-    const user = req.user;
+    const { role: userRole, id: userId } = req.user;
     const jobPostId = req.params.id;
 
-    const jobPost = await jobs.findById(jobPostId);
+    const jobPost = await JobPost.findById(jobPostId);
     if (!jobPost) {
       throw new NotFoundError('Job post not found');
     }
 
     // Check permissions
-    const isOwner = jobPost.employer.toString() === user.id.toString();
-    const isPoster = jobPost.postedBy.toString() === user.id.toString();
-    const isAdmin = ['hr-admin', 'superadmin'].includes(user.role);
+    const isOwner = jobPost.employer.toString() === userId.toString();
+    const isPoster = jobPost.postedBy.toString() === userId.toString();
+    const isAdmin = ['hr-admin', 'superadmin'].includes(userRole);
 
     if (!isOwner && !isPoster && !isAdmin) {
       throw new ForbiddenError('You do not have permission to modify this job post');
     }
 
     // Delete job post
-    await jobs.findByIdAndDelete(jobPostId);
+    await JobPost.findByIdAndDelete(jobPostId);
 
     return res.status(200).json({
       success: true,
@@ -531,5 +656,96 @@ jobsController.deleteJobPost = async (req, res, next) => {
     next(error);
   }
 };
+
+// common pagination function
+const paginate = (req) => {
+  const page = Math.max(1, Number(req.query.page || 1));
+  const limit = Math.min(50, Number(req.query.limit || 20));
+  return { skip: (page - 1) * limit, limit };
+};
+
+// New SEO-focused APIs
+jobsController.getJobsByLocation = async (req, res, next) => {
+  try {
+    const { city } = req.params;
+    const { skip, limit } = paginate(req);
+
+    const jobs = await JobPost.find({ status: 'Published', 'location.city': { $regex: new RegExp(`^${city}$`, 'i') } })
+      .populate('companyProfile', 'companyName logo')
+      .populate('functionalAreas', 'name slug')
+      .populate('industry', 'name slug')
+      .populate('role', 'name slug')
+      .populate('skills', 'name')
+      .select('title role location status createdAt slug seoKeywords')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+    res.json({ success: true, jobs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+jobsController.getJobsByCategory = async (req, res, next) => {
+  try {
+    const { categorySlug } = req.params;
+    const functionalArea = await FunctionalArea.findOne({ slug: categorySlug });
+    if (!functionalArea) throw new NotFoundError('Category not found');
+    const jobs = await JobPost.find({ status: 'Published', functionalAreas: functionalArea._id })
+      .populate('companyProfile', 'companyName logo')
+      .populate('functionalAreas', 'name slug')
+      .populate('industry', 'name slug')
+      .populate('role', 'name slug')
+      .populate('skills', 'name')
+      .sort({ createdAt: -1 });
+    res.json({ success: true, jobs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+jobsController.getJobsByRole = async (req, res, next) => {
+  try {
+    const { roleSlug } = req.params;
+    const role = await Role.findOne({ slug: roleSlug });
+    if (!role) throw new NotFoundError('Role not found');
+    const jobs = await JobPost.find({ status: 'Published', role: role._id })
+      .populate('companyProfile', 'companyName logo')
+      .populate('functionalAreas', 'name slug')
+      .populate('industry', 'name slug')
+      .populate('role', 'name slug')
+      .populate('skills', 'name')
+      .sort({ createdAt: -1 });
+    res.json({ success: true, jobs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+jobsController.getJobsByRoleAndCity = async (req, res, next) => {
+  try {
+    const { roleSlug, city } = req.params;
+
+    const role = await Role.findOne({ slug: roleSlug });
+    if (!role) throw new NotFoundError('Role not found');
+
+    const jobs = await JobPost.find({
+      role: role._id,
+      status: 'Published',
+      'location.city': { $regex: new RegExp(`^${city}$`, 'i') }
+    })
+      .populate('companyProfile', 'companyName logo')
+      .populate('functionalAreas', 'name slug')
+      .populate('industry', 'name slug')
+      .populate('role', 'name slug')
+      .sort({ createdAt: -1 });
+
+    res.json({ success: true, jobs });
+  } catch (err) {
+    next(err);
+  }
+};
+
 
 export default jobsController;

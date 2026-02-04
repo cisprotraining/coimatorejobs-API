@@ -8,6 +8,11 @@ import hrAdminDashboardController from '../controller/hrAdminDashboard.controlle
 import { authenticate, authorize, authorizeEmployerLike } from '../middleware/auth.js';
 import companyUpload from '../utils/fileUpload.js';  
 import normalizeBody from '../utils/normalizeBody.js';
+import Role from '../models/role.model.js';
+import Location from '../models/location.model.js';
+import Skill from '../models/skill.model.js';
+import FunctionalArea from '../models/functionalArea.model.js';
+import Industry from '../models/industry.model.js';
 import trackView from '../middleware/trackView.js';
 import trackJobView from '../middleware/trackJobView.js';
 
@@ -192,5 +197,22 @@ employerRouter.get('/hr-admin-dashboard/reports/employer-activity', authenticate
 
 //skill demand report
 employerRouter.get('/hr-admin-dashboard/reports/skills-demand', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getSkillsDemandReport);
+
+
+// Public / SEO routes (no auth required)
+employerRouter.get('/location/:city', jobsController.getJobsByLocation);
+employerRouter.get('/category/:categorySlug', jobsController.getJobsByCategory);
+employerRouter.get('/role/:roleSlug', jobsController.getJobsByRole);
+
+// HIGH VALUE SEO ROUTE
+employerRouter.get('/jobs/:roleSlug-jobs-in-:city', jobsController.getJobsByRoleAndCity);
+
+// GET /api/categories
+employerRouter.get('/categories', async (req, res) => {
+  const industries = await Industry.find().select('name slug');
+  const functions = await FunctionalArea.find().populate('industry', 'name slug').select('name slug industry');
+  const roles = await Role.find().populate('functionalArea', 'name slug').select('name slug functionalArea');
+  res.json({ industries, functionalAreas: functions, roles });
+});
 
 export default employerRouter;

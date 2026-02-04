@@ -2,6 +2,8 @@
 import { Router } from 'express';
 import adminController from '../controller/admin.controller.js';
 import contactController from '../controller/contact.controller.js';
+import RoleSuggestion from '../models/roleSuggestion.model.js';
+import Role from '../models/role.model.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 
 const adminRouter = Router();
@@ -28,6 +30,41 @@ adminRouter.get('/featured-company/fetch-all', adminController.getFeaturedCompan
 
 // for contact us form
 adminRouter.post('/contact-form/submit', contactController.submitContactForm);
+
+
+// View suggestions
+adminRouter.get(
+  '/role-suggestions',
+  authorize(['hr-admin', 'superadmin']),
+  async (req, res) => {
+    const data = await RoleSuggestion.find({ approved: false }).sort({ count: -1 });
+    res.json({ success: true, data });
+  }
+);
+
+// Approve suggestion
+adminRouter.post(
+  '/role-suggestions/:id/approve',
+  authorize(['superadmin']),
+  async (req, res) => {
+    const { functionalAreaId } = req.body;
+
+    const suggestion = await RoleSuggestion.findById(req.params.id);
+    if (!suggestion) throw new Error('Suggestion not found');
+
+    const role = await Role.create({
+      name: suggestion.title,
+      slug: suggestion.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      functionalArea: functionalAreaId,
+      keywords: [`${suggestion.title.toLowerCase()} jobs`]
+    });
+
+    suggestion.approved = true;
+    await suggestion.save();
+
+    res.json({ success: true, role });
+  }
+);
 
 
 export default adminRouter;

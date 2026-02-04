@@ -1,6 +1,11 @@
 // model/jobs.model.js
 import mongoose from 'mongoose';
 import JobAlert from './jobAlert.model.js';
+import FunctionalArea from './functionalArea.model.js';
+import Industry from './industry.model.js';
+import Role from './role.model.js';
+import Skill from './skill.model.js';
+import RoleSuggestion from './roleSuggestion.model.js';
 import { sendJobAlertEmail } from '../utils/mailer.js';
 
 const jobPostSchema = new mongoose.Schema({
@@ -34,10 +39,10 @@ const jobPostSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
-  specialisms: {
-    type: [String],
-    required: [true, 'At least one specialism is required'],
-  },
+  // specialisms: {
+  //   type: [String],
+  //   required: [true, 'At least one specialism is required'],
+  // },
   jobType: {
     type: String,
     required: [true, 'Job type is required'],
@@ -63,11 +68,44 @@ const jobPostSchema = new mongoose.Schema({
     enum: ['Male', 'Female', 'Other', 'No Preference'],
     default: 'No Preference',
   },
-  industry: {
-    type: String,
-    required: [true, 'Industry is required'],
-    trim: true,
+  // industry: {
+  //   type: String,
+  //   required: [true, 'Industry is required'],
+  //   trim: true,
+  // },
+    // New fields for better categorization
+  functionalAreas: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'FunctionalArea',
+    required: [true, 'At least one functional area is required'],
   },
+  industry: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Industry',
+    required: [true, 'Industry is required'],
+  },
+  role: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Role',
+    required: [true, 'Role is required'],
+  },
+  skills: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'Skill',
+    default: [],
+  },
+  seoKeywords: {
+    type: [String],
+    default: [],
+  },
+  slug: {
+    type: String,
+    unique: true,
+    sparse: true, // Allow null before first save
+    trim: true,
+    index: true,
+  },
+
   qualification: {
     type: String,
     required: [true, 'Qualification is required'],
@@ -142,6 +180,39 @@ const jobPostSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+// Auto-generate slug and seoKeywords on save (pull from all levels: industry, functionalAreas, role, skills)
+jobPostSchema.pre('save', async function (next) {
+  if (!this.slug) {
+    const baseSlug = this.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    this.slug = `${baseSlug}-${this.location.city.toLowerCase()}-${this._id}`;
+  }
+
+  if (!this.seoKeywords || this.seoKeywords.length === 0) {
+    const areas = await FunctionalArea.find({ _id: { $in: this.functionalAreas } });
+    const industry = await Industry.findById(this.industry);
+    const role = await Role.findById(this.role);
+    const skills = await Skill.find({ _id: { $in: this.skills } });
+
+    this.seoKeywords = [
+      ...new Set([
+        ...areas.flatMap(a => a.keywords || []),
+        ...(industry?.keywords || []),
+        ...(role?.keywords || []),
+        ...skills.flatMap(s => s.keywords || []),
+        role?.name?.toLowerCase(),
+        `${role?.name?.toLowerCase()} jobs`,
+        `${role?.name?.toLowerCase()} jobs in ${this.location.city.toLowerCase()}`
+      ])
+    ];
+  }
+
+  next();
+});
+
 
 /**
  * Mongoose post-save hook for JobPost.
@@ -154,13 +225,17 @@ jobPostSchema.post('save', async function (doc) {
     // Populate company name
     const populatedDoc = await mongoose.model('JobPost')
       .findById(doc._id)
-      .populate('companyProfile', 'companyName');
+      .populate('companyProfile', 'companyName')
+      .populate('functionalAreas', 'name')
+      .populate('industry', 'name')
+      .populate('role', 'name')
+      .populate('skills', 'name');
 
     const alerts = await JobAlert.find({ isActive: true }).populate('candidate', 'email');
     console.log('Found job alerts:', alerts);
     
     for (const alert of alerts) {
-      if (alert.frequency !== 'Instant') continue;
+      if (alert.frequency !== 'Instant'  || !alert.candidate?.email) continue;
 
       const matches = matchJobToAlert(populatedDoc, alert.criteria);
       if (matches && alert.candidate.email) {
@@ -177,6 +252,42 @@ jobPostSchema.post('save', async function (doc) {
   }
 });
 
+// Post-save hook to suggest new roles based on job postings
+jobPostSchema.post('save', async function (doc) {
+  // Because:
+  // Job title ≠ role always
+  // “Senior CNC Operator – Night Shift” breaks this
+  // const existingRole = await Role.findOne({
+  //   name: new RegExp(`^${doc.title}$`, 'i')
+  // });
+
+  const normalizedTitle = doc.title
+    .toLowerCase()
+    .replace(/senior|junior|night|shift|male|female/g, '')
+    .trim();
+
+    const normalized = normalizedTitle(doc.title);
+
+    const existingRole = await Role.findOne({
+      name: new RegExp(`^${normalized}$`, 'i')
+    });
+
+  if (existingRole) return;
+
+  const suggestion = await RoleSuggestion.findOneAndUpdate(
+    { normalizedTitle: normalized },
+    {
+      $inc: { count: 1 },
+      lastSeen: new Date()
+    },
+    { upsert: true, new: true }
+  );
+
+  if (suggestion.count === 20) {
+    console.log(`🔥 Role "${doc.title}" reached 20 postings — suggest admin review`);
+  }
+});
+
 /**
  * Determines if a job post matches the alert criteria.
  * @param {Object} job - The job post document
@@ -184,26 +295,65 @@ jobPostSchema.post('save', async function (doc) {
  * @returns {boolean} - True if the job matches the alert criteria
  */
 function matchJobToAlert(job, criteria) {
-  if (criteria.categories?.length > 0 &&
-      !criteria.categories.some(cat => job.specialisms.includes(cat))) return false;
+
+  // Updated to use new fields
+  if (criteria.functionalAreas?.length > 0 &&
+      !criteria.functionalAreas.some(id => job.functionalAreas.some(fa => fa._id.toString() === id.toString()))) {
+    return false;
+  }
+
+  if (criteria.industry && job.industry?._id.toString() !== criteria.industry) return false;
+
+  if (criteria.role && job.role?._id.toString() !== criteria.role) return false;
+
+  if (criteria.skills?.length > 0 &&
+      !criteria.skills.some(id => job.skills.some(s => s._id.toString() === id.toString()))) {
+    return false;
+  }
+
+  // old criteria field - commented out
+  // if (criteria.categories?.length > 0 &&
+  //     !criteria.categories.some(cat => job.specialisms.includes(cat))) return false;
 
   if (criteria.location?.city && criteria.location.city !== job.location.city) return false;
 
   if (criteria.salaryRange && job.offeredSalary !== 'Negotiable') {
-    const jobSalary = parseFloat(job.offeredSalary.replace('$', '')) || 0;
-    if (jobSalary < criteria.salaryRange.min ||
-        (criteria.salaryRange.max && jobSalary > criteria.salaryRange.max)) return false;
+    // Improved parse: handle ₹ and ranges like '₹5-10 LPA'
+    let minSalary = 0;
+    const match = job.offeredSalary.match(/₹(\d+)(?:-(\d+))?/);
+    if (match) minSalary = parseInt(match[1]) * 100000; // LPA to absolute
+    if (minSalary < criteria.salaryRange.min || (criteria.salaryRange.max && minSalary > criteria.salaryRange.max)) {
+      return false;
+    }
   }
+
+  // commented out old salary range matching for now
+  // if (criteria.salaryRange && job.offeredSalary !== 'Negotiable') {
+  //   const jobSalary = parseFloat(job.offeredSalary.replace('$', '')) || 0;
+  //   if (jobSalary < criteria.salaryRange.min ||
+  //       (criteria.salaryRange.max && jobSalary > criteria.salaryRange.max)) return false;
+  // }
 
   if (criteria.jobType && criteria.jobType !== job.jobType) return false;
   if (criteria.experience && criteria.experience !== job.experience) return false;
 
-  if (criteria.keywords?.length > 0 &&
-      !criteria.keywords.some(kw => job.title.includes(kw) || job.description.includes(kw))) return false;
+  if (criteria.keywords?.length > 0) {
+    const text = `${job.title} ${job.description}`.toLowerCase();
+    if (!criteria.keywords.some(kw => text.includes(kw.toLowerCase()))) return false;
+  }
+
+  // commented out old keyword matching for now
+  // if (criteria.keywords?.length > 0 &&
+  //     !criteria.keywords.some(kw => job.title.includes(kw) || job.description.includes(kw))) return false;
 
   return true;
 }
 
 const JobPost = mongoose.model('JobPost', jobPostSchema);
+jobPostSchema.index({ industry: 1 });
+jobPostSchema.index({ functionalAreas: 1 });
+jobPostSchema.index({ role: 1 });
+jobPostSchema.index({ 'location.city': 1 });
+jobPostSchema.index({ skills: 1 });
 
 export default JobPost;

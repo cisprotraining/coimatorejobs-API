@@ -3508,3 +3508,146 @@ Failure:
     "success": false,
     "message": "Name is required"
 }
+
+//SEO Based categories
+
+Get Industries
+
+GET /api/v1/master/industries
+
+Response:
+
+{
+  "success": true,
+  "data": [
+    { "_id": "65f1a1", "name": "Healthcare & Life Sciences", "slug": "healthcare-life-sciences" },
+    { "_id": "65f1a2", "name": "IT / Software", "slug": "it-software" },
+    { "_id": "65f1a3", "name": "Logistics / Transportation", "slug": "logistics-transportation" }
+  ]
+}
+
+
+Get Functional Areas by Industry
+
+GET http://localhost:5000/api/v1/master/functional-areas?industryId=6980ef462f1314d04225c2cd
+
+Response:
+
+{
+    "success": true,
+    "data": [
+        {
+            "_id": "6980ef472f1314d04225c2f3",
+            "name": "Data Science & Analytics",
+            "slug": "data-science-analytics",
+            "industry": "6980ef462f1314d04225c2cd"
+        },
+        {
+            "_id": "6980ef472f1314d04225c2fb",
+            "name": "Engineering - Hardware & Networks",
+            "slug": "engineering-hardware-networks",
+            "industry": "6980ef462f1314d04225c2cd"
+        },
+        {
+            "_id": "6980ef472f1314d04225c2fe",
+            "name": "Engineering - Software & QA",
+            "slug": "engineering-software-qa",
+            "industry": "6980ef462f1314d04225c2cd"
+        },
+        {
+            "_id": "6980ef472f1314d04225c30f",
+            "name": "IT & Information Security",
+            "slug": "it-information-security",
+            "industry": "6980ef462f1314d04225c2cd"
+        },
+        {
+            "_id": "6980ef472f1314d04225c31f",
+            "name": "Product Management",
+            "slug": "product-management",
+            "industry": "6980ef462f1314d04225c2cd"
+        },
+        {
+            "_id": "6980ef472f1314d04225c335",
+            "name": "Software Engineering",
+            "slug": "software-engineering",
+            "industry": "6980ef462f1314d04225c2cd"
+        },
+        {
+            "_id": "6980ef472f1314d04225c33d",
+            "name": "UX, Design & Architecture",
+            "slug": "ux-design-architecture",
+            "industry": "6980ef462f1314d04225c2cd"
+        }
+    ]
+}
+
+Get Roles by Functional Area
+
+GET http://localhost:5000/api/v1/master/roles?functionalAreaId=6980ef472f1314d04225c2fe
+
+{
+    "success": true,
+    "data": [
+        {
+            "_id": "6980ef472f1314d04225c33f",
+            "name": "Software Developer",
+            "slug": "software-developer",
+            "functionalArea": "6980ef472f1314d04225c2fe"
+        },
+        {
+            "_id": "6980ef482f1314d04225c34d",
+            "name": "Mobile App Developer",
+            "slug": "mobile-app-developer",
+            "functionalArea": "6980ef472f1314d04225c2fe"
+        }
+    ]
+}
+
+
+Skills Autocomplete
+
+GET http://localhost:5000/api/v1/master/skills?q=rea
+
+{
+    "success": true,
+    "data": [
+        {
+            "_id": "6980ef4b2f1314d04225c439",
+            "name": "React",
+            "slug": "react",
+            "keywords": [
+                "react js jobs",
+                "react developer vacancies"
+            ],
+            "createdAt": "2026-02-02T18:39:07.197Z",
+            "updatedAt": "2026-02-02T18:39:07.197Z",
+            "__v": 0
+        }
+    ]
+}
+
+Location Autocomplete
+
+GET http://localhost:5000/api/v1/master/locations?q=coim
+
+{
+    "success": true,
+    "data": [
+        {
+            "_id": "6980ef492f1314d04225c3d5",
+            "name": "Coimbatore",
+            "slug": "coimbatore",
+            "state": "Tamil Nadu",
+            "keywords": [
+                "jobs in coimbatore"
+            ],
+            "createdAt": "2026-02-02T18:39:05.930Z",
+            "updatedAt": "2026-02-02T18:39:05.930Z",
+            "__v": 0
+        }
+    ]
+}
+
+
+
+

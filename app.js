@@ -11,6 +11,7 @@ import errorMiddleware from './middleware/errorHandler.js';
 import employerRouter from './routes/employers.routes.js';
 import candidateRouter from './routes/candidate.routes.js';
 import jobAlertRouter from './routes/jobAlert.routes.js';
+import masterRoutes from './routes/master.routes.js';
 
 import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail } from './utils/mailer.js';
 
@@ -75,6 +76,7 @@ app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/employer-dashboard', employerRouter);
 app.use('/api/v1/candidate-dashboard', candidateRouter);
 app.use('/api/v1/notification', jobAlertRouter);
+app.use('/api/v1/master', masterRoutes);
 
 
 // Health check
