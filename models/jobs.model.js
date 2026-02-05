@@ -261,12 +261,13 @@ jobPostSchema.post('save', async function (doc) {
   //   name: new RegExp(`^${doc.title}$`, 'i')
   // });
 
-  const normalizedTitle = doc.title
+  const normalized = doc.title
     .toLowerCase()
-    .replace(/senior|junior|night|shift|male|female/g, '')
+    .replace(/\b(senior|junior|night|shift|male|female)\b/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
 
-    const normalized = normalizedTitle(doc.title);
+    // const normalized = normalizedTitle(doc.title);
 
     const existingRole = await Role.findOne({
       name: new RegExp(`^${normalized}$`, 'i')

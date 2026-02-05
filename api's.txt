@@ -3649,5 +3649,488 @@ GET http://localhost:5000/api/v1/master/locations?q=coim
 }
 
 
+//new seo related job post create
+
+http://localhost:5000/api/v1/employer-dashboard/jobs/create - post 
+
+Payload:
+
+{
+  "title": "CNC Operator",
+  "description": "We are looking for an experienced CNC Operator.",
+  "contactEmail": "hr@company.com",
+
+  "industry": "6980ef462f1314d04225c2cd",
+  "functionalAreas": [
+    "6980ef472f1314d04225c335"
+  ],
+  "role": "6980ef492f1314d04225c3cd",
+
+  "skills": [
+    "6980ef4b2f1314d04225c471",
+    "6980ef4b2f1314d04225c477"
+  ],
+
+  "jobType": "Full-time",
+  "offeredSalary": "₹5-10 LPA",
+  "careerLevel": "Mid Level",
+  "experience": "3-5 years",
+  "qualification": "Diploma",
+  "applicationDeadline": "2026-03-31",
+
+  "positions": { "total": 2 },
+
+  "location": {
+    "country": "India",
+    "city": "Coimbatore",
+    "completeAddress": "SIDCO Industrial Estate, Coimbatore"
+  }
+}
 
 
+Response:
+
+{
+    "success": true,
+    "message": "Job post created successfully",
+    "jobPost": {
+        "employer": "68ac9967d0d12b78d128cc96",
+        "companyProfile": "6894ec6b55908eb75da0745f",
+        "title": "CNC Operator",
+        "description": "We are looking for an experienced CNC Operator.",
+        "contactEmail": "hr@company.com",
+        "jobType": "Full-time",
+        "offeredSalary": "₹5-10 LPA",
+        "careerLevel": "Mid Level",
+        "experience": "3-5 years",
+        "gender": "No Preference",
+        "functionalAreas": [
+            "6980ef472f1314d04225c335"
+        ],
+        "industry": "6980ef462f1314d04225c2cd",
+        "role": "6980ef492f1314d04225c3cd",
+        "skills": [
+            "6980ef4b2f1314d04225c471",
+            "6980ef4b2f1314d04225c477"
+        ],
+        "seoKeywords": [
+            "software engineering jobs",
+            "full stack developer vacancies",
+            "backend engineer careers",
+            "IT jobs",
+            "software jobs",
+            "developer vacancies",
+            "IT careers in India",
+            "tech jobs",
+            "software engineer openings",
+            "programming jobs",
+            "retail sales jobs",
+            "javascript jobs",
+            "mongodb jobs",
+            "retail sales executive",
+            "retail sales executive jobs",
+            "retail sales executive jobs in coimbatore"
+        ],
+        "qualification": "Diploma",
+        "applicationDeadline": "2026-03-31T00:00:00.000Z",
+        "positions": {
+            "total": 2,
+            "remaining": 2
+        },
+        "applicantCount": 0,
+        "location": {
+            "country": "India",
+            "city": "Coimbatore",
+            "completeAddress": "SIDCO Industrial Estate, Coimbatore"
+        },
+        "remoteWork": "On-site",
+        "status": "Published",
+        "profileViews": 0,
+        "postedBy": "68ac9967d0d12b78d128cc96",
+        "_id": "698396678dc0a97bcced8b99",
+        "dailyViews": [],
+        "uniqueViewers": [],
+        "createdAt": "2026-02-04T18:56:39.112Z",
+        "updatedAt": "2026-02-04T18:56:39.112Z",
+        "slug": "cnc-operator-coimbatore-698396678dc0a97bcced8b99",
+        "__v": 0
+    }
+}
+
+
+//update job post 
+
+http://localhost:5000/api/v1/employer-dashboard/jobs/update/698396678dc0a97bcced8b99(joppost _id) - PUT
+
+Payload: 
+{
+  "title": "Senior CNC Operator",
+  "offeredSalary": "₹10-15 LPA"
+}
+
+Response: 
+
+{
+    "success": true,
+    "message": "Job post updated successfully",
+    "jobPost": {
+        "positions": {
+            "total": 2,
+            "remaining": 2
+        },
+        "location": {
+            "country": "India",
+            "city": "Coimbatore",
+            "completeAddress": "SIDCO Industrial Estate, Coimbatore"
+        },
+        "_id": "698396678dc0a97bcced8b99",
+        "employer": "68ac9967d0d12b78d128cc96",
+        "companyProfile": {
+            "socialMedia": {
+                "facebook": "https://facebook.com/company/cispro",
+                "twitter": "https://twitter.com/neb_india",
+                "linkedin": "https://linkedin.com/company/cispro"
+            },
+            "location": {
+                "country": "India",
+                "city": "coimbatore",
+                "address": "Rajpath Road, Central Secretariat, coimbatore"
+            },
+            "ratings": {
+                "average": 0,
+                "count": 0
+            },
+            "approvedAt": null,
+            "_id": "6894ec6b55908eb75da0745f",
+            "employer": "68ac9967d0d12b78d128cc96",
+            "companyName": "National Employment Board",
+            "companyType": "Private",
+            "email": "info@neb.gov.in",
+            "phone": "8012345678",
+            "website": "https://www.neb.gov.in",
+            "establishedSince": "2010-02-08T00:00:00.000Z",
+            "teamSize": "300 - 350",
+            "categories": [
+                "Creative Art"
+            ],
+            "industry": "Public Services",
+            "allowInSearch": true,
+            "isHiring": false,
+            "isVerified": false,
+            "description": "A central government organization focusing on employment services and workforce development.",
+            "culture": [],
+            "founders": [],
+            "branches": [],
+            "logo": "/uploads/company/9a2df920-8c4a-4b54-8a53-74390866c1a8.png",
+            "dailyViews": [
+                {
+                    "date": "2025-12-23",
+                    "count": 2,
+                    "unique": 1,
+                    "_id": "694ad2c540a9566810029061",
+                    "id": "694ad2c540a9566810029061"
+                },
+                {
+                    "date": "2025-12-24",
+                    "count": 4,
+                    "unique": 1,
+                    "_id": "694c33d70ec06dd8aef8cf4b",
+                    "id": "694c33d70ec06dd8aef8cf4b"
+                },
+                {
+                    "date": "2025-12-25",
+                    "count": 80,
+                    "unique": 1,
+                    "_id": "694cca850ec06dd8aef8d6bb",
+                    "id": "694cca850ec06dd8aef8d6bb"
+                },
+                {
+                    "date": "2025-12-26",
+                    "count": 77,
+                    "unique": 1,
+                    "_id": "694e0abccddbf3dd4a61b87c",
+                    "id": "694e0abccddbf3dd4a61b87c"
+                },
+                {
+                    "date": "2025-12-27",
+                    "count": 45,
+                    "unique": 1,
+                    "_id": "694f6a3652e1378ffe8d961b",
+                    "id": "694f6a3652e1378ffe8d961b"
+                },
+                {
+                    "date": "2025-12-28",
+                    "count": 2,
+                    "unique": 1,
+                    "_id": "6950c4422cdb92f69c75ce57",
+                    "id": "6950c4422cdb92f69c75ce57"
+                },
+                {
+                    "date": "2025-12-29",
+                    "count": 4,
+                    "unique": 1,
+                    "_id": "695278e52e983f9775804bf5",
+                    "id": "695278e52e983f9775804bf5"
+                },
+                {
+                    "date": "2025-12-30",
+                    "count": 7,
+                    "unique": 1,
+                    "_id": "69533e37d93bed4161e59b43",
+                    "id": "69533e37d93bed4161e59b43"
+                },
+                {
+                    "date": "2026-01-02",
+                    "count": 4,
+                    "unique": 1,
+                    "_id": "6957ac229c307132f4d5bee3",
+                    "id": "6957ac229c307132f4d5bee3"
+                },
+                {
+                    "date": "2026-01-03",
+                    "count": 48,
+                    "unique": 1,
+                    "_id": "6958baf962a69ee072a5230b",
+                    "id": "6958baf962a69ee072a5230b"
+                },
+                {
+                    "date": "2026-01-10",
+                    "count": 3,
+                    "unique": 1,
+                    "_id": "6962371d00413a84b6d72bd8",
+                    "id": "6962371d00413a84b6d72bd8"
+                },
+                {
+                    "date": "2026-01-12",
+                    "count": 2,
+                    "unique": 1,
+                    "_id": "6964959bd4c44e40a2332d3f",
+                    "id": "6964959bd4c44e40a2332d3f"
+                },
+                {
+                    "date": "2026-01-18",
+                    "count": 23,
+                    "unique": 1,
+                    "_id": "696d1b22e7bc4852e84ae118",
+                    "id": "696d1b22e7bc4852e84ae118"
+                },
+                {
+                    "date": "2026-01-20",
+                    "count": 2,
+                    "unique": 1,
+                    "_id": "696fa9366f7d9a3c454d1ca1",
+                    "id": "696fa9366f7d9a3c454d1ca1"
+                },
+                {
+                    "date": "2026-01-30",
+                    "count": 2,
+                    "unique": 1,
+                    "_id": "697ce4806004559fa1b164bd",
+                    "id": "697ce4806004559fa1b164bd"
+                }
+            ],
+            "profileViews": 305,
+            "uniqueViewers": [
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2025-12-23T17:35:01.256Z",
+                    "_id": "694ad2c540a9566810029060",
+                    "id": "694ad2c540a9566810029060"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2025-12-24T18:41:27.687Z",
+                    "_id": "694c33d70ec06dd8aef8cf4a",
+                    "id": "694c33d70ec06dd8aef8cf4a"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2025-12-25T05:24:21.381Z",
+                    "_id": "694cca850ec06dd8aef8d6ba",
+                    "id": "694cca850ec06dd8aef8d6ba"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2025-12-26T04:10:36.601Z",
+                    "_id": "694e0abccddbf3dd4a61b87b",
+                    "id": "694e0abccddbf3dd4a61b87b"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2025-12-27T05:10:14.686Z",
+                    "_id": "694f6a3652e1378ffe8d961a",
+                    "id": "694f6a3652e1378ffe8d961a"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2025-12-28T05:46:42.626Z",
+                    "_id": "6950c4422cdb92f69c75ce56",
+                    "id": "6950c4422cdb92f69c75ce56"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2025-12-29T12:49:41.033Z",
+                    "_id": "695278e52e983f9775804bf4",
+                    "id": "695278e52e983f9775804bf4"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2025-12-30T02:51:35.740Z",
+                    "_id": "69533e37d93bed4161e59b42",
+                    "id": "69533e37d93bed4161e59b42"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2026-01-02T11:29:38.263Z",
+                    "_id": "6957ac229c307132f4d5bee2",
+                    "id": "6957ac229c307132f4d5bee2"
+                },
+                {
+                    "candidate": "687b3ab5745d8f29bb6a1496",
+                    "lastViewed": "2026-01-03T06:45:13.601Z",
+                    "_id": "6958baf962a69ee072a5230a",
+                    "id": "6958baf962a69ee072a5230a"
+                },
+                {
+                    "candidate": "694f74a252e1378ffe8d9df3",
+                    "lastViewed": "2026-01-10T11:25:17.090Z",
+                    "_id": "6962371d00413a84b6d72bd7",
+                    "id": "6962371d00413a84b6d72bd7"
+                },
+                {
+                    "candidate": "694826eb0b26e5aa64ad30d0",
+                    "lastViewed": "2026-01-12T06:32:59.776Z",
+                    "_id": "6964959bd4c44e40a2332d3e",
+                    "id": "6964959bd4c44e40a2332d3e"
+                },
+                {
+                    "candidate": "694826eb0b26e5aa64ad30d0",
+                    "lastViewed": "2026-01-18T17:40:50.348Z",
+                    "_id": "696d1b22e7bc4852e84ae117",
+                    "id": "696d1b22e7bc4852e84ae117"
+                },
+                {
+                    "candidate": "694826eb0b26e5aa64ad30d0",
+                    "lastViewed": "2026-01-20T16:11:34.320Z",
+                    "_id": "696fa9366f7d9a3c454d1ca0",
+                    "id": "696fa9366f7d9a3c454d1ca0"
+                },
+                {
+                    "candidate": "694826eb0b26e5aa64ad30d0",
+                    "lastViewed": "2026-01-30T17:04:00.377Z",
+                    "_id": "697ce4806004559fa1b164bc",
+                    "id": "697ce4806004559fa1b164bc"
+                }
+            ],
+            "status": "approved",
+            "approvedBy": "695661cb81b115f60d58f4d2",
+            "id": "6894ec6b55908eb75da0745f"
+        },
+        "title": "Senior CNC Operator",
+        "description": "We are looking for an experienced CNC Operator.",
+        "contactEmail": "hr@company.com",
+        "jobType": "Full-time",
+        "offeredSalary": "₹10-15 LPA",
+        "careerLevel": "Mid Level",
+        "experience": "3-5 years",
+        "gender": "No Preference",
+        "functionalAreas": [
+            {
+                "_id": "6980ef472f1314d04225c335",
+                "name": "Software Engineering",
+                "slug": "software-engineering",
+                "industry": "6980ef462f1314d04225c2cd",
+                "keywords": [
+                    "software engineering jobs",
+                    "full stack developer vacancies",
+                    "backend engineer careers"
+                ],
+                "createdAt": "2026-02-02T18:39:03.824Z",
+                "updatedAt": "2026-02-02T18:39:03.824Z",
+                "__v": 0
+            }
+        ],
+        "industry": {
+            "_id": "6980ef462f1314d04225c2cd",
+            "name": "IT / Software",
+            "slug": "it-software",
+            "keywords": [
+                "IT jobs",
+                "software jobs",
+                "developer vacancies",
+                "IT careers in India",
+                "tech jobs",
+                "software engineer openings",
+                "programming jobs"
+            ],
+            "createdAt": "2026-02-02T18:39:02.509Z",
+            "updatedAt": "2026-02-02T18:39:02.509Z",
+            "__v": 0
+        },
+        "role": {
+            "_id": "6980ef492f1314d04225c3cd",
+            "name": "Retail Sales Executive",
+            "slug": "retail-sales-executive",
+            "functionalArea": "6980ef472f1314d04225c32f",
+            "keywords": [
+                "retail sales jobs"
+            ],
+            "createdAt": "2026-02-02T18:39:05.825Z",
+            "updatedAt": "2026-02-02T18:39:05.825Z",
+            "__v": 0
+        },
+        "skills": [
+            {
+                "_id": "6980ef4b2f1314d04225c471",
+                "name": "JavaScript",
+                "slug": "javascript",
+                "keywords": [
+                    "javascript jobs"
+                ],
+                "createdAt": "2026-02-02T18:39:07.914Z",
+                "updatedAt": "2026-02-02T18:39:07.914Z",
+                "__v": 0
+            },
+            {
+                "_id": "6980ef4b2f1314d04225c477",
+                "name": "MongoDB",
+                "slug": "mongodb",
+                "keywords": [
+                    "mongodb jobs"
+                ],
+                "createdAt": "2026-02-02T18:39:07.991Z",
+                "updatedAt": "2026-02-02T18:39:07.991Z",
+                "__v": 0
+            }
+        ],
+        "seoKeywords": [
+            "software engineering jobs",
+            "full stack developer vacancies",
+            "backend engineer careers",
+            "IT jobs",
+            "software jobs",
+            "developer vacancies",
+            "IT careers in India",
+            "tech jobs",
+            "software engineer openings",
+            "programming jobs",
+            "retail sales jobs",
+            "javascript jobs",
+            "mongodb jobs",
+            "retail sales executive",
+            "retail sales executive jobs",
+            "retail sales executive jobs in coimbatore"
+        ],
+        "qualification": "Diploma",
+        "applicationDeadline": "2026-03-31T00:00:00.000Z",
+        "remoteWork": "On-site",
+        "status": "Published",
+        "profileViews": 0,
+        "postedBy": "68ac9967d0d12b78d128cc96",
+        "dailyViews": [],
+        "uniqueViewers": [],
+        "createdAt": "2026-02-04T18:56:39.112Z",
+        "updatedAt": "2026-02-04T19:05:51.104Z",
+        "slug": "cnc-operator-coimbatore-698396678dc0a97bcced8b99"
+    }
+}
