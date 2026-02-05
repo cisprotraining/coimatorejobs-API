@@ -158,7 +158,7 @@ jobsController.createJobPost = async (req, res, next) => {
     }
 
     // Create new job post
-    const newJobPost = new jobs({
+    const newJobPost = new JobPost({
       employer: employerId,        // the actual company owner
       postedBy: req.user.id,           // who is posting (employer or hr-admin)
       companyProfile: companyProfile || companyProfileDoc._id, // Use provided ID or default to employer’s profile
@@ -490,16 +490,26 @@ jobsController.updateJobPost = async (req, res, next) => {
     });
 
     // Parse location if string
-    let parsedLocation;
-    if (typeof location === 'string') {
-      try {
-        parsedLocation = JSON.parse(location);
-      } catch {
-        throw new BadRequestError('Invalid location format');
-      }
-    } else {
-      parsedLocation = location;
+    const parsedLocation = req.body.location;
+
+    if (parsedLocation) {
+    if (
+      !parsedLocation.country ||
+      !parsedLocation.city ||
+      !parsedLocation.completeAddress
+    ) {
+      throw new BadRequestError(
+        'Location must include country, city, and completeAddress'
+      );
     }
+
+    updateData.location = {
+      country: parsedLocation.country,
+      city: parsedLocation.city,
+      completeAddress: parsedLocation.completeAddress,
+    };
+  }
+
 
     // commented out old update for now
     // Update fields
@@ -564,7 +574,8 @@ jobsController.updateJobPost = async (req, res, next) => {
     }
 
     // POSITIONS UPDATE
-    if (positions !== undefined) {
+   if (req.body.positions !== undefined) {
+      const positions = req.body.positions;
       let newTotal;
 
       // Handle both formats:
