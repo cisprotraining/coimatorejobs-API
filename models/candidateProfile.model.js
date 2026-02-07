@@ -78,9 +78,24 @@ const candidateProfileSchema = new mongoose.Schema({
     enum: ['English', 'Hindi', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Bengali', 'Marathi', 'Gujarati', 'Punjabi', 'Other'],
     // default: [],
   },
-  categories: {
-    type: [String],
-    required: [true, 'Categories are required'],
+  // categories: {
+  //   type: [String],
+  //   required: [true, 'Categories are required'],
+  // },
+  functionalAreas: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'FunctionalArea',
+    required: [true, 'At least one functional area is required'],
+  },
+  industry: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Industry',
+    required: [true, 'Industry is required'],
+  },
+  role: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Role',
+    required: [true, 'Role is required'],
   },
   allowInSearch: {
     type: Boolean,

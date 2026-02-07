@@ -52,20 +52,30 @@ const companyProfileSchema = new mongoose.Schema({
     required: [true, 'Team size is required'],
     enum: ['1 - 10', '10 - 50', '50 - 100', '100 - 150', '200 - 250', '300 - 350', '500 - 1000', '1000+'],
   },
- categories: {
-    type: [String],   // Array of strings for categories (ex: ['Tech', 'Finance'])
-    required: [true, 'At least one category is required'],
-    validate: {   //custom validation to ensure at least one category is provided
-      validator: v => Array.isArray(v) && v.length > 0,   // check if it's an array and has at least one element
-      message: 'At least one category is required'
-    }
+  // categories: {
+  //   type: [String],   // Array of strings for categories (ex: ['Tech', 'Finance'])
+  //   required: [true, 'At least one category is required'],
+  //   validate: {   //custom validation to ensure at least one category is provided
+  //     validator: v => Array.isArray(v) && v.length > 0,   // check if it's an array and has at least one element
+  //     message: 'At least one category is required'
+  //   }
+  // },
+  // industry: {
+  //   type: String,
+  //   required: [false, 'Industry is required'],
+  //   trim: true,
+  //   minlength: 2,
+  //   maxlength: 50
+  // },
+  functionalAreas: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'FunctionalArea',
+    required: [true, 'At least one functional area is required'],
   },
   industry: {
-    type: String,
-    required: [false, 'Industry is required'],
-    trim: true,
-    minlength: 2,
-    maxlength: 50
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Industry',
+    required: [true, 'Industry is required'],
   },
   allowInSearch: {
     type: Boolean,

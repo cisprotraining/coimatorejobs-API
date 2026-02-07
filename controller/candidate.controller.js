@@ -164,6 +164,8 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       candidateId = profileData.candidateId;
     }
     
+    const { industry, functionalAreas, role: targetRoleId } = profileData;
+
     // 4. Validate Target User
     const targetUser = await User.findById(candidateId);
     if (!targetUser || targetUser.role !== 'candidate') {
@@ -175,6 +177,16 @@ candidateController.createCandidateProfile = async (req, res, next) => {
         'Candidate is not approved yet'
       );
     }
+
+    if (industry && !(await mongoose.model('Industry').findById(industry))) throw new BadRequestError('Invalid Industry');
+    if (targetRoleId && !(await mongoose.model('Role').findById(targetRoleId))) throw new BadRequestError('Invalid Role');
+
+    const faIds = parseField(functionalAreas);
+
+    if (faIds.length > 0) {
+      const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
+      if (faCount !== faIds.length) throw new BadRequestError('One or more Functional Areas are invalid');
+    }
     
     // 5. Prevent Duplicates
     const existingProfile = await CandidateProfile.findOne({ candidate: candidateId });
@@ -183,7 +195,7 @@ candidateController.createCandidateProfile = async (req, res, next) => {
     }
     
     // Validate required fields
-    const requiredFields = ['fullName', 'jobTitle', 'phone', 'email', 'educationLevels', 'languages', 'categories', 'description', 'jobType', 'age', 'gender', 'location'];
+    const requiredFields = ['fullName', 'jobTitle', 'phone', 'email', 'educationLevels', 'languages', 'description', 'jobType', 'age', 'gender', 'location'];
     const missingFields = requiredFields.filter(field => !profileData[field] || (field === 'location' && (!profileData[field].city || !profileData[field].completeAddress)));
     if (missingFields.length > 0) {
       throw new BadRequestError(`Missing or incomplete required fields: ${missingFields.join(', ')}`);
@@ -205,6 +217,10 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       status: isAdminCreator ? 'approved' : 'pending',
       approvedBy: isAdminCreator ? loggedInUserId : null,
       approvedAt: isAdminCreator ? new Date() : null,
+
+      industry: profileData.industry,
+      role: profileData.role,
+      functionalAreas: parseField(profileData.functionalAreas),
 
       fullName: profileData.fullName,
       jobTitle: profileData.jobTitle,
@@ -329,6 +345,24 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
       profile.resume = `/uploads/candidate/${files.resume[0].filename}`;
     }
 
+
+    if (profileData.industry) {
+      if (!(await mongoose.model('Industry').findById(profileData.industry))) throw new BadRequestError('Invalid Industry');
+      profile.industry = profileData.industry;
+    }
+
+    if (profileData.role) {
+      if (!(await mongoose.model('Role').findById(profileData.role))) throw new BadRequestError('Invalid Role');
+      profile.role = profileData.role;
+    }
+
+    if (profileData.functionalAreas) {
+      const faIds = parseField(profileData.functionalAreas);
+      const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
+      if (faCount !== faIds.length) throw new BadRequestError('Invalid Functional Areas');
+      profile.functionalAreas = faIds;
+    }
+
     // Update fields if provided
     profile.fullName = fullName || profile.fullName;
     profile.jobTitle = jobTitle || profile.jobTitle;
@@ -406,7 +440,11 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
 candidateController.getCandidateProfile = async (req, res, next) => {
   try {
     const profileId = req.params.id;
-    const profile = await CandidateProfile.findById(profileId).select('-__v');
+    const profile = await CandidateProfile.findById(profileId)
+    .populate('industry', 'name')
+    .populate('role', 'name')
+    .populate('functionalAreas', 'name')
+    .select('-__v');
     if (!profile) {
       throw new NotFoundError('Candidate profile not found');
     }

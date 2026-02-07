@@ -12,6 +12,17 @@ import path from 'path';
 
 const employerController = {};
 
+const parseField = (val) => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  try {
+    const parsed = JSON.parse(val);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch (e) {
+    return [val];
+  }
+};
+
 
 /**
  * Retrieves all company profiles (accessible to admins and superadmins)
@@ -73,6 +84,8 @@ employerController.createCompanyProfile = async (req, res, next) => {
       employerId = profileData.employerId;
     }
 
+    const { industry, functionalAreas } = profileData;
+
     /**
      *  FUTURE FEATURE (COMMENTED)
      * Allow HR-Admin to create OWN company
@@ -106,6 +119,15 @@ employerController.createCompanyProfile = async (req, res, next) => {
     }
 
     // console.log("esggsg", employerUser);
+
+    if (industry && !(await mongoose.model('Industry').findById(industry))) throw new BadRequestError('Invalid Industry');
+
+    const faIds = parseField(functionalAreas);
+
+    if (faIds.length > 0) {
+      const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
+      if (faCount !== faIds.length) throw new BadRequestError('One or more Functional Areas are invalid');
+    }
     
     // Prevent duplicate company for same employer (business rule)
     const existingProfile = await CompanyProfile.findOne({ employer: employerId });
@@ -119,7 +141,7 @@ employerController.createCompanyProfile = async (req, res, next) => {
     const { 
       companyName, email, phone, website, establishedSince, 
       teamSize, categories, allowInSearch, description, 
-      socialMedia, location, industry, companyType, culture, 
+      socialMedia, location, companyType, culture, 
       revenue, founders, branches, isHiring
     } = profileData;
 
@@ -128,7 +150,7 @@ employerController.createCompanyProfile = async (req, res, next) => {
     //                        'teamSize', 'categories', 'description', 'industry', 'companyType'];
 
     const requiredFields = ['companyName', 'email', 'phone', 'establishedSince', 
-    'teamSize', 'categories', 'description'];
+    'teamSize', 'description'];
     
     const missingFields = requiredFields.filter(field => !profileData[field]);
     if (missingFields.length > 0) {
@@ -151,6 +173,9 @@ employerController.createCompanyProfile = async (req, res, next) => {
       status: isAdminCreator ? 'approved' : 'pending',
       approvedBy: isAdminCreator ? loggedInUserId : null,
       approvedAt: isAdminCreator ? new Date() : null,
+
+      industry: profileData.industry,
+      functionalAreas: parseField(profileData.functionalAreas),
 
       companyName,
       email,
@@ -390,12 +415,24 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     //   }
     // });
 
-    //  Handle categories array
-    if (updateData.categories) {
-      updateData.categories = Array.isArray(updateData.categories)
-        ? updateData.categories
-        : [updateData.categories];
+    if (updateData.industry) {
+      if (!(await mongoose.model('Industry').findById(updateData.industry))) throw new BadRequestError('Invalid Industry');
+      profile.industry = updateData.industry;
     }
+
+    if (updateData.functionalAreas) {
+      const faIds = parseField(updateData.functionalAreas);
+      const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
+      if (faCount !== faIds.length) throw new BadRequestError('Invalid Functional Areas');
+      updateData.functionalAreas = faIds;
+    }
+
+    //  Handle categories array
+    // if (updateData.categories) {
+    //   updateData.categories = Array.isArray(updateData.categories)
+    //     ? updateData.categories
+    //     : [updateData.categories];
+    // }
 
     // Update the profile
     const updatedProfile = await CompanyProfile.findByIdAndUpdate(
@@ -433,7 +470,9 @@ employerController.getCompanyProfile = async (req, res, next) => {
     const profileId = req.params.id;
     const { role, id: loggedInUserId } = req.user;
 
-    const profile = await CompanyProfile.findById(profileId);
+    const profile = await CompanyProfile.findById(profileId)
+    .populate('industry', 'name')
+    .populate('functionalAreas', 'name');
     if (!profile) {
       throw new NotFoundError('Company profile not found');
     }
