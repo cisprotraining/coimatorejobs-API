@@ -13,11 +13,20 @@ const skillSchema = new mongoose.Schema({
     unique: true,
     trim: true,
   },
+  category: {
+    type: String,
+    trim: true,
+    index: true, // important for SEO & filters
+  },
   keywords: {
     type: [String],
     default: [],
   },
+  isActive: { type: Boolean, default: true }, 
 }, { timestamps: true });
+
+// Full-text for SEO/search
+skillSchema.index({ name: 'text', keywords: 'text' });
 
 const Skill = mongoose.model('Skill', skillSchema);
 

@@ -1,24 +1,14 @@
 import mongoose from 'mongoose';
 
 const industrySchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Name is required'],
-    unique: true,
-    trim: true,
-  },
-  slug: {
-    type: String,
-    required: [true, 'Slug is required'],
-    unique: true,
-    trim: true,
-  },
-  keywords: {
-    type: [String],
-    default: [],
-  },
+  name: { type: String, required: true },
+  slug: { type: String, required: true, unique: true, index: true },
+
+  keywords: { type: [String], default: [] },
+  isActive: { type: Boolean, default: true },
+
 }, { timestamps: true });
 
-const Industry = mongoose.model('Industry', industrySchema);
+industrySchema.index({ name: 1 });
 
-export default Industry;
+export default mongoose.model('Industry', industrySchema);

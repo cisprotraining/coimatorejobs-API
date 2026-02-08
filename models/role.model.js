@@ -3,27 +3,108 @@ import mongoose from 'mongoose';
 const roleSchema = new mongoose.Schema({
   name: {
     type: String,
-    required: [true, 'Name is required'],
-    unique: true,
-    trim: true,
+    required: true,
   },
+
   slug: {
     type: String,
-    required: [true, 'Slug is required'],
-    unique: true,
-    trim: true,
+    required: true,
   },
+
   functionalArea: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'FunctionalArea',
-    required: [true, 'Functional area is required'],
+    required: true,
+    index: true,
   },
+
+  /**
+   * GLOBAL / STATUS
+   */
+  isGlobal: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+
+  isActive: {
+    type: Boolean,
+    default: true,
+    index: true,
+  },
+
+  /**
+   * SEO + DISCOVERY
+   */
+  searchVolume: {
+    type: Number,
+    default: 0,
+    index: true,
+  },
+
+  isTrending: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+
+  priority: {
+    type: Number,
+    default: 0,
+    index: true,
+  },
+
+  jobCount: {
+    type: Number,
+    default: 0,
+  },
+
+  /**
+   * SEARCH SUPPORT
+   */
   keywords: {
     type: [String],
     default: [],
   },
+
+  alternativeNames: {
+    type: [String],
+    default: [],
+  },
+
+  /**
+   * SEO META
+   */
+  seoTitle: String,
+  seoDescription: String,
+
 }, { timestamps: true });
 
-const Role = mongoose.model('Role', roleSchema);
+/**
+ * Allow same role name under different Functional Areas
+ */
+roleSchema.index(
+  { slug: 1, functionalArea: 1 },
+  { unique: true }
+);
 
-export default Role;
+/**
+ * Full-text search index
+ */
+roleSchema.index({
+  name: 'text',
+  keywords: 'text',
+  alternativeNames: 'text',
+});
+
+/**
+ * High-performance sorting 
+ */
+roleSchema.index({
+  isActive: 1,
+  isTrending: -1,
+  searchVolume: -1,
+  priority: -1,
+});
+
+export default mongoose.model('Role', roleSchema);

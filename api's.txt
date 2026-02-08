@@ -3529,7 +3529,7 @@ Response:
 
 Get Functional Areas by Industry
 
-GET http://localhost:5000/api/v1/master/functional-areas?industryId=6980ef462f1314d04225c2cd
+GET http://localhost:5000/api/v1/master/functional-areas?industryId=6988cf7084fc93c3912bdd46
 
 Response:
 
@@ -3537,46 +3537,32 @@ Response:
     "success": true,
     "data": [
         {
-            "_id": "6980ef472f1314d04225c2f3",
-            "name": "Data Science & Analytics",
-            "slug": "data-science-analytics",
-            "industry": "6980ef462f1314d04225c2cd"
+            "_id": "6988cf7184fc93c3912bdda5",
+            "name": "Merchandising",
+            "slug": "merchandising",
+            "isGlobal": false,
+            "priority": 0
         },
         {
-            "_id": "6980ef472f1314d04225c2fb",
-            "name": "Engineering - Hardware & Networks",
-            "slug": "engineering-hardware-networks",
-            "industry": "6980ef462f1314d04225c2cd"
+            "_id": "6988cf7184fc93c3912bdda1",
+            "name": "Store Operations",
+            "slug": "store-operations",
+            "isGlobal": false,
+            "priority": 0
         },
         {
-            "_id": "6980ef472f1314d04225c2fe",
-            "name": "Engineering - Software & QA",
-            "slug": "engineering-software-qa",
-            "industry": "6980ef462f1314d04225c2cd"
+            "_id": "6988cf7084fc93c3912bdd5a",
+            "name": "Sales & Business Development",
+            "slug": "sales-business-development",
+            "isGlobal": true,
+            "priority": 0
         },
         {
-            "_id": "6980ef472f1314d04225c30f",
-            "name": "IT & Information Security",
-            "slug": "it-information-security",
-            "industry": "6980ef462f1314d04225c2cd"
-        },
-        {
-            "_id": "6980ef472f1314d04225c31f",
-            "name": "Product Management",
-            "slug": "product-management",
-            "industry": "6980ef462f1314d04225c2cd"
-        },
-        {
-            "_id": "6980ef472f1314d04225c335",
-            "name": "Software Engineering",
-            "slug": "software-engineering",
-            "industry": "6980ef462f1314d04225c2cd"
-        },
-        {
-            "_id": "6980ef472f1314d04225c33d",
-            "name": "UX, Design & Architecture",
-            "slug": "ux-design-architecture",
-            "industry": "6980ef462f1314d04225c2cd"
+            "_id": "6988cf7184fc93c3912bdd71",
+            "name": "Training & Development",
+            "slug": "training-development",
+            "isGlobal": true,
+            "priority": 0
         }
     ]
 }
@@ -3589,17 +3575,59 @@ GET http://localhost:5000/api/v1/master/roles?functionalAreaId=6980ef472f1314d04
     "success": true,
     "data": [
         {
-            "_id": "6980ef472f1314d04225c33f",
-            "name": "Software Developer",
-            "slug": "software-developer",
-            "functionalArea": "6980ef472f1314d04225c2fe"
+            "_id": "6988cf7384fc93c3912bde23",
+            "name": "Account Manager",
+            "slug": "account-manager",
+            "isGlobal": true,
+            "searchVolume": 0,
+            "isTrending": false,
+            "priority": 0
         },
         {
-            "_id": "6980ef482f1314d04225c34d",
-            "name": "Mobile App Developer",
-            "slug": "mobile-app-developer",
-            "functionalArea": "6980ef472f1314d04225c2fe"
-        }
+            "_id": "6988cf7484fc93c3912bde51",
+            "name": "Accountant",
+            "slug": "accountant",
+            "isGlobal": true,
+            "searchVolume": 0,
+            "isTrending": false,
+            "priority": 0
+        },
+        {
+            "_id": "6988cf7484fc93c3912bde55",
+            "name": "Accounts Executive",
+            "slug": "accounts-executive",
+            "isGlobal": true,
+            "searchVolume": 0,
+            "isTrending": false,
+            "priority": 0
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde35",
+            "name": "Administrative Executive",
+            "slug": "administrative-executive",
+            "isGlobal": true,
+            "searchVolume": 0,
+            "isTrending": false,
+            "priority": 0
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde33",
+            "name": "Administrative Manager",
+            "slug": "administrative-manager",
+            "isGlobal": true,
+            "searchVolume": 0,
+            "isTrending": false,
+            "priority": 0
+        },
+        {
+            "_id": "6988cf7284fc93c3912bddfd",
+            "name": "Assistant Manager",
+            "slug": "assistant-manager",
+            "isGlobal": true,
+            "searchVolume": 0,
+            "isTrending": false,
+            "priority": 0
+        },
     ]
 }
 
@@ -3610,18 +3638,37 @@ GET http://localhost:5000/api/v1/master/skills?q=rea
 
 {
     "success": true,
+    "page": 1,
+    "limit": 20,
+    "total": 3,
+    "totalPages": 1,
     "data": [
         {
-            "_id": "6980ef4b2f1314d04225c439",
+            "_id": "6988cf8384fc93c3912be233",
+            "name": "Adobe Creative Suite",
+            "slug": "adobe-creative-suite",
+            "keywords": [
+                "adobe jobs",
+                "creative software"
+            ]
+        },
+        {
+            "_id": "6988cf7f84fc93c3912be115",
             "name": "React",
             "slug": "react",
             "keywords": [
-                "react js jobs",
-                "react developer vacancies"
-            ],
-            "createdAt": "2026-02-02T18:39:07.197Z",
-            "updatedAt": "2026-02-02T18:39:07.197Z",
-            "__v": 0
+                "react jobs",
+                "react developer"
+            ]
+        },
+        {
+            "_id": "6988cf8184fc93c3912be18f",
+            "name": "React Native",
+            "slug": "react-native",
+            "keywords": [
+                "react native jobs",
+                "cross platform mobile"
+            ]
         }
     ]
 }
@@ -3634,16 +3681,13 @@ GET http://localhost:5000/api/v1/master/locations?q=coim
     "success": true,
     "data": [
         {
-            "_id": "6980ef492f1314d04225c3d5",
+            "_id": "6988cf7d84fc93c3912be083",
             "name": "Coimbatore",
             "slug": "coimbatore",
             "state": "Tamil Nadu",
             "keywords": [
                 "jobs in coimbatore"
-            ],
-            "createdAt": "2026-02-02T18:39:05.930Z",
-            "updatedAt": "2026-02-02T18:39:05.930Z",
-            "__v": 0
+            ]
         }
     ]
 }
@@ -4133,4 +4177,99 @@ Response:
         "updatedAt": "2026-02-04T19:05:51.104Z",
         "slug": "cnc-operator-coimbatore-698396678dc0a97bcced8b99"
     }
+}
+
+//popular roles
+
+http://localhost:5000/api/v1/master/roles/popular - get 
+
+Response: 
+{
+    "success": true,
+    "data": [
+        {
+            "_id": "6988cf7384fc93c3912bde1d",
+            "name": "Sales Representative",
+            "slug": "sales-representative",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde0d",
+            "name": "Associate",
+            "slug": "associate",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde01",
+            "name": "Supervisor",
+            "slug": "supervisor",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde19",
+            "name": "Sales Manager",
+            "slug": "sales-manager",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde11",
+            "name": "Business Analyst",
+            "slug": "business-analyst",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde09",
+            "name": "Trainee",
+            "slug": "trainee",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde1f",
+            "name": "Business Development Manager",
+            "slug": "business-development-manager",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7284fc93c3912bddfb",
+            "name": "Senior Manager",
+            "slug": "senior-manager",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde0f",
+            "name": "Senior Associate",
+            "slug": "senior-associate",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde03",
+            "name": "Executive",
+            "slug": "executive",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde05",
+            "name": "Senior Executive",
+            "slug": "senior-executive",
+            "searchVolume": 0,
+            "isTrending": false
+        },
+        {
+            "_id": "6988cf7384fc93c3912bde15",
+            "name": "Junior Business Analyst",
+            "slug": "junior-business-analyst",
+            "searchVolume": 0,
+            "isTrending": false
+        }
+    ]
 }
