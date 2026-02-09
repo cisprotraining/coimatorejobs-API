@@ -6,6 +6,11 @@ const trackJobView = async (req, res, next) => {
     // Only track if user is logged in (candidate or employer viewing job)
     if (!req.user) return next();
 
+    // ONLY candidates count as views
+    if (req.user.role !== 'candidate') {
+      return next();
+    }
+
     const jobId = req.params.id;
     if (!jobId) return next();
 

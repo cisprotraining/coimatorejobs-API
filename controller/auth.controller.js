@@ -386,7 +386,7 @@ authentication.forgotPassword = async (req, res, next) => {
     await user.save();
 
     // Send reset email
-    const resetUrl = `${process.env.FRONTEND_URL}reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
     await sendPasswordResetEmail({
       recipient: user.email,
       name: user.name || user.email,
