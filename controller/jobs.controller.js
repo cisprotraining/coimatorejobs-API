@@ -91,6 +91,10 @@ jobsController.createJobPost = async (req, res, next) => {
     }
 
     // console.log("Creating job post with data:", req.body);
+
+    if (!Array.isArray(qualification) || qualification.length === 0) {
+      throw new BadRequestError('At least one qualification is required (must be an array)');
+    }
     
     // Validate location object
     if (!location?.country || !location?.city || !location?.completeAddress) {
@@ -400,6 +404,10 @@ jobsController.getJobPost = async (req, res, next) => {
 
     const jobPost = await JobPost.findById(jobPostId)
       .populate('companyProfile', 'companyName logo')
+      .populate('functionalAreas', 'name slug')
+      .populate('industry', 'name slug')
+      .populate('role', 'name slug')
+      .populate('skills', 'name')
       // .select('title description contactEmail contactUsername specialisms jobType offeredSalary careerLevel experience gender industry qualification applicationDeadline location remoteWork status companyProfile -__v')
       .select('-__v -applicantCount'); // fix here
 

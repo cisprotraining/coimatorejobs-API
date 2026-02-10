@@ -238,6 +238,7 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       educationLevels: parseField(profileData.educationLevels),
       languages: parseField(profileData.languages),
       categories: parseField(profileData.categories),
+      skills: parseField(profileData.skills),
       allowInSearch: profileData.allowInSearch !== undefined ? profileData.allowInSearch : true,
       description: profileData.description,
       jobType: profileData.jobType,
@@ -363,6 +364,10 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
       profile.functionalAreas = faIds;
     }
 
+    if (profileData.skills) {
+      profile.skills = parseField(profileData.skills);
+    }
+
     // Update fields if provided
     profile.fullName = fullName || profile.fullName;
     profile.jobTitle = jobTitle || profile.jobTitle;
@@ -444,6 +449,7 @@ candidateController.getCandidateProfile = async (req, res, next) => {
     .populate('industry', 'name')
     .populate('role', 'name')
     .populate('functionalAreas', 'name')
+    .populate('skills', 'name')
     .select('-__v');
     if (!profile) {
       throw new NotFoundError('Candidate profile not found');

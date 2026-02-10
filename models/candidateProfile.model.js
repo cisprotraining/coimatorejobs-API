@@ -97,6 +97,11 @@ const candidateProfileSchema = new mongoose.Schema({
     ref: 'Role',
     required: [true, 'Role is required'],
   },
+  skills: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'Skill',
+    default: [],
+  },
   allowInSearch: {
     type: Boolean,
     default: true,

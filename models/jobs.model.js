@@ -107,7 +107,7 @@ const jobPostSchema = new mongoose.Schema({
   },
 
   qualification: {
-    type: String,
+    type: [String],
     required: [true, 'Qualification is required'],
     // enum: [ '10th', '12th', 'Diploma', 'Bachelor', 'Master', 'Doctorate', 'Other' ],
   },
