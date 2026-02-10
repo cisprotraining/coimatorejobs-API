@@ -4,6 +4,7 @@ import User from '../models/user.model.js';
 import JobPost from '../models/jobs.model.js';
 import JobApply from "../models/jobApply.model.js";
 import SavedJob from '../models/savedJob.model.js';
+import CandidateResume from '../models/candidateResume.model.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { sendCandidateProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
 import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
@@ -251,6 +252,27 @@ candidateController.createCandidateProfile = async (req, res, next) => {
     });
 
     await newProfile.save();
+
+    // Auto-create first resume from profile data
+    const defaultResume = new CandidateResume({
+      candidate: candidateId,
+      profile: newProfile._id,
+      title: "My Primary Resume",
+      isPrimary: true,
+      personalInfo: {
+        fullName: newProfile.fullName,
+        jobTitle: newProfile.jobTitle,
+        email: newProfile.email,
+        phone: newProfile.phone,
+        location: newProfile.location,
+      },
+      education: newProfile.educationLevels || [],
+      experience: [], // user can add later
+      skills: newProfile.skills || [],
+      template: 'professional',
+    });
+
+    await defaultResume.save();
 
     // Send notification emails
     await sendCandidateProfileStatusEmail({

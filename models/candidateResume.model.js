@@ -54,6 +54,11 @@ const candidateResumeSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  profile: {                     //Link to main profile
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CandidateProfile',
+    required: true,
+  },
   title: { type: String, required: true }, // e.g., "My Professional Resume"
   description: { type: String, trim: true }, // Overall summary
   template: {
@@ -61,25 +66,32 @@ const candidateResumeSchema = new mongoose.Schema({
     enum: ['professional', 'modern', 'creative', 'minimalist'],
     default: 'professional'
   },
-  personalInfo: {
-    fullName: String,
-    professionalTitle: String,
-    email: String,
-    phone: String,
-    location: {
-      city: String,
-      country: String
-    },
-    profilePhoto: String,
-    portfolioUrl: String,
-    linkedInUrl: String,
-    githubUrl: String,
-    summary: String
-  },
+  // old fields from candidate profile for quick access and searchability (denormalization)
+  // personalInfo: {
+  //   fullName: String,
+  //   professionalTitle: String,
+  //   email: String,
+  //   phone: String,
+  //   location: {
+  //     city: String,
+  //     country: String
+  //   },
+  //   profilePhoto: String,
+  //   portfolioUrl: String,
+  //   linkedInUrl: String,
+  //   githubUrl: String,
+  //   summary: String
+  // },
+  // Resume content (can override profile data)
+  personalInfo: Object,
   education: [educationSchema],
   experience: [experienceSchema],
   awards: [awardSchema],
-  skills: [String],
+  skills: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: 'Skill',
+      default: [],
+  },
   portfolio: [portfolioSchema],
   preferences: {
     // visibility: {
@@ -94,6 +106,11 @@ const candidateResumeSchema = new mongoose.Schema({
     //   max: Number,
     //   currency: { type: String, default: 'INR' } // Default to Indian Rupees
     // }
+  },
+  // for future use (subscription-based features)
+  subscription: {
+    plan: { type: String, enum: ['free', 'basic', 'premium'], default: 'free' },
+    resumeLimit: { type: Number, default: 2 }
   },
   atsScore: { type: Number, default: 0 }, // ATS score (calculated)
   isActive: { type: Boolean, default: true },
@@ -129,8 +146,8 @@ candidateResumeSchema.post('save', async function (doc) {
 
 
 // Indexes for efficient queries
-candidateResumeSchema.index({ candidate: 1 });
-candidateResumeSchema.index({ isPrimary: 1, isActive: 1 });
+candidateResumeSchema.index({ isPrimary: 1, candidate: 1 });
+candidateResumeSchema.index({ profile: 1 });
 
 const CandidateResume = mongoose.model('CandidateResume', candidateResumeSchema);
 

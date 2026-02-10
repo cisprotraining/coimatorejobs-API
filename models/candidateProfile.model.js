@@ -18,6 +18,7 @@ const candidateProfileSchema = new mongoose.Schema({
       return this.candidate; 
     }
   },
+  // basic info
   fullName: {
     type: String,
     required: [true, 'Full name is required'],
