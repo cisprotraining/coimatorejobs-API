@@ -18,12 +18,12 @@ candidateResumeController.createResume = async (req, res, next) => {
     try {
         const candidateId = req.user.id;
         const {
-            title, description, template, personalInfo, education, experience, awards, skills, preferences, isPrimary, isActive
+            title, description, template, personalInfo, education, experience, awards, skills, preferences, isPrimary, isActive, profile
         } = req.body;
 
         // Validate required fields
-        if (!title || !description) {
-            throw new BadRequestError('Title and description are required');
+        if (!title || !description || !profile) {
+            throw new BadRequestError('Title, description and profile are required');
         }
 
         // Limit resumes per candidate (e.g., max 5)
@@ -68,6 +68,7 @@ candidateResumeController.createResume = async (req, res, next) => {
 
         const newResume = new CandidateResume({
             candidate: candidateId,
+            profile: profile,
             title,
             description,
             template: template || 'professional',
@@ -115,7 +116,7 @@ candidateResumeController.updateResume = async (req, res, next) => {
         const candidateId = req.user.id;
         const resumeId = req.params.id;
         const {
-            title, description, template, personalInfo, education, experience, awards, skills, preferences, isPrimary, isActive
+            title, description, template, personalInfo, education, experience, awards, skills, preferences, isPrimary, isActive, profile
         } = req.body;
 
         const resume = await CandidateResume.findById(resumeId);
@@ -157,6 +158,7 @@ candidateResumeController.updateResume = async (req, res, next) => {
 
 
         // Update fields
+        resume.profile = profile || resume.profile;
         resume.title = title || resume.title;
         resume.description = description || resume.description;
         resume.template = template || resume.template;

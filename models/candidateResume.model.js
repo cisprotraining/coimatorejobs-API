@@ -88,8 +88,7 @@ const candidateResumeSchema = new mongoose.Schema({
   experience: [experienceSchema],
   awards: [awardSchema],
   skills: {
-      type: [mongoose.Schema.Types.ObjectId],
-      ref: 'Skill',
+      type: [String], // <--- Change to String to accept ["PHP", "Node.js"]
       default: [],
   },
   portfolio: [portfolioSchema],
