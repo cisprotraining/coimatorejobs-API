@@ -111,7 +111,7 @@ transporter.verify((error) => {
 const sendMail = async ({ to, subject, html, text = '', cc = [] }) => {
   try {
     const info = await transporter.sendMail({
-      from: process.env.MAIL_FROM,
+      from: `"Coimbatore Jobs" <no-reply@coimbatorejobs.in>`,
       to,
       cc,
       subject,
