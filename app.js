@@ -94,12 +94,18 @@ app.get('/health', (req, res) => {
 // });
 
 app.get("/test-mail", async (req, res) => {
-  await sendWelcomeEmail({ recipient: "aravindakumar3315@gmail.com", name: "Test User" });
+  await sendWelcomeEmail({ 
+    recipient: "aravindakumar3315@gmail.com", 
+    name: "Test User" 
+  });
+
   await new Promise(r => setTimeout(r, 1500));
+
   await sendSuperadminAlertEmail({ 
-    superadminEmail: 'saravind406@gmail.com', 
-    newUserEmail: "aravindakumar3315@gmail.com", 
-    newUserRole: "candidate" 
+    superadminEmail: 'saravind406@gmail.com',
+    userEmail: "aravindakumar3315@gmail.com",
+    userRole: "candidate",
+    eventType: "new_registration"
   });
 
   res.send("Emails sent");

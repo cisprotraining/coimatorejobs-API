@@ -7,64 +7,124 @@ const isProd = process.env.NODE_ENV === "production";
 // mail delay helper
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// SMTP TRANSPORTER (HYBRID)
-const transporter = nodemailer.createTransport(
-  isProd
-    ? {
-        host: "smtp.gmail.com",
-        port: 587,
-        secure: false,
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS,
-        },
-        tls: {
-          ciphers: "SSLv3",
-          rejectUnauthorized: false, // REQUIRED on Render
-        },
-        connectionTimeout: 10000,
-        greetingTimeout: 10000,
-        socketTimeout: 10000
-      }
-    : {
+let transporter;
 
-         // 🧪 DEVELOPMENT → Mailtrap
-        host: process.env.MAILTRAP_HOST,
-        port: process.env.MAILTRAP_PORT,
-        auth: {
-          user: process.env.MAILTRAP_USER,
-          pass: process.env.MAILTRAP_PASS,
-        },
-         pool: false,
+if (isProd) {
+  // AWS SES in Production
+  transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'email-smtp.ap-south-1.amazonaws.com',
+    port: parseInt(process.env.SMTP_PORT) || 587,
+    secure: false,                    // TLS
+    auth: {
+      user: process.env.SMTP_USERNAME,
+      pass: process.env.SMTP_PASSWORD,
+    },
+    tls: {
+      rejectUnauthorized: false,      // Required for SES in some environments
+    },
+  });
+} else {
+  // Development → Mailtrap
+  transporter = nodemailer.createTransport({
+    host: process.env.MAILTRAP_HOST,
+    port: process.env.MAILTRAP_PORT,
+    auth: {
+      user: process.env.MAILTRAP_USER,
+      pass: process.env.MAILTRAP_PASS,
+    },
+  });
+  // Development → google gmail
+  //  transporter = nodemailer.createTransport({
+  //       host: "smtp.gmail.com",
+  //       port: 587,
+  //       secure: false,
+  //       auth: {
+  //         user: process.env.EMAIL_USER,
+  //         pass: process.env.EMAIL_PASS,
+  //       },
+  //       tls: {
+  //         ciphers: "SSLv3",
+  //         rejectUnauthorized: false, // REQUIRED on Render
+  //       },
+  //       connectionTimeout: 10000,
+  //       greetingTimeout: 10000,
+  //       socketTimeout: 10000
+  // });
 
-        //  development → Gmail SMTP
-        // host: "smtp.gmail.com",
-        // port: 587,
-        // secure: false,
-        // auth: {
-        //   user: process.env.EMAIL_USER,
-        //   pass: process.env.EMAIL_PASS,
-        // },
-      }
-);
+}
 
+// Verify connection on startup
 transporter.verify((error) => {
   if (error) {
-    console.error("❌ Gmail transporter error:", error);
+    console.error("❌ Email transporter failed to connect:", error);
   } else {
-    console.log("✅ Gmail SMTP connected successfully");
+    console.log(`✅ Email transporter connected successfully (${isProd ? 'AWS SES' : 'Mailtrap'})`);
   }
-});
+}); 
+
+// SMTP TRANSPORTER (HYBRID) 
+/**
+ * commented out mailtrap transporter for development to avoid missing emails due to Gmail's security blocks.old one
+ */
+// const transporter = nodemailer.createTransport(
+//   isProd
+//     ? {
+//         host: "smtp.gmail.com",
+//         port: 587,
+//         secure: false,
+//         auth: {
+//           user: process.env.EMAIL_USER,
+//           pass: process.env.EMAIL_PASS,
+//         },
+//         tls: {
+//           ciphers: "SSLv3",
+//           rejectUnauthorized: false, // REQUIRED on Render
+//         },
+//         connectionTimeout: 10000,
+//         greetingTimeout: 10000,
+//         socketTimeout: 10000
+//       }
+//     : {
+
+//          // 🧪 DEVELOPMENT → Mailtrap
+//         host: process.env.MAILTRAP_HOST,
+//         port: process.env.MAILTRAP_PORT,
+//         auth: {
+//           user: process.env.MAILTRAP_USER,
+//           pass: process.env.MAILTRAP_PASS,
+//         },
+//          pool: false,
+
+//         //  development → Gmail SMTP
+//         // host: "smtp.gmail.com",
+//         // port: 587,
+//         // secure: false,
+//         // auth: {
+//         //   user: process.env.EMAIL_USER,
+//         //   pass: process.env.EMAIL_PASS,
+//         // },
+//       }
+// );
+
 
 // BASE EMAIL SENDER (DO NOT CHANGE UI)
-const sendMail = async ({ to, subject, html, cc = [] }) => {
-  return transporter.sendMail({
-    from: process.env.MAIL_FROM,
-    to,
-    cc,  // Provision for additional recipients (e.g., support@, admin@)
-    subject,
-    html,
-  });
+const sendMail = async ({ to, subject, html, text = '', cc = [] }) => {
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.MAIL_FROM || `"Coimbatore Jobs" <no-reply@coimbatorejobs.in>`,
+      to,
+      cc,
+      subject,
+      text,
+      html,
+    });
+
+    console.log(`Email sent successfully → ${to} | MessageId: ${info.messageId}`);
+    return info;
+  } catch (error) {
+    console.error("Email sending failed:", error);
+    throw error;
+  }
 };
 
 // Function to send job alert email
@@ -308,7 +368,7 @@ const sendSuperadminAlertEmail = async ({
         
         <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 5px solid ${color};">
           <p><strong>User Email:</strong> ${userEmail}</p>
-          <p><strong>Role:</strong> ${userRole.charAt(0).toUpperCase() + userRole.slice(1)}</p>
+          <p><strong>Role:</strong> ${userRole ? userRole.charAt(0).toUpperCase() + userRole.slice(1) : 'User'}</p>
           ${actorEmail ? `<p><strong>Performed by:</strong> ${actorEmail}</p>` : ''}
           <p><strong>Time:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
           ${message ? `<p><strong>Details:</strong> ${message}</p>` : ''}
@@ -335,7 +395,7 @@ const sendSuperadminAlertEmail = async ({
     await sendMail({
       from: `"System Alert" <${process.env.EMAIL_USER}>`,
       to: superadminEmail,
-      subject: `${subjectPrefix}: ${userEmail} (${userRole})`,
+      subject: `${subjectPrefix}: ${userEmail || 'Unknown'} (${userRole || 'User'})`,
       html,
       cc: [process.env.MAIL_GENERAL, process.env.MAIL_SECURITY].filter(Boolean) // only if set
     });
