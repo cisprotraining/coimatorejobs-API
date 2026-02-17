@@ -1023,6 +1023,18 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
       .sort({ createdAt: -1 })
       .limit(10);
 
+    // Get pending candidate registrations
+    const pendingCandidates = await User.find({
+      role: 'candidate',
+      status: 'pending',
+      ...(user.role === 'hr-admin' && user.candidateIds && user.candidateIds.length > 0
+          ? { _id: { $in: user.candidateIds } }
+          : {}),
+    })
+      .select('name email createdAt')
+      .sort({ createdAt: -1 })
+      .limit(10);
+
     // Get recent activities by HR-Admin
     const recentActivities = await JobPost.find({
       postedBy: user.id,
@@ -1047,9 +1059,13 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
           count: pendingEmployers.length,
           items: pendingEmployers,
         },
+        candidates: {   
+          count: pendingCandidates.length,
+          items: pendingCandidates,
+        },
       },
       recentActivities,
-      totalPendingActions: pendingCompanies.length + pendingJobs.length + pendingEmployers.length,
+      totalPendingActions: pendingCompanies.length + pendingJobs.length + pendingEmployers.length + pendingCandidates.length,
     });
   } catch (error) {
     next(error);
