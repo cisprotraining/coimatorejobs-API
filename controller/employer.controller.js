@@ -162,8 +162,12 @@ employerController.createCompanyProfile = async (req, res, next) => {
 
     // Handle file uploads
     const files = req.files || {};
-    const logo = files.logo ? `/uploads/company/${files.logo[0].filename}` : null;
-    const coverImage = files.coverImage ? `/uploads/company/${files.coverImage[0].filename}` : null;
+    // const logo = files.logo ? `/uploads/company/${files.logo[0].filename}` : null;
+    // const coverImage = files.coverImage ? `/uploads/company/${files.coverImage[0].filename}` : null;
+
+    // Handle file uploads with S3 URLs
+    const logo = files.logo ? files.logo[0].location : null; // S3 URL
+    const coverImage = files.coverImage ? files.coverImage[0].location : null; // S3 URL
 
     // Create new profile
     const newProfile = new CompanyProfile({
@@ -230,18 +234,18 @@ employerController.createCompanyProfile = async (req, res, next) => {
   } catch (error) {
 
     // Cleanup uploaded files if an error occurs after upload
-    if (req.files) {
-      const files = req.files;
-      if (files.logo && files.logo[0]) {
-        const logoPath = path.join(process.cwd(), 'public', `/uploads/company/${files.logo[0].filename}`);
-        if (fs.existsSync(logoPath)) fs.unlinkSync(logoPath);
-      }
-      if (files.coverImage && files.coverImage[0]) {
-        const coverPath = path.join(process.cwd(), 'public', `/uploads/company/${files.coverImage[0].filename}`);
-        if (fs.existsSync(coverPath)) fs.unlinkSync(coverPath);
-      }
-    }
-
+    // if (req.files) {
+    //   const files = req.files;
+    //   if (files.logo && files.logo[0]) {
+    //     const logoPath = path.join(process.cwd(), 'public', `/uploads/company/${files.logo[0].filename}`);
+    //     if (fs.existsSync(logoPath)) fs.unlinkSync(logoPath);
+    //   }
+    //   if (files.coverImage && files.coverImage[0]) {
+    //     const coverPath = path.join(process.cwd(), 'public', `/uploads/company/${files.coverImage[0].filename}`);
+    //     if (fs.existsSync(coverPath)) fs.unlinkSync(coverPath);
+    //   }
+    // }
+    console.error("Create Company Profile Error:", error);
     next(error);
   }
 };
@@ -387,21 +391,31 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     delete updateData.employer;
 
     // Handle file uploads only if provided
+    // if (files.logo) {
+    //   if (profile.logo) {
+    //     const oldLogoPath = path.join(process.cwd(), 'public', profile.logo);
+    //     if (fs.existsSync(oldLogoPath)) fs.unlinkSync(oldLogoPath);
+    //   }
+    //   updateData.logo = `/uploads/company/${files.logo[0].filename}`;
+    // }
+
+    // if (files.coverImage) {
+    //   if (profile.coverImage) {
+    //     const oldCoverPath = path.join(process.cwd(), 'public', profile.coverImage);
+    //     if (fs.existsSync(oldCoverPath)) fs.unlinkSync(oldCoverPath);
+    //   }
+    //   updateData.coverImage = `/uploads/company/${files.coverImage[0].filename}`;
+    // }
+
+    // AWS S3 FILE UPDATE
     if (files.logo) {
-      if (profile.logo) {
-        const oldLogoPath = path.join(process.cwd(), 'public', profile.logo);
-        if (fs.existsSync(oldLogoPath)) fs.unlinkSync(oldLogoPath);
-      }
-      updateData.logo = `/uploads/company/${files.logo[0].filename}`;
+      updateData.logo = files.logo[0].location; // S3 URL
     }
 
     if (files.coverImage) {
-      if (profile.coverImage) {
-        const oldCoverPath = path.join(process.cwd(), 'public', profile.coverImage);
-        if (fs.existsSync(oldCoverPath)) fs.unlinkSync(oldCoverPath);
-      }
-      updateData.coverImage = `/uploads/company/${files.coverImage[0].filename}`;
+      updateData.coverImage = files.coverImage[0].location; // S3 URL
     }
+
 
     //  Parse JSON fields
     // const jsonFields = ['socialMedia', 'location', 'culture', 'founders', 'branches'];
@@ -448,17 +462,18 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     });
   } catch (error) {
     //  Cleanup uploaded files if an error occurs
-    if (req.files) {
-      const files = req.files;
-      if (files.logo && files.logo[0]) {
-        const logoPath = path.join(process.cwd(), 'public', `/uploads/company/${files.logo[0].filename}`);
-        if (fs.existsSync(logoPath)) fs.unlinkSync(logoPath);
-      }
-      if (files.coverImage && files.coverImage[0]) {
-        const coverPath = path.join(process.cwd(), 'public', `/uploads/company/${files.coverImage[0].filename}`);
-        if (fs.existsSync(coverPath)) fs.unlinkSync(coverPath);
-      }
-    }
+    // if (req.files) {
+    //   const files = req.files;
+    //   if (files.logo && files.logo[0]) {
+    //     const logoPath = path.join(process.cwd(), 'public', `/uploads/company/${files.logo[0].filename}`);
+    //     if (fs.existsSync(logoPath)) fs.unlinkSync(logoPath);
+    //   }
+    //   if (files.coverImage && files.coverImage[0]) {
+    //     const coverPath = path.join(process.cwd(), 'public', `/uploads/company/${files.coverImage[0].filename}`);
+    //     if (fs.existsSync(coverPath)) fs.unlinkSync(coverPath);
+    //   }
+    // }
+    console.error("Update Company Profile Error:", error);
     next(error);
   }
 };

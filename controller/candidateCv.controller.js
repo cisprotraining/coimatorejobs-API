@@ -24,7 +24,8 @@ candidateCvController.uploadCv = async (req, res, next) => {
 
     const newCv = new CandidateCv({
       candidate: candidateId,
-      file: `/uploads/candidate/${req.file.filename}`,
+      // file: `/uploads/candidate/${req.file.filename}`, //old
+      file: req.file.location, // S3 URL
       originalName: req.file.originalname,
     });
 

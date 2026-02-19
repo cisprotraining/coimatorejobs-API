@@ -1,55 +1,55 @@
-import multer from 'multer';
-import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
-import fs from 'fs';
+// utils/candidatefileupload.js
+import multer from "multer";
+import multerS3 from "multer-s3";
+import { v4 as uuidv4 } from "uuid";
+import { s3 } from "../config/aws-s3.js";
 
-// Create uploads directory if not exists
-const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'candidate');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const allowedTypes = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
 
-// Configure storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const filename = `${uuidv4()}${ext}`;
-    cb(null, filename);
-  }
-});
-
-// File filter for images and PDFs (for photo and resume)
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif|webp|pdf|doc|docx/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
-  
-  if (extname && mimetype) {
-    return cb(null, true);
-  }
-  cb(new Error('Only images (jpeg, jpg, png, gif, webp) and PDFs are allowed!'), false);
+  if (allowedTypes.includes(file.mimetype)) return cb(null, true);
+  cb(new Error("Invalid file type"), false);
 };
 
-// Configure Multer instance
+const storage = multerS3({
+  s3,
+  bucket: process.env.AWS_S3_BUCKET,
+  contentType: multerS3.AUTO_CONTENT_TYPE,
+  key: (req, file, cb) => {
+    let folder = "others";
+    if (file.fieldname === "profilePhoto") folder = "profile-images";
+    if (file.fieldname === "resume") folder = "resumes";
+    if (file.fieldname === "portfolio") folder = "candidate-cvs";
+    if (file.fieldname === "cv") folder = "candidate-cvs";
+
+    // Sanitize filename (remove special chars)
+    const safeOriginalName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+
+    const filename = `${folder}/${uuidv4()}-${safeOriginalName}`;
+    console.log(`Uploading to S3: ${filename}`);  // Log for debug
+    cb(null, filename);
+  },
+});
+
 const upload = multer({
   storage,
   fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  }
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-// Middleware for candidate profile photo and resume
-const candidateUpload = upload.fields([
-  { name: 'profilePhoto', maxCount: 1 },
-  { name: 'resume', maxCount: 1 },
-  { name: 'portfolio', maxCount: 1 }
+export const candidateUpload = upload.fields([
+  { name: "profilePhoto", maxCount: 1 },
+  { name: "resume", maxCount: 1 },
+  { name: "portfolio", maxCount: 1 },
 ]);
 
-// For CV Manager - single CV upload
-const cvUpload = upload.single('cv');
-
-export { candidateUpload, cvUpload };
+export const cvUpload = upload.single("cv");

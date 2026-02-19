@@ -19,6 +19,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
 
+import CandidateCv from './models/candidateCv.model.js';
 
 // const express = require('express');
 const app = express();
@@ -93,6 +94,7 @@ app.get('/health', (req, res) => {
 //   });
 // });
 
+// Test email route
 app.get("/test-mail", async (req, res) => {
   await sendWelcomeEmail({ 
     recipient: "aravindakumar3315@gmail.com", 
@@ -111,6 +113,15 @@ app.get("/test-mail", async (req, res) => {
   res.send("Emails sent");
 });
 
+
+// Test S3 upload route
+app.post('/test-s3-upload', CandidateCv, (req, res) => {
+  if (req.file) {
+    res.json({ success: true, file: req.file.location });
+  } else {
+    res.json({ success: false, message: 'No file' });
+  }
+});
 
 // common error handler middleware(global error handler)
 app.use(errorMiddleware);

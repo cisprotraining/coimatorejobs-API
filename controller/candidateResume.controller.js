@@ -33,16 +33,32 @@ candidateResumeController.createResume = async (req, res, next) => {
         }
 
         // Handle portfolio uploads
+        // const files = req.files || {};
+        // const portfolio = [];
+        // if (files.portfolio) {
+        //     for (const file of files.portfolio) {
+        //         portfolio.push({
+        //             file: `/uploads/candidate/${file.filename}`,
+        //             title: req.body[`portfolioTitle_${file.fieldname}`] || 'Untitled',
+        //             description: req.body[`portfolioDesc_${file.fieldname}`] || '',
+        //         });
+        //     }
+        // }
+
+        /**
+         * HANDLE S3 PORTFOLIO FILES
+         */
         const files = req.files || {};
         const portfolio = [];
+
         if (files.portfolio) {
-            for (const file of files.portfolio) {
-                portfolio.push({
-                    file: `/uploads/candidate/${file.filename}`,
-                    title: req.body[`portfolioTitle_${file.fieldname}`] || 'Untitled',
-                    description: req.body[`portfolioDesc_${file.fieldname}`] || '',
-                });
-            }
+        for (const file of files.portfolio) {
+            portfolio.push({
+            file: file.location, // S3 URL
+            title: "Portfolio",
+            description: "",
+            });
+        }
         }
 
         // Parse arrays and objects if stringified
@@ -125,23 +141,37 @@ candidateResumeController.updateResume = async (req, res, next) => {
         }
 
         // Handle portfolio uploads
+        // const files = req.files || {};
+        // if (files.portfolio) {
+        //     // Delete old portfolio files
+        //     resume.portfolio.forEach(item => {
+        //         const oldFilePath = path.join(process.cwd(), 'public', item.file);
+        //         if (fs.existsSync(oldFilePath)) fs.unlinkSync(oldFilePath);
+        //     });
+        //     // Add new portfolio
+        //     const newPortfolio = [];
+        //     for (const file of files.portfolio) {
+        //         newPortfolio.push({
+        //             file: `/uploads/candidate/${file.filename}`,
+        //             title: req.body[`portfolioTitle_${file.fieldname}`] || 'Untitled',
+        //             description: req.body[`portfolioDesc_${file.fieldname}`] || '',
+        //         });
+        //     }
+        //     resume.portfolio = newPortfolio;
+        // }
+
+         /**
+         *  HANDLE S3 PORTFOLIO FILES
+         */
         const files = req.files || {};
+
         if (files.portfolio) {
-            // Delete old portfolio files
-            resume.portfolio.forEach(item => {
-                const oldFilePath = path.join(process.cwd(), 'public', item.file);
-                if (fs.existsSync(oldFilePath)) fs.unlinkSync(oldFilePath);
-            });
-            // Add new portfolio
-            const newPortfolio = [];
-            for (const file of files.portfolio) {
-                newPortfolio.push({
-                    file: `/uploads/candidate/${file.filename}`,
-                    title: req.body[`portfolioTitle_${file.fieldname}`] || 'Untitled',
-                    description: req.body[`portfolioDesc_${file.fieldname}`] || '',
-                });
-            }
-            resume.portfolio = newPortfolio;
+        // Replace portfolio with new S3 files
+        resume.portfolio = files.portfolio.map(file => ({
+            file: file.location, // S3 URL
+            title: "Portfolio",
+            description: "",
+        }));
         }
 
         // Parse arrays and objects if stringified

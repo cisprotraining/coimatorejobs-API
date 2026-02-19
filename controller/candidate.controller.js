@@ -206,8 +206,10 @@ candidateController.createCandidateProfile = async (req, res, next) => {
     
     // 6. Handle File Paths
     const files = req.files || {};
-    const profilePhoto = files.profilePhoto ? `/uploads/candidate/${files.profilePhoto[0].filename}` : null;
-    const resume = files.resume ? `/uploads/candidate/${files.resume[0].filename}` : null;
+    // const profilePhoto = files.profilePhoto ? `/uploads/candidate/${files.profilePhoto[0].filename}` : null;
+    // const resume = files.resume ? `/uploads/candidate/${files.resume[0].filename}` : null;
+    const profilePhoto = files.profilePhoto ? files.profilePhoto[0].location : null;  // S3 URL
+    const resume = files.resume ? files.resume[0].location : null;  // S3 URL
 
     // 7. Create New Profile
     const newProfile = new CandidateProfile({
@@ -351,21 +353,36 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
 
     // Handle file uploads
     const files = req.files || {};
+    // old-local storage
+    // if (files.profilePhoto) {
+    //   // Delete old photo if exists
+    //   if (profile.profilePhoto) {
+    //     const oldPhotoPath = path.join(process.cwd(), 'public', profile.profilePhoto);
+    //     if (fs.existsSync(oldPhotoPath)) fs.unlinkSync(oldPhotoPath);
+    //   }
+    //   profile.profilePhoto = `/uploads/candidate/${files.profilePhoto[0].filename}`;
+    // }
+    // if (files.resume) {
+    //   // Delete old resume if exists
+    //   if (profile.resume) {
+    //     const oldResumePath = path.join(process.cwd(), 'public', profile.resume);
+    //     if (fs.existsSync(oldResumePath)) fs.unlinkSync(oldResumePath);
+    //   }
+    //   profile.resume = `/uploads/candidate/${files.resume[0].filename}`;
+    // }
+
+    /**
+     * ---------------------------------------------------
+     * HANDLE FILE UPLOADS (AWS S3)
+     * ---------------------------------------------------
+     * multer-s3 gives file URL → file.location
+     */
     if (files.profilePhoto) {
-      // Delete old photo if exists
-      if (profile.profilePhoto) {
-        const oldPhotoPath = path.join(process.cwd(), 'public', profile.profilePhoto);
-        if (fs.existsSync(oldPhotoPath)) fs.unlinkSync(oldPhotoPath);
-      }
-      profile.profilePhoto = `/uploads/candidate/${files.profilePhoto[0].filename}`;
+      profile.profilePhoto = files.profilePhoto[0].location;
     }
+
     if (files.resume) {
-      // Delete old resume if exists
-      if (profile.resume) {
-        const oldResumePath = path.join(process.cwd(), 'public', profile.resume);
-        if (fs.existsSync(oldResumePath)) fs.unlinkSync(oldResumePath);
-      }
-      profile.resume = `/uploads/candidate/${files.resume[0].filename}`;
+      profile.resume = files.resume[0].location;
     }
 
 
@@ -790,12 +807,25 @@ candidateController.applyToJob = async (req, res, next) => {
     }
 
     // Get resume either from profile or from uploaded file
+    // let resume = candidateProfile.resume;
+    // if (!resume && !files.resume) {
+    //   throw new BadRequestError('Resume is required. Please upload a resume in your profile or with this application');
+    // } else if (files.resume) {
+    //   // Set uploaded resume path
+    //   resume = `/uploads/candidate/${files.resume[0].filename}`;
+    // }
+
+     /**
+     * USE S3 RESUME
+     */
     let resume = candidateProfile.resume;
-    if (!resume && !files.resume) {
-      throw new BadRequestError('Resume is required. Please upload a resume in your profile or with this application');
-    } else if (files.resume) {
-      // Set uploaded resume path
-      resume = `/uploads/candidate/${files.resume[0].filename}`;
+
+    if (files.resume) {
+      resume = files.resume[0].location; // S3 URL
+    }
+
+    if (!resume) {
+      throw new BadRequestError("Resume required");
     }
 
     // Create new application
