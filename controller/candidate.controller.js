@@ -1269,6 +1269,52 @@ candidateController.getAssignedCandidateProfiles = async (req, res, next) => {
 };
 
 
+// Get signed URL for resume download (if stored in S3)
+candidateController.getResumeDownloadUrl = async (req, res, next) => {
+  try {
+    const candidateId = req.user.id;
+    const profile = await CandidateProfile.findOne({ candidate: candidateId });
+
+    if (!profile || !profile.resume) {
+      throw new BadRequestError("Resume not found");
+    }
+
+    // extract key from URL if stored full URL
+    const key = profile.resume.split(".amazonaws.com/")[1];
+
+    const signedUrl = await getPrivateFileUrl(key);
+
+    res.json({
+      success: true,
+      url: signedUrl,
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get resume for HR admin (with signed URL if stored in S3)
+candidateController.getResumeForHR = async (req, res, next) => {
+  try {
+    const { candidateId } = req.params;
+
+    const profile = await CandidateProfile.findOne({ candidate: candidateId });
+
+    if (!profile?.resume) {
+      throw new BadRequestError("Resume not found");
+    }
+
+    const key = profile.resume.split(".amazonaws.com/")[1];
+    const signedUrl = await getPrivateFileUrl(key);
+
+    res.json({ success: true, url: signedUrl });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
 // Helper: Cosine similarity using natural TF-IDF
 function getSimilarity(text1, text2) {
   if (!text1 || !text2) return 0;

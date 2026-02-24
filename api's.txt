@@ -4273,3 +4273,268 @@ Response:
         }
     ]
 }
+
+
+Company-profile-update:
+
+http://localhost:5000/api/v1/employer-dashboard/company-profile/update/6956b70a754792a318b77892 - PUT
+
+Payload:
+
+data : {
+  "employerId": "694906a331477526c0c36815",
+  "companyName": "Cispro Technologies",
+  "companyType": "Private",
+  "email": "info@cisprotech.com",
+  "phone": "9876543210",
+  "website": "https://www.cisprotech.com",
+  "establishedSince": "2016-06-15",
+  "teamSize": "50 - 100",
+  "functionalAreas": [
+    "6988cf7284fc93c3912bdde3"
+  ],
+  "industry": "6988cf6f84fc93c3912bdd3c",
+  "allowInSearch": true,
+  "isHiring": true,
+  "description": "Cispro Technologies is a leading IT solutions company.",
+  "culture": ["Innovative", "Collaborative"],
+  "revenue": "₹10M - ₹50M"
+}
+
+logo : upload file 
+
+Response:
+{
+    "success": true,
+    "message": "Company profile updated successfully",
+    "profile": {
+        "socialMedia": {
+            "facebook": "https://facebook.com/cisprotech",
+            "twitter": "https://twitter.com/cisprotech",
+            "linkedin": "https://linkedin.com/company/cisprotech",
+            "instagram": "https://instagram.com/cisprotech"
+        },
+        "location": {
+            "address": "No. 12, Tech Park Road",
+            "city": "Coimbatore",
+            "state": "Tamil Nadu",
+            "country": "India",
+            "zipCode": "641001"
+        },
+        "ratings": {
+            "average": 0,
+            "count": 0
+        },
+        "_id": "6956b70a754792a318b77892",
+        "employer": "694906a331477526c0c36815",
+        "createdBy": "695661cb81b115f60d58f4d2",
+        "companyName": "Cispro Technologies",
+        "companyType": "Private",
+        "email": "info@cisprotech.com",
+        "phone": "9876543210",
+        "website": "https://www.cisprotech.com",
+        "establishedSince": "2016-06-15T00:00:00.000Z",
+        "teamSize": "50 - 100",
+        "categories": [
+            "Technology",
+            "Recruitment"
+        ],
+        "industry": "6988cf6f84fc93c3912bdd3c",
+        "allowInSearch": true,
+        "isHiring": true,
+        "isVerified": false,
+        "description": "Cispro Technologies is a leading IT solutions company.",
+        "profileViews": 70,
+        "status": "approved",
+        "approvedBy": "695661cb81b115f60d58f4d2",
+        "approvedAt": "2026-01-01T18:03:53.997Z",
+        "culture": [
+            "Innovative",
+            "Collaborative"
+        ],
+        "revenue": "₹10M - ₹50M",
+        "founders": [
+            {
+                "name": "Sathish Kumar",
+                "role": "Founder & CEO",
+                "linkedin": "https://linkedin.com/in/sathishkumar",
+                "_id": "699dd9e862075df124fcc7e4",
+                "id": "699dd9e862075df124fcc7e4"
+            }
+        ],
+        "branches": [
+            {
+                "city": "Bangalore",
+                "state": "Karnataka",
+                "country": "India",
+                "_id": "699dd9e862075df124fcc7e2",
+                "id": "699dd9e862075df124fcc7e2"
+            },
+            {
+                "city": "Hyderabad",
+                "state": "Telangana",
+                "country": "India",
+                "_id": "699dd9e862075df124fcc7e3",
+                "id": "699dd9e862075df124fcc7e3"
+            }
+        ],
+        "logo": "https://coimbatorejobs-assets.s3.ap-south-1.amazonaws.com/company-logos/fe7b6124-6fe7-4d76-8f0b-c9173ff8593c-skt.jpeg",
+        "dailyViews": [
+            {
+                "date": "2026-01-02",
+                "count": 6,
+                "unique": 1,
+                "_id": "6957ac0b9c307132f4d5be31",
+                "id": "6957ac0b9c307132f4d5be31"
+            },
+            {
+                "date": "2026-01-03",
+                "count": 19,
+                "unique": 1,
+                "_id": "6958bcf162a69ee072a537bf",
+                "id": "6958bcf162a69ee072a537bf"
+            },
+            {
+                "date": "2026-01-17",
+                "count": 2,
+                "unique": 1,
+                "_id": "696b6382ca42dd87d86f1e62",
+                "id": "696b6382ca42dd87d86f1e62"
+            },
+            {
+                "date": "2026-01-18",
+                "count": 6,
+                "unique": 1,
+                "_id": "696ccad11a85687052095775",
+                "id": "696ccad11a85687052095775"
+            },
+            {
+                "date": "2026-01-19",
+                "count": 2,
+                "unique": 1,
+                "_id": "696dcce5e51cd83345d2cb76",
+                "id": "696dcce5e51cd83345d2cb76"
+            },
+            {
+                "date": "2026-01-22",
+                "count": 10,
+                "unique": 1,
+                "_id": "6972000fe8ea3681199a0d07",
+                "id": "6972000fe8ea3681199a0d07"
+            },
+            {
+                "date": "2026-01-25",
+                "count": 14,
+                "unique": 1,
+                "_id": "69760243dbec5085a0ba580b",
+                "id": "69760243dbec5085a0ba580b"
+            },
+            {
+                "date": "2026-01-27",
+                "count": 3,
+                "unique": 1,
+                "_id": "6978eef8644e0084d210a431",
+                "id": "6978eef8644e0084d210a431"
+            },
+            {
+                "date": "2026-01-30",
+                "count": 1,
+                "unique": 1,
+                "_id": "697ce42f6004559fa1b15726",
+                "id": "697ce42f6004559fa1b15726"
+            },
+            {
+                "date": "2026-01-31",
+                "count": 2,
+                "unique": 1,
+                "_id": "697da7df6bd3960270ce2127",
+                "id": "697da7df6bd3960270ce2127"
+            },
+            {
+                "date": "2026-02-11",
+                "count": 5,
+                "unique": 1,
+                "_id": "698caec2bc8a50ca863a55e8",
+                "id": "698caec2bc8a50ca863a55e8"
+            }
+        ],
+        "uniqueViewers": [
+            {
+                "candidate": "687b3ab5745d8f29bb6a1496",
+                "lastViewed": "2026-01-02T11:29:15.568Z",
+                "_id": "6957ac0b9c307132f4d5be30",
+                "id": "6957ac0b9c307132f4d5be30"
+            },
+            {
+                "candidate": "687b3ab5745d8f29bb6a1496",
+                "lastViewed": "2026-01-03T06:53:37.447Z",
+                "_id": "6958bcf162a69ee072a537be",
+                "id": "6958bcf162a69ee072a537be"
+            },
+            {
+                "candidate": "687b3ab5745d8f29bb6a1496",
+                "lastViewed": "2026-01-17T10:25:06.629Z",
+                "_id": "696b6382ca42dd87d86f1e61",
+                "id": "696b6382ca42dd87d86f1e61"
+            },
+            {
+                "candidate": "687b3ab5745d8f29bb6a1496",
+                "lastViewed": "2026-01-18T11:58:09.798Z",
+                "_id": "696ccad11a85687052095774",
+                "id": "696ccad11a85687052095774"
+            },
+            {
+                "candidate": "694f74a252e1378ffe8d9df3",
+                "lastViewed": "2026-01-19T06:19:17.699Z",
+                "_id": "696dcce5e51cd83345d2cb75",
+                "id": "696dcce5e51cd83345d2cb75"
+            },
+            {
+                "candidate": "696f25a8a7a7455525bc5f1d",
+                "lastViewed": "2026-01-22T10:46:39.741Z",
+                "_id": "6972000fe8ea3681199a0d06",
+                "id": "6972000fe8ea3681199a0d06"
+            },
+            {
+                "candidate": "694826eb0b26e5aa64ad30d0",
+                "lastViewed": "2026-01-25T11:45:07.654Z",
+                "_id": "69760243dbec5085a0ba580a",
+                "id": "69760243dbec5085a0ba580a"
+            },
+            {
+                "candidate": "687b3ab5745d8f29bb6a1496",
+                "lastViewed": "2026-01-27T16:59:36.831Z",
+                "_id": "6978eef8644e0084d210a430",
+                "id": "6978eef8644e0084d210a430"
+            },
+            {
+                "candidate": "694826eb0b26e5aa64ad30d0",
+                "lastViewed": "2026-01-30T17:02:39.448Z",
+                "_id": "697ce42f6004559fa1b15725",
+                "id": "697ce42f6004559fa1b15725"
+            },
+            {
+                "candidate": "696f25a8a7a7455525bc5f1d",
+                "lastViewed": "2026-01-31T06:57:35.990Z",
+                "_id": "697da7df6bd3960270ce2126",
+                "id": "697da7df6bd3960270ce2126"
+            },
+            {
+                "candidate": "694826eb0b26e5aa64ad30d0",
+                "lastViewed": "2026-02-11T16:30:58.060Z",
+                "_id": "698caec2bc8a50ca863a55e7",
+                "id": "698caec2bc8a50ca863a55e7"
+            }
+        ],
+        "functionalAreas": [
+            "6988cf7284fc93c3912bdde3"
+        ],
+        "id": "6956b70a754792a318b77892"
+    }
+}
+
+/==========================
+
+Run the Seed:
+
+node seeds/categories.seed.js ->  command

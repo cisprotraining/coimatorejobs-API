@@ -4,6 +4,7 @@ import CandidateResume from '../models/candidateResume.model.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors.js';
 import fs from 'fs';
 import path from 'path';
+import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
 // import { candidateUpload } from '../utils/candidateFileUpload.js'; // For portfolio uploads
 
 const candidateResumeController = {};

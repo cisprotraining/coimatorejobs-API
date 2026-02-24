@@ -91,6 +91,13 @@ candidateRouter.get('/cvs/list', authenticate, authorize(['candidate']), candida
 // Delete CV
 candidateRouter.delete('/cvs/delete/:id', authenticate, authorize(['candidate']), candidateCvController.deleteCv);
 
+// Download resume
+candidateRouter.get("/resume/download", authenticate, authorize(["candidate", "hr-admin", "superadmin"]), candidateController.getResumeDownloadUrl);
+
+// HR admin download candidate resume
+candidateRouter.get( "/resume/download/:candidateId", authenticate, authorize(["hr-admin", "superadmin"]),candidateController.getResumeForHR);
+
+
 // candidate dashboard
 
 // Dashboard stats route

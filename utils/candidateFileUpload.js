@@ -37,6 +37,7 @@ const storage = multerS3({
     const filename = `${folder}/${uuidv4()}-${safeOriginalName}`;
     console.log(`Uploading to S3: ${filename}`);  // Log for debug
     cb(null, filename);
+    file.key = filename; // Attach the key to the file object for later use in the route handler
   },
 });
 
