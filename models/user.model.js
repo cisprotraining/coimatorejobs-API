@@ -17,6 +17,21 @@ const userSchema = new mongoose.Schema({
         lowercase: true,
         match: [/^\S+@\S+\.\S+$/, 'Please enter a valid email address']
     },
+    // Flag to indicate if the email is system-generated (for confedential accounts)
+    isSystemGeneratedEmail: {
+        type: Boolean,
+        default: false
+    },
+    loginId: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
+    // optional contact email (for employers who want to use their own email instead of system-generated one)
+    contactEmail: {
+        type: String,
+        trim: true
+    },
     password: {
         type: String,
         required: true,

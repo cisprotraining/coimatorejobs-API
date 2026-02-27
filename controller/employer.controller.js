@@ -205,9 +205,23 @@ employerController.createCompanyProfile = async (req, res, next) => {
 
     await newProfile.save();
 
-    // Send notification emails
-    await sendCompanyProfileStatusEmail({
-      recipient: employerUser.email,
+    /**
+     * 🔐 Sync contact email for confidential employer
+     * ------------------------------------------------
+     * Only if:
+     * - Employer has system generated login email
+     * - Company profile has real email
+     */
+    if (employerUser.isSystemGeneratedEmail && newProfile.email) {
+      employerUser.contactEmail = newProfile.email;
+      await employerUser.save();
+    }
+
+    // Send notification email to employer about profile status
+    const recipientEmail = employerUser.isSystemGeneratedEmail ? employerUser.contactEmail : employerUser.email;
+
+      await sendCompanyProfileStatusEmail({
+      recipient: recipientEmail,
       name: employerUser.name,
       companyName: newProfile.companyName,
       status: newProfile.status,
@@ -221,9 +235,9 @@ employerController.createCompanyProfile = async (req, res, next) => {
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
       eventType: 'create_profile',
-      newUserEmail: employerUser.email,
+      newUserEmail: recipientEmail,
       newUserRole: 'employer',
-      message: `New company profile created for ${employerUser.email} by ${loggedInUserId}`
+      message: `New company profile created for ${recipientEmail} by ${loggedInUserId}`
     });
 
     return res.status(201).json({
@@ -454,6 +468,18 @@ employerController.updateCompanyProfile = async (req, res, next) => {
       { $set: updateData },
       { new: true, runValidators: true }
     );
+
+    /**
+     * 🔐 Sync contactEmail for confidential employers
+     */
+    if (updateData.email) {
+      const employerUser = await User.findById(updatedProfile.employer);
+
+      if (employerUser?.isSystemGeneratedEmail) {
+        employerUser.contactEmail = updateData.email;
+        await employerUser.save();
+      }
+    }
 
     return res.status(200).json({
       success: true,

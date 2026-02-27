@@ -121,27 +121,47 @@ authentication.createAdminUser = async (req, res, next) => {
     }
 
     // validations
-    if (!name || !email || !password || !['employer', 'candidate'].includes(role)) {
+    if (!name || !password || !['employer', 'candidate'].includes(role)) {
       return res.status(400).json({
-        message: 'name, email, password and valid role (employer/candidate) are required'
+        message: 'name, password and valid role (employer/candidate) are required'
       });
     }
 
-    const existing = await User.findOne({ email }).session(session);
+    /** new requirement for keeping confendicial employers emails */
+    // Generate internal email if not provided
+    let finalEmail = email?.toLowerCase().trim();
+
+    let isSystemGeneratedEmail = false;
+
+    if (!finalEmail) {
+      const randomSuffix = Math.floor(Math.random() * 100000);
+      finalEmail = `${role}_${Date.now()}_${randomSuffix}@internal.coimbatorejobs.in`;
+      isSystemGeneratedEmail = true;
+    }
+
+    // Check uniqueness
+    const existing = await User.findOne({ email: finalEmail }).session(session);
     if (existing) {
-        return res.status(400).json({ message: 'User already exists' });
+      return res.status(400).json({
+        message: 'User already exists with this email'
+      });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    const loginId = `${role.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+
+
    // Auto approved because admin creates
     const [user] = await User.create([{
       name,
-      email,
+      email: finalEmail,
       password: hashedPassword,
       role,
       status: 'approved',
-      createdBy: creator.id
+      createdBy: creator.id,
+      isSystemGeneratedEmail,
+      loginId
     }], { session });
 
     // AUTO ASSIGN EMPLOYER TO HR-ADMIN
@@ -163,30 +183,41 @@ authentication.createAdminUser = async (req, res, next) => {
 
     const createdByLabel = creator.email || (creator.role === 'superadmin' ? 'Super Admin' : 'HR Admin');
 
-    // Welcome email to new user
-    await sendWelcomeEmail({
-      recipient: email,
-      name,
-      createdBy: createdByLabel,
-      role
-    });
+    // Send email ONLY if real email
+    if (!isSystemGeneratedEmail) {
+      await sendWelcomeEmail({
+        recipient: finalEmail,
+        name,
+        createdBy: createdByLabel,
+       role
+      });
+    }
 
     // Small delay for Mailtrap
-    await new Promise(resolve => setTimeout(resolve, 6000)); //remove when in production
+    // await new Promise(resolve => setTimeout(resolve, 6000)); //remove when in production
 
     // Superadmin alert
+    if (!isSystemGeneratedEmail) {
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
       eventType: 'new_registration',
-      newUserEmail: email,
+      newUserEmail: finalEmail,
       newUserRole: role,
       message: `${role} account created by ${createdByLabel}`
     });
+  }
 
     res.status(201).json({
       success: true,
       message: `${role} created & assigned successfully`,
-      data: user
+      data: {
+        _id: user._id,
+        name: user.name,
+        role: user.role,
+        email: user.isSystemGeneratedEmail ? null : user.email,
+        loginId: user.loginId,
+        isSystemGeneratedEmail: user.isSystemGeneratedEmail
+      }
     });
 
   } catch (err) {
@@ -254,17 +285,29 @@ authentication.getAssignedUsers = async (req, res, next) => {
  */
 authentication.signin = async (req, res, next) => {
     try {
-        const { email, password } = req.body;
+        const { identifier, password } = req.body;
+        // identifier = email OR loginId
 
         // Validate required fields
-        if (!email || !password) {
-            return res.status(400).json({ message: "Email and password are required" });
-        }
+        if (!identifier || !password) {
+            return res.status(400).json({ message: "Login ID/Email and password are required" });
+         }
 
-        // Find user by email
-        const user = await User.findOne({ email });
+        // Find user by email OR loginId
+        const user = await User.findOne({
+            $or: [
+              { email: identifier.toLowerCase() },
+              { loginId: identifier }
+            ]
+        });
+
         if (!user) {
             return res.status(400).json({ message: "User Not Found" });
+        }
+
+        // Check if account active
+        if (!user.isActive) {
+            return res.status(403).json({ message: "User account is deactivated" });
         }
 
         // Verify password
@@ -281,11 +324,6 @@ authentication.signin = async (req, res, next) => {
         // }
 
 
-        if (!user.isActive) {
-            return res.status(403).json({ message: "User account is deactivated" });
-        }
-
-
         // Generate JWT token
         const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
@@ -297,9 +335,13 @@ authentication.signin = async (req, res, next) => {
                 token,
                 id: user._id,
                 name: user.name,
-                email: user.email,
                 role: user.role,
-                status: user.status
+                status: user.status,
+                loginId: user.loginId || null,
+                // Hide internal email from frontend
+                email: user.isSystemGeneratedEmail ? null : user.email,
+                isSystemGeneratedEmail: user.isSystemGeneratedEmail
+
             }
         });
     } catch (error) {
@@ -513,10 +555,6 @@ authentication.getUsersByRole = async (req, res, next) => {
         { isDeleted: { $exists: false } }
       ]
     };
-
-
-    console.log("ehfvbekuyfvb", query);
-    
 
     /**
      * HR-ADMIN RULE:
