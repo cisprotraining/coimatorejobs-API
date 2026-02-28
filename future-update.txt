@@ -435,6 +435,11 @@ mongodump ^
  --uri="mongodb+srv://avarvind3765:ILltOeGQJLyh4g64@cluster0.6nmkbq5.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0" ^
  --out=jobsite_dev_backup
 
+Production Db dump:
+
+-> mongodump --uri="mongodb+srv://avarvind3765:ILltOeGQJLyh4g64@cluster0.6nmkbq5.mongodb.net/coimbatorejobs_prod" --out="C:\temp\jobsite_prod_20260228"
+
+-> mongorestore --uri="mongodb+srv://versel_db_user:okpyJJNWRsrqgghU@coimbatorejobs.nzvbt2f.mongodb.net" --nsFrom="coimbatorejobs_prod.*" --nsTo="Coimbatorejobs.*" "C:\temp\jobsite_prod_20260228"
 
 mongodump --uri "mongodb+srv://avarvind3765:ILltOeGQJLyh4g64@cluster0.6nmkbq5.mongodb.net/test" --out C:\temp\jobsite_new_dump
 

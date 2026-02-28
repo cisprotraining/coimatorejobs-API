@@ -24,6 +24,8 @@ import CandidateCv from './models/candidateCv.model.js';
 // const express = require('express');
 const app = express();
 
+// using express-rate-limit or other IP-dependent middleware**
+app.set('trust proxy', 1);  // tells Express to trust the first proxy (Render)
 
 // CORS configuration for frontend and backend communication
 // Allow requests from specific origins
