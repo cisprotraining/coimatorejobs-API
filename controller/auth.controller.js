@@ -110,20 +110,39 @@ authentication.signup = async (req, res, next) => {
 authentication.createAdminUser = async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
-  // console.log("hiiiiiiiiiiiiiiiiii", session);
   
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, assignedHrAdminId } = req.body;
     const creator = req.user; // hr-admin or superadmin
 
+     // Only hr-admin or superadmin can access this API
     if (!['hr-admin', 'superadmin'].includes(creator.role)) {
       return res.status(403).json({ message: 'Not allowed, Only hr-admin or superadmin can create employer accounts' });
     }
 
-    // validations
-    if (!name || !password || !['employer', 'candidate'].includes(role)) {
+    // Basic validation
+    if (!name || !password) {
       return res.status(400).json({
-        message: 'name, password and valid role (employer/candidate) are required'
+        message: 'Name and password are required'
+      });
+    }
+
+    // ❌ Prevent creating superadmin via API
+    if (role === 'superadmin') {
+      return res.status(403).json({
+        message: 'Superadmin accounts cannot be created via API'
+      });
+    }
+
+    // Role permission matrix
+    const rolePermissions = {
+      'hr-admin': ['employer', 'candidate'],
+      'superadmin': ['employer', 'candidate', 'hr-admin']
+    };
+
+    if (!rolePermissions[creator.role]?.includes(role)) {
+      return res.status(403).json({
+        message: `You are not allowed to create ${role} accounts`
       });
     }
 
@@ -147,10 +166,14 @@ authentication.createAdminUser = async (req, res, next) => {
       });
     }
 
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Generate Login ID
     const loginId = `${role.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-6)}`;
 
+    // Determine creatorId (for assignment)
+    let creatorId = creator.id;
 
    // Auto approved because admin creates
     const [user] = await User.create([{
@@ -159,7 +182,7 @@ authentication.createAdminUser = async (req, res, next) => {
       password: hashedPassword,
       role,
       status: 'approved',
-      createdBy: creator.id,
+      createdBy: creatorId,
       isSystemGeneratedEmail,
       loginId
     }], { session });
@@ -178,34 +201,59 @@ authentication.createAdminUser = async (req, res, next) => {
       );
     }
 
+    // If Superadmin creates HR Admin → assign to hrAdminIds
+    if (creator.role === 'superadmin' && role === 'hr-admin') {
+      await User.updateOne(
+        { _id: creator.id },
+        { $addToSet: { hrAdminIds: user._id } },
+        { session }
+      );
+    }
+
+    // SUPERADMIN creates employer/candidate → assign to selected HR Admin
+    if (creator.role === 'superadmin' && ['employer', 'candidate'].includes(role)) {
+      if (!assignedHrAdminId) {
+        return res.status(400).json({ message: 'HR Admin must be selected for assignment' });
+      }
+
+      const hrAdmin = await User.findById(assignedHrAdminId).session(session);
+      if (!hrAdmin || hrAdmin.role !== 'hr-admin') {
+        return res.status(400).json({ message: 'Invalid HR Admin selected' });
+      }
+
+      const updateField = role === 'employer'
+        ? { employerIds: user._id }
+        : { candidateIds: user._id };
+
+      await User.updateOne({ _id: assignedHrAdminId }, { $addToSet: updateField }, { session });
+    }
+
     await session.commitTransaction();
     session.endSession();
 
     const createdByLabel = creator.email || (creator.role === 'superadmin' ? 'Super Admin' : 'HR Admin');
 
-    // Send email ONLY if real email
+     // Send welcome email only if real email provided
     if (!isSystemGeneratedEmail) {
       await sendWelcomeEmail({
         recipient: finalEmail,
         name,
         createdBy: createdByLabel,
-       role
+        role
+      });
+
+      await sendSuperadminAlertEmail({
+        superadminEmail: SUPERADMIN_EMAIL,
+        eventType: 'new_registration',
+        userEmail: finalEmail,
+        userRole: role,
+        message: `${role} account created by ${createdByLabel}`,
+        actorEmail: creator.email || (creator.role === 'superadmin' ? 'Super Admin' : 'HR Admin')
       });
     }
 
     // Small delay for Mailtrap
     // await new Promise(resolve => setTimeout(resolve, 6000)); //remove when in production
-
-    // Superadmin alert
-    if (!isSystemGeneratedEmail) {
-    await sendSuperadminAlertEmail({
-      superadminEmail: SUPERADMIN_EMAIL,
-      eventType: 'new_registration',
-      newUserEmail: finalEmail,
-      newUserRole: role,
-      message: `${role} account created by ${createdByLabel}`
-    });
-  }
 
     res.status(201).json({
       success: true,
@@ -243,9 +291,17 @@ authentication.getAssignedUsers = async (req, res, next) => {
       return res.status(401).json({ message: 'User not found' });
     }
  
-    const roleFilter = roles
-      ? roles.split(',').map(r => r.trim())
-      : ['employer', 'candidate'];
+    let roleFilter;
+
+    if (roles) {
+      roleFilter = roles.split(',').map(r => r.trim());
+    } else {
+      // Default behavior
+      roleFilter =
+        loggedInUser.role === 'superadmin'
+          ? ['employer', 'candidate', 'hr-admin']
+          : ['employer', 'candidate'];
+    }
  
     let query = {
       role: { $in: roleFilter },
@@ -257,8 +313,19 @@ authentication.getAssignedUsers = async (req, res, next) => {
    
  
     // HR-ADMIN → ONLY ASSIGNED USERS
+    // if (loggedInUser.role === 'hr-admin') {
+    //   query.createdBy = loggedInUser.id; 
+    // }
+    /**
+     * HR-ADMIN → ONLY USERS ASSIGNED TO THEM
+     */
     if (loggedInUser.role === 'hr-admin') {
-      query.createdBy = loggedInUser.id; 
+      const assignedIds = [
+        ...(loggedInUser.employerIds || []),
+        ...(loggedInUser.candidateIds || [])
+      ];
+
+      query._id = { $in: assignedIds };
     }
  
     // SUPERADMIN → sees all
@@ -537,7 +604,7 @@ authentication.adminResetUserPassword = async (req, res, next) => {
  */
 authentication.getUsersByRole = async (req, res, next) => {
   try {
-    const { roles } = req.query;
+    const { roles, page = 1, limit = 20 } = req.query; // default page=1, limit=10
     const loggedInUser = req.user;
 
     // Default roles
@@ -569,12 +636,22 @@ authentication.getUsersByRole = async (req, res, next) => {
      * No restriction
      */
 
-    const users = await User.find(query, { password: 0 })
-      .sort({ createdAt: -1 });
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const usersPromise = User.find(query, { password: 0 })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const countPromise = User.countDocuments(query);
+
+    const [users, totalCount] = await Promise.all([usersPromise, countPromise]);
 
     res.status(200).json({
       success: true,
-      count: users.length,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(totalCount / limit),
+      totalCount,
       data: users
     });
   } catch (error) {
