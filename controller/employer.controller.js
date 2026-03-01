@@ -7,6 +7,8 @@ import User from "../models/user.model.js";
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { sendCompanyProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
 import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
+import Industry from '../models/industry.model.js';
+import FunctionalArea from '../models/functionalArea.model.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -30,6 +32,38 @@ const parseField = (val) => {
  * @param {Object} res - Response object
  * @param {Function} next - Next middleware function
  */
+// employerController.getAllCompanyProfiles = async (req, res, next) => {
+//   try {
+//     // Fetch all company profiles, excluding the version key
+//      const profiles = await CompanyProfile.find().lean();
+
+//     const formattedProfiles = await Promise.all(
+//       profiles.map(async (profile) => {
+
+//         let industryData = null;
+
+//         // ✅ Only populate if valid ObjectId
+//         if (mongoose.Types.ObjectId.isValid(profile.industry)) {
+//           industryData = await Industry.findById(profile.industry).select("name slug");
+//         }
+
+//         return {
+//           ...profile,
+//           industryId: industryData?._id || null,
+//           industryName: industryData?.name || profile.industry || null
+//         };
+//       })
+//     );
+
+//     return res.status(200).json({
+//       success: true,
+//       profiles: formattedProfiles
+//     });
+//   } catch (error) {
+//     next(error);
+//   }
+// };
+// old get all compnay profile without industry population
 employerController.getAllCompanyProfiles = async (req, res, next) => {
   try {
     // Fetch all company profiles, excluding the version key
@@ -548,6 +582,24 @@ employerController.getCompanyProfile = async (req, res, next) => {
       throw new ForbiddenError('Company profile is not approved yet');
     }
 
+    // 🔐 Get employer user to check confidentiality
+    const employerUser = await User.findById(profile.employer).select('isSystemGeneratedEmail');
+
+    let profileData = profile.toObject();
+
+     /**
+     * 🔒 Confidential Masking Logic
+     * ---------------------------------
+     * If employer is confidential AND
+     * viewer is not owner/admin
+     */
+    if ( employerUser?.isSystemGeneratedEmail && role === 'candidate') {
+    console.log("Employer User for Confidentiality Checkeee:", employerUser);
+
+      profileData.email = "info@cisproservices.com";
+      profileData.phone = "9361755131";
+    }
+
     // Count active jobs for this company
     const activeJobsCount = await JobPost.countDocuments({
       companyProfile: profileId,
@@ -557,7 +609,7 @@ employerController.getCompanyProfile = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      profile,
+      profile: profileData,
       activeJobsCount
     });
 
@@ -791,16 +843,21 @@ employerController.saveCandidate = async (req, res, next) => {
   try {
     const employerId = req.user.id;
     const candidateId = req.params.candidateId;
+    const candidateProfileId = req.params.candidateId;
 
-    const candidateProfile = await CandidateProfile.findOne({ candidate: candidateId });
-    if (!candidateProfile) throw new NotFoundError('Candidate not found');
+    // const candidateProfile = await CandidateProfile.findOne({ candidate: candidateId });
+    // if (!candidateProfile) throw new NotFoundError('Candidate not found');
+    const candidateProfile = await CandidateProfile.findById(candidateProfileId);
+    if (!candidateProfile) throw new NotFoundError("Candidate not found");
 
-    const existingSave = await SavedCandidate.findOne({ employer: employerId, candidate: candidateId });
+    const candidateUserId = candidateProfile.candidate.toString();
+
+    const existingSave = await SavedCandidate.findOne({ employer: employerId, candidate: candidateUserId });
     if (existingSave) throw new BadRequestError('Candidate already saved');
 
     const newSave = new SavedCandidate({
       employer: employerId,
-      candidate: candidateId,
+      candidate: candidateUserId,
       candidateProfile: candidateProfile._id,
       notes: req.body.notes || '',
       folder: req.body.folder || 'General',

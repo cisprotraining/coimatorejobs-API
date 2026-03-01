@@ -4,6 +4,8 @@ import { s3 } from "../config/aws-s3.js";
 
 export const getPrivateFileUrl = async (key) => {
   try {
+    if (!key) throw new Error("S3 key is required");
+    
     const command = new GetObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET,
       Key: key,

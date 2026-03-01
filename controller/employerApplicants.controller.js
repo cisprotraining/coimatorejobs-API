@@ -848,7 +848,7 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
     // --------------------------------------------------
     const applicants = await Application.find(query)
       .populate('candidate', 'name email phone profilePhoto')
-      .populate('candidateProfile', 'fullName jobTitle phone location profilePhoto resume expectedSalary categories')
+      .populate('candidateProfile', '_id fullName jobTitle phone location profilePhoto resume expectedSalary categories')
       .populate('jobPost', 'title')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
@@ -876,6 +876,7 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
     const formattedApplicants = applicants.map(app => ({
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
+      candidateProfileId: app.candidateProfile?._id || null,
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location?.city || 'N/A',
       expectedSalary: app.candidateProfile?.expectedSalary || 'N/A',

@@ -8,6 +8,7 @@ import CandidateResume from '../models/candidateResume.model.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { sendCandidateProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
 import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
+import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
 import fs from 'fs';
 import path from 'path';
 import natural from 'natural';  //library (for TF-IDF / cosine similarity)
@@ -1295,6 +1296,24 @@ candidateController.getResumeDownloadUrl = async (req, res, next) => {
 };
 
 // Get resume for HR admin (with signed URL if stored in S3)
+// candidateController.getResumeForHR = async (req, res, next) => {
+//   try {
+//     const { candidateId } = req.params;
+
+//     const profile = await CandidateProfile.findOne({ candidate: candidateId });
+
+//     if (!profile?.resume) {
+//       throw new BadRequestError("Resume not found");
+//     }
+
+//     const key = profile.resume.split(".amazonaws.com/")[1];
+//     const signedUrl = await getPrivateFileUrl(key);
+
+//     res.json({ success: true, url: signedUrl });
+//   } catch (error) {
+//     next(error);
+//   }
+// };
 candidateController.getResumeForHR = async (req, res, next) => {
   try {
     const { candidateId } = req.params;
@@ -1302,14 +1321,28 @@ candidateController.getResumeForHR = async (req, res, next) => {
     const profile = await CandidateProfile.findOne({ candidate: candidateId });
 
     if (!profile?.resume) {
-      throw new BadRequestError("Resume not found");
+      return res.status(404).json({ success: false, message: "Resume not found" });
     }
 
-    const key = profile.resume.split(".amazonaws.com/")[1];
+    let key = profile.resume.trim();
+
+    // Case 1: Full S3 URL (extract the path after bucket)
+    if (key.startsWith("https://") && key.includes(".amazonaws.com/")) {
+      const parts = key.split(".amazonaws.com/");
+      key = parts[1]; // take everything after the domain
+    }
+
+    // Case 2: Relative path or key already stored correctly → leave as is
+    if (!key) {
+      return res.status(400).json({ success: false, message: "Invalid resume key" });
+    }
+
+    // Generate signed URL
     const signedUrl = await getPrivateFileUrl(key);
 
     res.json({ success: true, url: signedUrl });
   } catch (error) {
+    console.error("Error in getResumeForHR:", error);
     next(error);
   }
 };
