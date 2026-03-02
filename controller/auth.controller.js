@@ -694,8 +694,8 @@ authentication.updateUserStatus = async (req, res, next) => {
       await sendSuperadminAlertEmail({
         superadminEmail: SUPERADMIN_EMAIL,
         eventType: status === 'approved' ? 'approved' : 'rejected',
-        newUserEmail: user.email,
-        newUserRole: user.role,
+        userEmail: user.email,
+        userRole: user.role,
         message: `User status updated to ${status} by ${req.user.email}`,
         actorEmail: req.user.email
       });

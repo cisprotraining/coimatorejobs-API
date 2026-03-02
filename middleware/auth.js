@@ -20,14 +20,14 @@ export const authenticate = async (req, res, next) => {
     
     // Fetch full user context
     const user = await User.findById(decoded.userId).select(
-      '_id role employerIds candidateIds isActive'
+      '_id name email role employerIds candidateIds isActive'
     );
 
     if (!user || !user.isActive) {
       return res.status(401).json({ message: 'Unauthorized - User is not active or not found' });
     }
 
-    req.user = { id: user._id, role: user.role, employerIds: user.employerIds || [], candidateIds: user.candidateIds || [] };
+    req.user = { id: user._id, name: user.name, email: user.email, role: user.role, employerIds: user.employerIds || [], candidateIds: user.candidateIds || [] };
     next();
   } catch (error) {
     return res.status(401).json({ message: 'Invalid or expired token' });
