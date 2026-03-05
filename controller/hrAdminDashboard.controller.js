@@ -58,8 +58,8 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
       lastMonthStats,
     ] = await Promise.all([
       user.role === 'hr-admin' 
-        ? employerIds.length 
-        : User.countDocuments({ role: 'employer', isActive: true }),
+        ? employerIds.length : await User.countDocuments({ role: "employer", isActive: true }),
+        // : User.countDocuments({ role: 'employer', isActive: true }), //old commented out
 
       CompanyProfile.countDocuments({
         status: 'approved',

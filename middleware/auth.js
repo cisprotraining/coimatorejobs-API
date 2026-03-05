@@ -59,3 +59,43 @@ export const authorizePlatformAdmin = () => (req, res, next) => {
   }
   next();
 };
+
+// Optional authenticate (allows guests but reads token if present)
+export const optionalAuthenticate = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  // No token → guest user
+  if (!authHeader?.startsWith('Bearer ')) {
+    req.user = null;
+    return next();
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    const user = await User.findById(decoded.userId).select(
+      '_id name email role employerIds candidateIds isActive'
+    );
+
+    if (!user || !user.isActive) {
+      req.user = null;
+      return next();
+    }
+
+    req.user = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      employerIds: user.employerIds || [],
+      candidateIds: user.candidateIds || []
+    };
+
+  } catch (error) {
+    req.user = null;
+  }
+
+  next();
+};

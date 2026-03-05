@@ -357,5 +357,6 @@ jobPostSchema.index({ functionalAreas: 1 });
 jobPostSchema.index({ role: 1 });
 jobPostSchema.index({ 'location.city': 1 });
 jobPostSchema.index({ skills: 1 });
+jobPostSchema.index({ "uniqueViewers.viewer": 1 }); // for efficient lookup of whether a user has viewed the job today
 
 export default JobPost;

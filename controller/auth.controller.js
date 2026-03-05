@@ -50,10 +50,14 @@ authentication.signup = async (req, res, next) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
+        // ✅ New: Automatically approve everyone for now
+        const status = 'approved';
+        
+        // old approval logic (we can handle in frontend for now)
          // Approval logic
-        const status = ['candidate', 'employer'].includes(safeRole)
-          ? 'pending'
-          : 'approved';
+        // const status = ['candidate', 'employer'].includes(safeRole)
+        //   ? 'pending'
+        //   : 'approved';
 
         // Create new user with optional role (defaults to 'candidate' in schema)
         const newUser = new User({ name, email, password: hashedPassword, role: safeRole, status });

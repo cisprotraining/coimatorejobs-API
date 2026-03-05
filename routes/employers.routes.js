@@ -5,7 +5,7 @@ import resumeAlertController from '../controller/resumeAlert.controller.js';
 import jobsController from '../controller/jobs.controller.js';
 import employerDashboardController from '../controller/employerDashboard.controller.js';
 import hrAdminDashboardController from '../controller/hrAdminDashboard.controller.js';
-import { authenticate, authorize, authorizeEmployerLike } from '../middleware/auth.js';
+import { authenticate, authorize, authorizeEmployerLike, optionalAuthenticate } from '../middleware/auth.js';
 import companyUpload from '../utils/fileUpload.js';  
 import normalizeBody from '../utils/normalizeBody.js';
 import Role from '../models/role.model.js';
@@ -55,7 +55,9 @@ employerRouter.post('/jobs/create', authenticate, authorizeEmployerLike(), compa
 employerRouter.get('/jobs/fetch-all', authenticate, authorize(['employer', 'hr-admin', 'superadmin', 'candidate']),jobsController.getJobPosts);
 
 // Get a single job post for editing
-employerRouter.get('/jobs/fetch/:id',authenticate, authorize(['employer', 'hr-admin', 'superadmin', 'candidate']), trackJobView, jobsController.getJobPost);
+// employerRouter.get('/jobs/fetch/:id',authenticate, authorize(['employer', 'hr-admin', 'superadmin', 'candidate']), trackJobView, jobsController.getJobPost);
+
+employerRouter.get('/jobs/fetch/:id', optionalAuthenticate, trackJobView, jobsController.getJobPost );  //public route to get job details and track views
 
 // Update a job post
 employerRouter.put('/jobs/update/:id',authenticate, authorizeEmployerLike(), companyUpload, normalizeBody, jobsController.updateJobPost);
