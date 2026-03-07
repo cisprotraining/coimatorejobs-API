@@ -5,3 +5,5 @@ node_modules
 .env
 .env.development.local
 .env.production.local
+future-update.txt
+tess.txt
