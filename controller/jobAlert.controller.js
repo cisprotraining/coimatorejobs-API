@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import JobAlert from '../models/jobAlert.model.js';
 import JobPost from '../models/jobs.model.js';
 import CandidateProfile from '../models/candidateProfile.model.js';
@@ -9,6 +10,18 @@ import EventEmitter from 'events';
 const alertEmitter = new EventEmitter();
 
 const jobAlertController = {};
+
+// <-- ADDED MISSING HELPER FUNCTION
+const parseField = (val) => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  try {
+    const parsed = JSON.parse(val);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch (e) {
+    return [val];
+  }
+};
 
 /**
  * Creates a job alert for the logged-in candidate.
@@ -31,9 +44,27 @@ jobAlertController.createJobAlert = async (req, res, next) => {
     // Optionally pre-fill criteria from candidate's profile if fields are missing
     const profile = await CandidateProfile.findOne({ candidate: candidateId });
     if (profile) {
-      criteria.categories = criteria.categories || profile.categories;
+      criteria.industry = criteria.industry || profile.industry;
+      criteria.functionalAreas = (criteria.functionalAreas?.length > 0) ? criteria.functionalAreas : profile.functionalAreas;
+      criteria.role = criteria.role || profile.role;
       criteria.location = criteria.location || profile.location;
       criteria.experience = criteria.experience || profile.experience;
+    }
+
+    // Validate Master Fields
+    if (criteria.industry && !(await mongoose.model('Industry').findById(criteria.industry))) {
+      throw new BadRequestError('Invalid Industry');
+    }
+
+    const faIds = parseField(criteria.functionalAreas);
+    if (faIds.length > 0) {
+      const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
+      if (faCount !== faIds.length) throw new BadRequestError('One or more Functional Areas are invalid');
+    }
+    criteria.functionalAreas = faIds; // ensure it's an array
+
+    if (criteria.role && !(await mongoose.model('Role').findById(criteria.role))) {
+      throw new BadRequestError('Invalid Role');
     }
 
     // Create and save the new job alert
@@ -75,8 +106,26 @@ jobAlertController.updateJobAlert = async (req, res, next) => {
       throw new NotFoundError('Job alert not found or not yours');
     }
 
-    // Update fields if provided
-    alert.criteria = criteria || alert.criteria;
+    // Validate Master Fields if they are being updated
+    if (criteria) {
+        if (criteria.industry && criteria.industry !== alert.criteria.industry?.toString()) {
+            if (!(await mongoose.model('Industry').findById(criteria.industry))) throw new BadRequestError('Invalid Industry');
+        }
+        if (criteria.functionalAreas) {
+            const faIds = parseField(criteria.functionalAreas);
+            if (faIds.length > 0) {
+              const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
+              if (faCount !== faIds.length) throw new BadRequestError('One or more Functional Areas are invalid');
+            }
+            criteria.functionalAreas = faIds;
+        }
+        if (criteria.role && criteria.role !== alert.criteria.role?.toString()) {
+            if (!(await mongoose.model('Role').findById(criteria.role))) throw new BadRequestError('Invalid Role');
+        }
+        alert.criteria = criteria;
+    }
+
+    // Update frequency if provided
     alert.frequency = frequency || alert.frequency;
 
     await alert.save();
@@ -132,10 +181,13 @@ jobAlertController.deleteJobAlert = async (req, res, next) => {
  */
 jobAlertController.listJobAlerts = async (req, res, next) => {
   try {
-    const candidateId = req.user.id;
+    const candidateId = req.user.id || req.user._id; // Safety fallback
 
-    // Get all active alerts for the candidate, sorted by most recent
     const alerts = await JobAlert.find({ candidate: candidateId, isActive: true })
+      .populate('criteria.industry', 'name')
+      .populate('criteria.functionalAreas', 'name')
+      .populate('criteria.role', 'name')
+      .populate('criteria.skills', 'name') // <-- THIS FIXES THE SKILLS NAME ISSUE
       .select('-__v')
       .sort({ createdAt: -1 });
 
@@ -209,10 +261,30 @@ jobAlertController.listJobAlerts = async (req, res, next) => {
 //   }
 
 
+// Helper to extract numbers from "2 Lakhs - 5 Lakhs"
+function parseJobSalaryString(salaryString) {
+    if (!salaryString) return { min: 0, max: 0 };
+    
+    // Split "2 Lakhs - 5 Lakhs" into parts
+    const parts = salaryString.split(' - ');
+    
+    const parsePart = (str) => {
+        if (!str) return 0;
+        const val = parseFloat(str);
+        if (str.includes('Lakhs')) return val * 100000;
+        if (str.includes('Thousands')) return val * 1000;
+        return val;
+    };
+
+    return {
+        min: parsePart(parts[0]),
+        max: parsePart(parts[1] || parts[0]) // If no max provided, max = min
+    };
+}
+
 /**
  * Event listener for jobAlert events.
  * Sends notification (e.g., email/SMS) when a job matches a candidate's alert.
- * In production, integrate this with a messaging service (e.g., Nodemailer, Twilio).
  */
 alertEmitter.on('jobAlert', async ({ alertId, jobPostId }) => {
   try {
@@ -233,5 +305,25 @@ alertEmitter.on('jobAlert', async ({ alertId, jobPostId }) => {
     console.error('Error in jobAlert emitter:', error.message, error.stack);
   }
 });
+// old one
+// alertEmitter.on('jobAlert', async ({ alertId, jobPostId }) => {
+//   try {
+//     const alert = await JobAlert.findById(alertId).populate('candidate', 'email');
+//     const job = await JobPost.findById(jobPostId).populate('companyProfile', 'companyName');
+//     if (alert && job && alert.candidate.email) {
+//       console.log(`Event emitter: Sending email for alert ${alertId} to ${alert.candidate.email}`);
+//       await sendJobAlertEmail({
+//         recipient: alert.candidate.email,
+//         jobTitle: job.title,
+//         companyName: job.companyProfile.companyName,
+//         jobId: job._id,
+//       });
+//     } else {
+//       console.log(`Event emitter: Skipped for alert ${alertId} (missing data)`);
+//     }
+//   } catch (error) {
+//     console.error('Error in jobAlert emitter:', error.message, error.stack);
+//   }
+// });
 
 export default jobAlertController;

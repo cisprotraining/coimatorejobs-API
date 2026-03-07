@@ -9,10 +9,29 @@ const jobAlertSchema = new mongoose.Schema({
   criteria: {
     // In jobAlert.model.js → criteria
     title: { type: String, default: 'Untitled Alert' },
-    categories: {
-      type: [String],
-      default: [],
+    // categories: {
+    //   type: [String],
+    //   default: [],
+    // },
+    // --- REPLACED CATEGORIES WITH RELATIONAL FIELDS ---
+    industry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Industry',
+      required: true,
     },
+    functionalAreas: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'FunctionalArea',
+    }],
+    role: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Role',
+    },
+    // Inside JobAlert criteria schema
+    skills: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Skill'
+    }],
     location: {
       country: { type: String, default: 'India' },
       city: { type: String },
@@ -47,7 +66,7 @@ const jobAlertSchema = new mongoose.Schema({
 
 // Indexes for efficient querying
 jobAlertSchema.index({ candidate: 1 });
-jobAlertSchema.index({ 'criteria.categories': 1 });
+jobAlertSchema.index({ 'criteria.industry': 1 }); // Updated index
 jobAlertSchema.index({ 'criteria.location.city': 1 });
 
 const JobAlert = mongoose.model('JobAlert', jobAlertSchema);

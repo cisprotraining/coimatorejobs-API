@@ -66,8 +66,11 @@ const parseField = (val) => {
 // old get all compnay profile without industry population
 employerController.getAllCompanyProfiles = async (req, res, next) => {
   try {
-    // Fetch all company profiles, excluding the version key
-    const profiles = await CompanyProfile.find().select('-__v');
+    // Fetch all company profiles, excluding the version key, and POPULATE industry
+    const profiles = await CompanyProfile.find()
+      .populate('industry', 'name') // <-- ADD THIS LINE
+      .select('-__v');
+      
     return res.status(200).json({
       success: true,
       profiles
@@ -269,8 +272,8 @@ employerController.createCompanyProfile = async (req, res, next) => {
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
       eventType: 'create_profile',
-      newUserEmail: recipientEmail,
-      newUserRole: 'employer',
+      userEmail: recipientEmail,
+      userRole: 'employer',
       message: `New company profile created for ${recipientEmail} by ${loggedInUserId}`
     });
 
@@ -625,13 +628,21 @@ employerController.getCompanyProfile = async (req, res, next) => {
  * @param {Object} res - Response object to send the result
  * @param {Function} next - Next middleware function for error handling
  */
+/**
+ * Retrieves company profiles for the logged-in employer
+ * @param {Object} req - Request object, with authenticated user info in req.user
+ * @param {Object} res - Response object to send the result
+ * @param {Function} next - Next middleware function for error handling
+ */
 employerController.getCompanyProfilesForEmployer = async (req, res, next) => {
   try {
-    const employerId = req.user.id;
+    const employerId = req.user.id || req.user._id; // safe fallback
 
-    // Fetch only company profiles that belong to this employer
+    // Fetch only company profiles that belong to this employer and POPULATE references
     const profiles = await CompanyProfile
       .find({ employer: employerId })
+      .populate('industry', 'name')           //  POPULATE INDUSTRY NAME
+      .populate('functionalAreas', 'name')    //  POPULATE FUNCTIONAL AREAS
       .select('-__v');
 
     // No profiles found
@@ -746,8 +757,8 @@ employerController.deleteCompanyProfile = async (req, res, next) => {
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
       eventType: 'deleted',
-      newUserEmail: employerEmail,
-      newUserRole: 'employer',
+      userEmail: employerEmail,
+      userRole: 'employer',
       message: superadminMessage,
       actorEmail: deletedByLabel
     });
@@ -1025,7 +1036,9 @@ employerController.getAssignedCompanyProfiles = async (req, res, next) => {
     }
 
     // SUPERADMIN → sees all
+    // POPULATE industry here as well
     const profiles = await CompanyProfile.find(query)
+      .populate('industry', 'name') // <-- ADD THIS LINE
       .select('-__v')
       .sort({ createdAt: -1 });
 

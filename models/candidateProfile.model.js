@@ -83,20 +83,19 @@ const candidateProfileSchema = new mongoose.Schema({
   //   type: [String],
   //   required: [true, 'Categories are required'],
   // },
-  functionalAreas: {
-    type: [mongoose.Schema.Types.ObjectId],
-    ref: 'FunctionalArea',
-    required: [true, 'At least one functional area is required'],
-  },
+  functionalAreas: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'FunctionalArea'
+  }],
   industry: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Industry',
-    required: [true, 'Industry is required'],
+    default: null
   },
   role: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Role',
-    required: [true, 'Role is required'],
+    default: null
   },
   skills: {
     type: [mongoose.Schema.Types.ObjectId],

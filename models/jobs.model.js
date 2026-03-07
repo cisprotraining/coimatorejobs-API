@@ -131,17 +131,22 @@ const jobPostSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  // Added maxApplicants field
+  maxApplicants: {
+    type: Number,
+    default: null, // null means unlimited
+  },
   location: {
     country: {
       type: String,
       required: [true, 'Country is required'],
       trim: true,
     },
-    city: {
+    city: [{  // <-- Notice the Brackets [] making it an array
       type: String,
       required: [true, 'City is required'],
       trim: true,
-    },
+    }],
     completeAddress: {
       type: String,
       required: [true, 'Complete address is required'],
@@ -182,36 +187,158 @@ const jobPostSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Auto-generate slug and seoKeywords on save (pull from all levels: industry, functionalAreas, role, skills)
-jobPostSchema.pre('save', async function (next) {
-  if (!this.slug) {
-    const baseSlug = this.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+// old slug/seo generation logic is commented out below for reference, but the new logic is more robust and handles more edge cases (2026-03-06)
+// jobPostSchema.pre('save', async function (next) {
+//   if (this.isModified('title') || this.isModified('location.city') || !this.slug) {
+//     const baseSlug = this.title
+//       .toLowerCase()
+//       .replace(/[^a-z0-9]+/g, '-')
+//       .replace(/^-+|-+$/g, '');
 
-    this.slug = `${baseSlug}-${this.location.city.toLowerCase()}-${this._id}`;
+//     // this.slug = `${baseSlug}-${this.location.city.toLowerCase()}-${this._id}`;
+//     const citySlug = Array.isArray(this.location.city) ? this.location.city[0].toLowerCase() : this.location.city?.toLowerCase();
+
+//     this.slug = `${baseSlug}-${citySlug}-${this._id}`;
+//   }
+
+//   if (!this.seoKeywords || this.seoKeywords.length === 0) {
+//     const areas = await FunctionalArea.find({ _id: { $in: this.functionalAreas } });
+//     const industry = await Industry.findById(this.industry);
+//     const role = await Role.findById(this.role);
+//     const skills = await Skill.find({ _id: { $in: this.skills } });
+//     const cityName = Array.isArray(this.location.city) ? this.location.city[0].toLowerCase() : this.location.city?.toLowerCase();
+
+//     this.seoKeywords = [
+//       ...new Set([
+//         ...areas.flatMap(a => a.keywords || []),
+//         ...(industry?.keywords || []),
+//         ...(role?.keywords || []),
+//         ...skills.flatMap(s => s.keywords || []),
+//         role?.name?.toLowerCase(),
+//         `${role?.name?.toLowerCase()} jobs`,
+//         `${role?.name?.toLowerCase()} jobs in ${cityName}`
+//         // `${role?.name?.toLowerCase()} jobs in ${this.location.city.toLowerCase()}`
+//       ])
+//     ];
+//   }
+
+//   next();
+// });
+
+// ------------------ SLUG GENERATOR ------------------
+function generateSlug(title, cities, id) {
+  const baseSlug = title
+    ?.toLowerCase()
+    ?.replace(/[^a-z0-9]+/g, "-")
+    ?.replace(/^-+|-+$/g, "");
+
+  let citySlug = "india";
+
+  if (Array.isArray(cities) && cities.length > 0) {
+    citySlug = cities.join("-").toLowerCase();
+  } else if (typeof cities === "string") {
+    citySlug = cities.toLowerCase();
   }
 
-  if (!this.seoKeywords || this.seoKeywords.length === 0) {
-    const areas = await FunctionalArea.find({ _id: { $in: this.functionalAreas } });
-    const industry = await Industry.findById(this.industry);
-    const role = await Role.findById(this.role);
-    const skills = await Skill.find({ _id: { $in: this.skills } });
+  return `${baseSlug}-${citySlug}-${id}`;
+}
 
-    this.seoKeywords = [
-      ...new Set([
-        ...areas.flatMap(a => a.keywords || []),
-        ...(industry?.keywords || []),
-        ...(role?.keywords || []),
-        ...skills.flatMap(s => s.keywords || []),
-        role?.name?.toLowerCase(),
-        `${role?.name?.toLowerCase()} jobs`,
-        `${role?.name?.toLowerCase()} jobs in ${this.location.city.toLowerCase()}`
-      ])
-    ];
+// Auto-generate slug and seoKeywords on save
+jobPostSchema.pre("save", async function (next) {
+  try {
+
+    // ---------- SLUG ----------
+    if (
+      this.isModified("title") ||
+      this.isModified("location.city") ||
+      !this.slug
+    ) {
+      this.slug = generateSlug(
+        this.title,
+        this.location?.city,
+        this._id
+      );
+    }
+
+    // ---------- SEO KEYWORDS ----------
+    if (
+      !this.seoKeywords ||
+      this.isModified("industry") ||
+      this.isModified("role") ||
+      this.isModified("skills") ||
+      this.isModified("functionalAreas")
+    ) {
+
+      const areas = await FunctionalArea.find({
+        _id: { $in: this.functionalAreas || [] }
+      });
+
+      const industry = this.industry
+        ? await Industry.findById(this.industry)
+        : null;
+
+      const role = this.role
+        ? await Role.findById(this.role)
+        : null;
+
+      const skills = await Skill.find({
+        _id: { $in: this.skills || [] }
+      });
+
+      const cityName = Array.isArray(this.location?.city)
+        ? this.location.city[0]?.toLowerCase()
+        : this.location?.city?.toLowerCase() || "india";
+
+      this.seoKeywords = [
+        ...new Set([
+          ...areas.flatMap(a => a.keywords || []),
+          ...(industry?.keywords || []),
+          ...(role?.keywords || []),
+          ...skills.flatMap(s => s.keywords || []),
+
+          role?.name?.toLowerCase(),
+
+          `${role?.name?.toLowerCase()} jobs`,
+          `${role?.name?.toLowerCase()} jobs in ${cityName}`
+        ])
+      ];
+    }
+
+    next();
+
+  } catch (err) {
+    console.error("Slug/SEO generation error:", err);
+    next(err);
   }
+});
 
-  next();
+jobPostSchema.pre("findOneAndUpdate", async function (next) {
+  try {
+
+    const update = this.getUpdate();
+    const existing = await this.model.findOne(this.getQuery());
+
+    if (!existing) return next();
+
+    const title = update.title || existing.title;
+
+    const city =
+      update?.location?.city ||
+      update["location.city"] ||
+      existing.location?.city;
+
+    if (title && city) {
+      update.slug = generateSlug(title, city, existing._id);
+    }
+
+    this.setUpdate(update);
+
+    next();
+
+  } catch (err) {
+    console.error("Slug update error:", err);
+    next(err);
+  }
 });
 
 
@@ -351,12 +478,13 @@ function matchJobToAlert(job, criteria) {
   return true;
 }
 
-const JobPost = mongoose.model('JobPost', jobPostSchema);
 jobPostSchema.index({ industry: 1 });
 jobPostSchema.index({ functionalAreas: 1 });
 jobPostSchema.index({ role: 1 });
 jobPostSchema.index({ 'location.city': 1 });
 jobPostSchema.index({ skills: 1 });
-jobPostSchema.index({ "uniqueViewers.viewer": 1 }); // for efficient lookup of whether a user has viewed the job today
+jobPostSchema.index({ "uniqueViewers.viewer": 1 });
+
+const JobPost = mongoose.model('JobPost', jobPostSchema);
 
 export default JobPost;

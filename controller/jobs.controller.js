@@ -73,6 +73,7 @@ jobsController.createJobPost = async (req, res, next) => {
       location,
       remoteWork,
       positions,
+      maxApplicants,
       companyProfile, // Added to allow explicit selection if needed
       role, // singular ID
       skills = [],
@@ -95,10 +96,12 @@ jobsController.createJobPost = async (req, res, next) => {
     if (!Array.isArray(qualification) || qualification.length === 0) {
       throw new BadRequestError('At least one qualification is required (must be an array)');
     }
-    
-    // Validate location object
-    if (!location?.country || !location?.city || !location?.completeAddress) {
-      throw new BadRequestError('Complete location details are required (country, city, completeAddress)');
+
+   // Validate location object (Ensuring city is an array and not empty)
+    if ( !location || !location.country || !Array.isArray(location.city) || location.city.length === 0 || !location.completeAddress) {
+      throw new BadRequestError(
+        'Complete location details are required (country, at least one city, completeAddress)'
+      );
     }
 
     // commented out old specialism  for now
@@ -144,21 +147,25 @@ jobsController.createJobPost = async (req, res, next) => {
 
 
     // Validate skills
-    if (skills && Array.isArray(skills)) {
-      for (const id of skills) {
-        if (!mongoose.Types.ObjectId.isValid(id)) {
-          throw new BadRequestError(`Invalid skill ID: ${id}`);
-        }
-        if (!(await Skill.findById(id))) {
-          throw new NotFoundError(`Skill not found: ${id}`);
-        }
-      }
-    }
+    // if (skills && Array.isArray(skills)) {
+    //   for (const id of skills) {
+    //     if (!mongoose.Types.ObjectId.isValid(id)) {
+    //       throw new BadRequestError(`Invalid skill ID: ${id}`);
+    //     }
+    //     if (!(await Skill.findById(id))) {
+    //       throw new NotFoundError(`Skill not found: ${id}`);
+    //     }
+    //   }
+    // }
 
     // Validate location.city (prefer seeded, but allow custom)
-    const cityLocation = await Location.findOne({ name: location.city });
-    if (!cityLocation) {
-      console.warn(`Custom city added: ${location.city}`); // For analytics
+    if (Array.isArray(location.city)) {
+      for (const city of location.city) {
+        const cityLocation = await Location.findOne({ name: city });
+        if (!cityLocation) {
+          console.warn(`Custom city added: ${city}`);
+        }
+      }
     }
 
     // Create new job post
@@ -182,9 +189,10 @@ jobsController.createJobPost = async (req, res, next) => {
       skills,
       qualification,
       applicationDeadline,
+      maxApplicants: maxApplicants ? Number(maxApplicants) : null,
       location: {
         country: location.country,
-        city: location.city,
+        city: location.city, // This is now an array
         completeAddress: location.completeAddress,
       },
       positions: {
@@ -490,34 +498,25 @@ jobsController.updateJobPost = async (req, res, next) => {
 
     const updateData = {};
 
-    // Simple fields
+    // Added 'maxApplicants' so it updates properly.
     ['title', 'description', 'contactEmail', 'contactUsername', 'jobType',
      'offeredSalary', 'careerLevel', 'experience', 'gender', 'qualification',
-     'applicationDeadline', 'remoteWork', 'status'].forEach(field => {
+     'applicationDeadline', 'remoteWork', 'status', 'maxApplicants'].forEach(field => {
       if (req.body[field] !== undefined) updateData[field] = req.body[field];
     });
 
-    // Parse location if string
+    // Handle location using strict dot notation
     const parsedLocation = req.body.location;
 
-    if (parsedLocation) {
-    if (
-      !parsedLocation.country ||
-      !parsedLocation.city ||
-      !parsedLocation.completeAddress
-    ) {
-      throw new BadRequestError(
-        'Location must include country, city, and completeAddress'
-      );
+      if (parsedLocation) {
+        if (!parsedLocation.country || !parsedLocation.city || parsedLocation.city.length === 0 || !parsedLocation.completeAddress) {
+          throw new BadRequestError('Location must include country, at least one city, and completeAddress');
+        }
+
+        updateData['location.country'] = parsedLocation.country;
+        updateData['location.city'] = parsedLocation.city;
+        updateData['location.completeAddress'] = parsedLocation.completeAddress;
     }
-
-    updateData.location = {
-      country: parsedLocation.country,
-      city: parsedLocation.city,
-      completeAddress: parsedLocation.completeAddress,
-    };
-  }
-
 
     // commented out old update for now
     // Update fields
@@ -538,13 +537,13 @@ jobsController.updateJobPost = async (req, res, next) => {
     //   status: status || jobPost.status,
     // };
 
-    if (parsedLocation) {
-      updateData.location = {
-        country: parsedLocation.country || jobPost.location.country,
-        city: parsedLocation.city || jobPost.location.city,
-        completeAddress: parsedLocation.completeAddress || jobPost.location.completeAddress,
-      };
-    }
+    // if (parsedLocation) {
+    //   updateData.location = {
+    //     country: parsedLocation.country || jobPost.location.country,
+    //     city: parsedLocation.city || jobPost.location.city,
+    //     completeAddress: parsedLocation.completeAddress || jobPost.location.completeAddress,
+    //   };
+    // }
 
     // Taxonomy fields
     // Handle arrays / refs if provided

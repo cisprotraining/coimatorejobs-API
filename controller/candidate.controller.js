@@ -9,6 +9,8 @@ import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.
 import { sendCandidateProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
 import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
+import { DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { s3 } from "../config/aws-s3.js";
 import fs from 'fs';
 import path from 'path';
 import natural from 'natural';  //library (for TF-IDF / cosine similarity)
@@ -134,7 +136,13 @@ candidateController.getAllCandidateProfiles = async (req, res, next) => {
 //   }
 // };
 
-
+/**
+ * Creates a new candidate profile
+ * @param {*} req 
+ * @param {*} res 
+ * @param {*} next 
+ * @returns 
+ */
 candidateController.createCandidateProfile = async (req, res, next) => {
   try {
     // 1. Resolve logged-in User (handle both ._id and .id)
@@ -155,6 +163,19 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       }
     } else {
       profileData = req.body;
+    }
+
+    // Normalize optional ObjectId fields early
+    if (!profileData.industry || profileData.industry === '') {
+      profileData.industry = null;
+    }
+
+    if (!profileData.role || profileData.role === '') {
+      profileData.role = null;
+    }
+
+    if (!profileData.functionalAreas || profileData.functionalAreas.length === 0) {
+      profileData.functionalAreas = [];
     }
     
     // 3. Resolve Target Candidate Identity
@@ -180,10 +201,15 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       );
     }
 
-    if (industry && !(await mongoose.model('Industry').findById(industry))) throw new BadRequestError('Invalid Industry');
-    if (targetRoleId && !(await mongoose.model('Role').findById(targetRoleId))) throw new BadRequestError('Invalid Role');
-
-    const faIds = parseField(functionalAreas);
+    if (industry && mongoose.Types.ObjectId.isValid(industry)) {
+      const industryExists = await mongoose.model('Industry').findById(industry);
+      if (!industryExists) throw new BadRequestError('Invalid Industry');
+    }
+    if (targetRoleId && mongoose.Types.ObjectId.isValid(targetRoleId)) {
+      const roleExists = await mongoose.model('Role').findById(targetRoleId);
+      if (!roleExists) throw new BadRequestError('Invalid Role');
+    }
+    const faIds = parseField(profileData.functionalAreas);
 
     if (faIds.length > 0) {
       const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
@@ -222,9 +248,9 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       approvedBy: isAdminCreator ? loggedInUserId : null,
       approvedAt: isAdminCreator ? new Date() : null,
 
-      industry: profileData.industry,
-      role: profileData.role,
-      functionalAreas: parseField(profileData.functionalAreas),
+      industry: profileData.industry || null,
+      role: profileData.role || null,
+      functionalAreas: parseField(profileData.functionalAreas || []),
 
       fullName: profileData.fullName,
       jobTitle: profileData.jobTitle,
@@ -256,26 +282,33 @@ candidateController.createCandidateProfile = async (req, res, next) => {
 
     await newProfile.save();
 
-    // Auto-create first resume from profile data
-    const defaultResume = new CandidateResume({
-      candidate: candidateId,
-      profile: newProfile._id,
-      title: "My Primary Resume",
-      isPrimary: true,
-      personalInfo: {
-        fullName: newProfile.fullName,
-        jobTitle: newProfile.jobTitle,
-        email: newProfile.email,
-        phone: newProfile.phone,
-        location: newProfile.location,
-      },
-      education: newProfile.educationLevels || [],
-      experience: [], // user can add later
-      skills: newProfile.skills || [],
-      template: 'professional',
-    });
+    // ONLY auto-create the builder resume if NO file was uploaded
+    if (!resume) {
+        const defaultResume = new CandidateResume({
+            candidate: candidateId,
+            profile: newProfile._id,
+            title: "My Primary Resume",
+            isPrimary: true,
+            personalInfo: {
+                fullName: newProfile.fullName,
+                jobTitle: newProfile.jobTitle,
+                email: newProfile.email,
+                phone: newProfile.phone,
+                location: newProfile.location,
+            },
+            education: (newProfile.educationLevels || []).map(level => ({
+                degree: level,
+                institution: "",
+                startYear: null,
+                endYear: null
+            })),
+            experience: [], 
+            skills: newProfile.skills || [],
+            template: 'professional',
+        });
 
-    await defaultResume.save();
+        await defaultResume.save();
+    }
 
     // Send notification emails
     await sendCandidateProfileStatusEmail({
@@ -292,8 +325,8 @@ candidateController.createCandidateProfile = async (req, res, next) => {
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
       eventType: 'create_profile',
-      newUserEmail: targetUser.email,
-      newUserRole: 'candidate',
+      userEmail: targetUser.email,
+      userRole: 'candidate',
       message: `New candidate profile created for ${targetUser.email} by ${loggedInUserId}`
     });
 
@@ -304,13 +337,25 @@ candidateController.createCandidateProfile = async (req, res, next) => {
     });
 
   } catch (error) {
-    // 8. Cleanup uploaded files on failure
+   // Cleanup uploaded files if an error occurs after upload
     if (req.files) {
-      Object.values(req.files).flat().forEach(file => {
-        const filePath = path.join(process.cwd(), 'public', 'uploads', 'candidate', file.filename);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      });
-    }
+        const deletePromises = [];
+
+        Object.values(req.files).flat().forEach((file) => {
+          if (file.key) {
+            deletePromises.push(
+              s3.send(
+                new DeleteObjectCommand({
+                  Bucket: process.env.AWS_S3_BUCKET,
+                  Key: file.key,
+                })
+              )
+            );
+          }
+        });
+
+        await Promise.all(deletePromises);
+      }
     console.error("Profile Creation Error:", error);
     next(error);
   }
@@ -462,16 +507,23 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
   } catch (error) {
     // Cleanup uploaded files if an error occurs after upload
     if (req.files) {
-      const files = req.files;
-      if (files.profilePhoto && files.profilePhoto[0]) {
-        const photoPath = path.join(process.cwd(), 'public', `/uploads/candidate/${files.profilePhoto[0].filename}`);
-        if (fs.existsSync(photoPath)) fs.unlinkSync(photoPath);
+        const deletePromises = [];
+
+        Object.values(req.files).flat().forEach((file) => {
+          if (file.key) {
+            deletePromises.push(
+              s3.send(
+                new DeleteObjectCommand({
+                  Bucket: process.env.AWS_S3_BUCKET,
+                  Key: file.key,
+                })
+              )
+            );
+          }
+        });
+
+        await Promise.all(deletePromises);
       }
-      if (files.resume && files.resume[0]) {
-        const resumePath = path.join(process.cwd(), 'public', `/uploads/candidate/${files.resume[0].filename}`);
-        if (fs.existsSync(resumePath)) fs.unlinkSync(resumePath);
-      }
-    }
     next(error);
   }
 };
@@ -604,8 +656,8 @@ candidateController.deleteCandidateProfile = async (req, res, next) => {
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
       eventType: 'deleted',
-      newUserEmail: profile.email,
-      newUserRole: 'candidate',
+      userEmail: profile.email,
+      userRole: 'candidate',
       message: notifySuperadminMessage,
       actorEmail: deletedByLabel
     });
@@ -665,8 +717,8 @@ candidateController.approveCandidateProfile = async (req, res, next) => {
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
       eventType: status === 'approved' ? 'approved' : 'rejected',
-      newUserEmail: profile.email,
-      newUserRole: 'candidate',
+      userEmail: profile.email,
+      userRole: 'candidate',
       message: `Candidate profile ${status} for ${profile.email} by ${approvingUser.email}`,
       actorEmail: approvingUser.email
     });
@@ -783,6 +835,11 @@ candidateController.applyToJob = async (req, res, next) => {
       throw new NotFoundError('Job post not found or not available');
     }
 
+    // Prevent applying if the job deadline has passed
+    if (jobPost.applicationDeadline && new Date(jobPost.applicationDeadline) < new Date()) {
+      throw new BadRequestError('This job posting has expired and is no longer accepting applications.');
+    }
+
     if (jobPost.positions.remaining <= 0) {
       throw new BadRequestError('All open positions are closed for this job');
     }
@@ -843,13 +900,18 @@ candidateController.applyToJob = async (req, res, next) => {
 
     // decrement positions & increment applicantCount (NOTE: This is increamenting already in jobapply model (// Hook to increment applicantCount on save (commented now)))
     // decrement remaining positions
-      jobPost.positions.remaining -= 1;
+    // this is commeneted beacuse handling with max applicant count in new logic (2026-03-07)
+      // jobPost.positions.remaining -= 1;
 
       // increment applicant count
       jobPost.applicantCount += 1;
 
       // auto close job
-      if (jobPost.positions.remaining === 0) {
+      // if (jobPost.positions.remaining === 0) {
+      //   jobPost.status = 'Closed';
+      // }
+      // NEW AUTO CLOSE LOGIC: Close if applicant count reaches maxApplicants
+      if (jobPost.maxApplicants && jobPost.applicantCount >= jobPost.maxApplicants) {
         jobPost.status = 'Closed';
       }
 

@@ -7,13 +7,32 @@ const resumeAlertSchema = new mongoose.Schema({
     required: true,
   },
   criteria: {
-    categories: {
-      type: [String],
-      default: [],
+    // categories: {
+    //   type: [String],
+    //   default: [],
+    // },
+    // --- NEW DYNAMIC TAXONOMY FIELDS ---
+    industry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Industry',
+      required: true,
     },
+    functionalAreas: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'FunctionalArea',
+    }],
+    role: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Role',
+    },
+    skills: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Skill',
+    }],
+    // -----------------------------------
     location: {
       country: { type: String, default: 'India' },
-      city: { type: String },
+      city: [{ type: String }],
     },
     salaryRange: {
       min: { type: Number, min: 0 },
@@ -25,7 +44,9 @@ const resumeAlertSchema = new mongoose.Schema({
     },
     educationLevels: {
       type: [String],
-      enum : [ '10th', '12th', 'Diploma', 'Bachelor', 'Master', 'Doctorate', 'Other' ]
+      default: [],
+      // enum : [ '10th', '12th', 'Diploma', 'Bachelor', 'Master', 'Doctorate', 'Other' ]
+
       // enum: ['High School', 'Diploma', "Bachelor's Degree", "Master's Degree", 'PhD', 'Professional Certification'],
     },
     skills: {
@@ -81,6 +102,7 @@ const resumeAlertSchema = new mongoose.Schema({
 
 // Indexes for efficient querying
 resumeAlertSchema.index({ employer: 1 });
+resumeAlertSchema.index({ 'criteria.industry': 1 });
 resumeAlertSchema.index({ 'criteria.categories': 1 });
 resumeAlertSchema.index({ 'criteria.skills': 1 });
 resumeAlertSchema.index({ 'criteria.location.city': 1 });
