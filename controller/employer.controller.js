@@ -596,11 +596,20 @@ employerController.getCompanyProfile = async (req, res, next) => {
      * If employer is confidential AND
      * viewer is not owner/admin
      */
-    if ( employerUser?.isSystemGeneratedEmail && role === 'candidate') {
-    console.log("Employer User for Confidentiality Checkeee:", employerUser);
+    if (employerUser?.isSystemGeneratedEmail) {
 
-      profileData.email = "info@cisproservices.com";
-      profileData.phone = "9361755131";
+        const isPrivilegedViewer =
+          role === 'superadmin' || isOwner;
+
+        if (!isPrivilegedViewer) {
+          // Mask for candidate + hr-admin
+          profileData.email = "info@cisproservices.com";
+          profileData.phone = "9361755131";
+        } else {
+          // Show real HR contact email to owner or superadmin
+          profileData.email = employerUser.contactEmail || profileData.email;
+        }
+
     }
 
     // Count active jobs for this company

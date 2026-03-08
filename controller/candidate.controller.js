@@ -1289,6 +1289,83 @@ candidateController.getTrendingJobs = async (req, res, next) => {
   }
 };
 
+/**
+ * Get jobs similar to a specific job post
+ * @route GET /api/v1/candidate-dashboard/jobs/:id/similar?limit=10
+ * @access Public
+ */
+candidateController.getSimilarJobs = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const limit = parseInt(req.query.limit) || 10;
+
+    // 1. Find the reference job
+    const referenceJob = await JobPost.findById(id).select('title role industry location skills jobType');
+    if (!referenceJob) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    // 2. Find jobs that match the same role, industry, or city (excluding the current job)
+    // We use $or to cast a wide net, then we score them to bring the best to the top
+    const matchQuery = {
+      _id: { $ne: id },
+      status: 'Published',
+      applicationDeadline: { $gte: new Date() },
+      $or: [
+        { role: referenceJob.role },
+        { industry: referenceJob.industry },
+        { 'location.city': referenceJob.location?.city }
+      ]
+    };
+
+    const similarJobs = await JobPost.find(matchQuery)
+      .populate('companyProfile', 'companyName logo')
+      .limit(limit * 2) // Fetch extra to score and sort
+      .lean();
+
+    // 3. Score the similarity
+    const scoredJobs = similarJobs.map(job => {
+      let score = 0;
+      
+      // Exact Role match is highly relevant
+      if (job.role?.toString() === referenceJob.role?.toString()) score += 40;
+      
+      // Same Industry
+      if (job.industry?.toString() === referenceJob.industry?.toString()) score += 20;
+      
+      // Same City
+      if (job.location?.city === referenceJob.location?.city) score += 20;
+      
+      // Same Job Type (e.g., both Full-Time)
+      if (job.jobType === referenceJob.jobType) score += 10;
+
+      // Overlapping Skills
+      const refSkills = referenceJob.skills?.map(s => s.toString()) || [];
+      const jobSkills = job.skills?.map(s => s.toString()) || [];
+      const commonSkills = jobSkills.filter(s => refSkills.includes(s));
+      score += (commonSkills.length * 5); // +5 points per matching skill
+
+      return { job, similarityScore: Math.min(score, 100) };
+    })
+    .filter(item => item.similarityScore > 0) // Only keep jobs with at least some similarity
+    .sort((a, b) => b.similarityScore - a.similarityScore)
+    .slice(0, limit); // Cut down to requested limit
+
+    // 4. (Optional Fallback) If no similar jobs found, fallback to trending jobs
+    if (scoredJobs.length === 0) {
+      // You can call your existing trending logic here as a fallback
+    }
+
+    return res.status(200).json({
+      success: true,
+      similarJobs: scoredJobs
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 /**
  * Fetch candidate profiles created by hr-admin or all for superadmin
