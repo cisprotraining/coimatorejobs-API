@@ -481,8 +481,8 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     // });
 
     if (updateData.industry) {
-      if (!(await mongoose.model('Industry').findById(updateData.industry))) throw new BadRequestError('Invalid Industry');
-      profile.industry = updateData.industry;
+      const industryExists = await mongoose.model('Industry').findById(updateData.industry);
+      if (!industryExists) throw new BadRequestError('Invalid Industry');
     }
 
     if (updateData.functionalAreas) {
@@ -513,7 +513,7 @@ employerController.updateCompanyProfile = async (req, res, next) => {
       const employerUser = await User.findById(updatedProfile.employer);
 
       if (employerUser?.isSystemGeneratedEmail) {
-        employerUser.contactEmail = updateData.email;
+        employerUser.contactEmail = updateData.email.toLowerCase().trim();
         await employerUser.save();
       }
     }

@@ -791,8 +791,8 @@ authentication.deleteUserProfile = async (req, res, next) => {
     // Send alert to superadmin
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
-      newUserEmail: targetUser.email,
-      newUserRole: targetUser.role,
+      userEmail: targetUser.email,
+      userRole: targetUser.role,
       message: `User profile deleted by ${loggedInUser.email}`
     });
 
