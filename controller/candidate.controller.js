@@ -792,18 +792,19 @@ candidateController.getPendingCandidateProfiles = async (req, res, next) => {
 
 /**
  * Retrieves all published job posts for candidates to view
- * @route GET /api/candidate/jobs
+ * @route GET /api/v1/candidate-dashboard/jobs
  * @access Public
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
  */
 candidateController.getAllJobPosts = async (req, res, next) => {
   try {
     const jobPosts = await JobPost.find({ status: 'Published' })
-      .populate('companyProfile', 'companyName logo') // Populate company name and logo
-      .select('-__v -applicantCount') // Hide internal fields
-      .sort({ createdAt: -1 }); // Sort by newest first
+      .populate('companyProfile', 'companyName logo') 
+      .populate('skills', 'name')           // Populates skill names for Tag2.jsx
+      .populate('industry', 'name')         // Populates industry for FilterJobsBox
+      .populate('functionalAreas', 'name')  // Populates functional areas for FilterJobsBox
+      .populate('role', 'name')             // Populates role for FilterJobsBox
+      .select('-__v -applicantCount') 
+      .sort({ createdAt: -1 }); 
 
     return res.status(200).json({
       success: true,
