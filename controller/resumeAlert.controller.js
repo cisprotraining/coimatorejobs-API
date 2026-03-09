@@ -10,11 +10,29 @@ const alertEmitter = new EventEmitter();
 
 const resumeAlertController = {};
 
-// Helper
+// Helper: Parse mixed field inputs
 const parseField = (val) => {
   if (!val) return [];
   if (Array.isArray(val)) return val;
   try { return JSON.parse(val); } catch (e) { return [val]; }
+};
+
+// Helper: Sanitize criteria to prevent type crashes (like .some is not a function)
+const sanitizeCriteria = (criteria) => {
+  if (!criteria) return criteria;
+  
+  // Guarantee location.city is always an array
+  if (criteria.location) {
+    if (criteria.location.city && !Array.isArray(criteria.location.city)) {
+      criteria.location.city = [criteria.location.city];
+    } else if (!criteria.location.city) {
+      criteria.location.city = [];
+    }
+  } else {
+    criteria.location = { city: [], country: 'India' };
+  }
+
+  return criteria;
 };
 
 /**
@@ -25,11 +43,14 @@ const parseField = (val) => {
 resumeAlertController.createResumeAlert = async (req, res, next) => {
   try {
     const employerId = req.user.id || req.user._id;
-    const { title, criteria, frequency } = req.body;
+    let { title, criteria, frequency } = req.body;
 
     if (!title || !criteria || Object.keys(criteria).length === 0) {
       throw new BadRequestError('Title and at least one criterion are required');
     }
+
+    // Sanitize criteria before validation and saving
+    criteria = sanitizeCriteria(criteria);
 
     // Validate Master Fields
     if (!criteria.industry || !(await mongoose.model('Industry').findById(criteria.industry))) {
@@ -80,7 +101,7 @@ resumeAlertController.updateResumeAlert = async (req, res, next) => {
   try {
     const employerId = req.user.id || req.user._id;
     const alertId = req.params.id;
-    const { title, criteria, frequency } = req.body;
+    let { title, criteria, frequency } = req.body;
 
     const alert = await ResumeAlert.findById(alertId);
     if (!alert || alert.employer.toString() !== employerId.toString()) {
@@ -89,6 +110,9 @@ resumeAlertController.updateResumeAlert = async (req, res, next) => {
 
     // Validate Master Fields if updating
     if (criteria) {
+        // Sanitize criteria to prevent type crashes
+        criteria = sanitizeCriteria(criteria);
+
         if (criteria.industry && criteria.industry !== alert.criteria.industry?.toString()) {
             if (!(await mongoose.model('Industry').findById(criteria.industry))) throw new BadRequestError('Invalid Industry');
         }
@@ -159,7 +183,7 @@ resumeAlertController.listResumeAlerts = async (req, res, next) => {
       .populate('criteria.skills', 'name')
       .select('-__v')
       .sort({ createdAt: -1 })
-      .lean(); // Use lean() for faster processing    
+      .lean(); 
 
     //  If no alerts, respond early
     if (!alerts.length) {
@@ -171,20 +195,20 @@ resumeAlertController.listResumeAlerts = async (req, res, next) => {
     }
 
     // Fetch all active, searchable candidates once to avoid n+1 DB queries
-    // We only need the fields required by the matching logic
     const candidates = await CandidateProfile.find({ isActive: true, allowInSearch: true })
       .select('skills industry role functionalAreas experience educationLevels location expectedSalary preferences age gender socialMedia fullName jobTitle description')
       .lean();
 
-    
-
-    //  Enrich alerts with accurate matching candidate count using the EXACT same weighted logic
+    //  Enrich alerts with accurate matching candidate count
     const formattedAlerts = alerts.map((alert) => {
         let matchingCount = 0;
+        
+        // Defensively sanitize criteria to handle old corrupted DB records
+        const safeCriteria = sanitizeCriteria(alert.criteria);
 
         // Run every candidate through the weighted algorithm
         candidates.forEach(candidate => {
-            const matchResult = matchResumeToAlert(candidate, alert.criteria);
+            const matchResult = matchResumeToAlert(candidate, safeCriteria);
             if (matchResult.matched) {
                 matchingCount++;
             }
@@ -194,12 +218,11 @@ resumeAlertController.listResumeAlerts = async (req, res, next) => {
             ...alert,
             stats: {
                 ...alert.stats,
-                totalMatches: matchingCount // Overwrite with dynamic count
+                totalMatches: matchingCount
             }
         };
     });
 
-    //  Return formatted result
     return res.status(200).json({
       success: true,
       count: formattedAlerts.length,
@@ -209,65 +232,6 @@ resumeAlertController.listResumeAlerts = async (req, res, next) => {
     next(error);
   }
 };
-
-// old-logic commented out (kept for reference 2026-03-07)
-// resumeAlertController.listResumeAlerts = async (req, res, next) => {
-//   try {
-//     const employerId = req.user.id;
-
-//     // 1️⃣ Fetch alerts for employer
-//     const alerts = await ResumeAlert.find({ employer: employerId, isActive: true })
-//       .select('-__v')
-//       .sort({ createdAt: -1 });
-
-//     // 2️⃣ If no alerts, respond early
-//     if (!alerts.length) {
-//       return res.status(200).json({
-//         success: true,
-//         message: 'No resume alerts found for this employer.',
-//         alerts: [],
-//       });
-//     }
-
-//     // 3️⃣ Enrich alerts with matching candidate count
-//     const formattedAlerts = await Promise.all(
-//       alerts.map(async (alert) => {
-//         const matchingCount = await CandidateProfile.countDocuments({
-//           isActive: true,
-//           allowInSearch: true,
-//           categories: {
-//             $in: alert.criteria.categories.length > 0
-//               ? alert.criteria.categories
-//               : [/.*/],
-//           },
-//           'location.city':
-//             alert.criteria.location?.city || { $exists: true },
-//           experience:
-//             alert.criteria.experience || { $exists: true },
-//           skills: {
-//             $in: alert.criteria.skills.length > 0
-//               ? alert.criteria.skills
-//               : [/.*/],
-//           },
-//         });
-//         return {
-//           ...alert.toJSON(),
-//           matchingCount,
-//         };
-//       })
-//     );
-
-//     // 4️⃣ Return formatted result
-//     return res.status(200).json({
-//       success: true,
-//       count: formattedAlerts.length,
-//       alerts: formattedAlerts,
-//     });
-//   } catch (error) {
-//     next(error);
-//   }
-// };
-
 
 /**
  * Gets matching candidate profiles for a specific resume alert.
@@ -285,29 +249,25 @@ resumeAlertController.getAlertMatches = async (req, res, next) => {
       throw new NotFoundError('Resume alert not found or not yours');
     }
 
-    // Fetch all active candidate profiles
     const allProfiles = await CandidateProfile.find({
       isActive: true,
       allowInSearch: true,
     });
     
-    // Apply liberal matching using the same logic
+    // Apply liberal matching using defensively sanitized logic
+    const safeCriteria = sanitizeCriteria(alert.criteria);
     const matches = allProfiles
       .map(profile => {
-        const { matched, matchScore } = matchResumeToAlert(profile, alert.criteria);
+        const { matched, matchScore } = matchResumeToAlert(profile, safeCriteria);
         return matched ? { ...profile.toObject(), matchScore } : null;
       })
       .filter(Boolean)
       .sort((a, b) => b.matchScore - a.matchScore);
 
-
     if (!matches.length) {
       throw new NotFoundError('No Candidate are available for matching');
     }
 
-    // console.log("krferkufyevfuir", matches);
-
-    // Pagination
     const startIndex = (page - 1) * limit;
     const paginated = matches.slice(startIndex, startIndex + parseInt(limit));
 
@@ -336,14 +296,16 @@ resumeAlertController.getAlertMatches = async (req, res, next) => {
   }
 };
 
-
 // Event listener for resume alerts
 alertEmitter.on('resumeAlert', async ({ alertId, profileId }) => {
   try {
     const alert = await ResumeAlert.findById(alertId).populate('employer', 'email');
     const profile = await CandidateProfile.findById(profileId);
     if (alert && profile && alert.employer.email) {
-      const matches = matchResumeToAlert(profile, alert.criteria);
+      
+      const safeCriteria = sanitizeCriteria(alert.criteria);
+      const matches = matchResumeToAlert(profile, safeCriteria);
+      
       if (matches) {
         await sendResumeAlertEmail({
           recipient: alert.employer.email,
