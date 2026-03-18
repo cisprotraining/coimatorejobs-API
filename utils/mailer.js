@@ -11,7 +11,7 @@ let transporter;
 
 if (isProd) {
   // AWS SES in Production
-  transporter = nodemailer.createTransport({
+  transporter = nodemailer.createTransport({ 
     host: process.env.SMTP_HOST || 'email-smtp.ap-south-1.amazonaws.com',
     port: parseInt(process.env.SMTP_PORT) || 587,
     secure: false,                    // TLS
