@@ -1,0 +1,5 @@
+running instruction:
+
+npm install -> (First time only)
+
+npm run dev -> (run comment)

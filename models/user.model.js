@@ -83,6 +83,18 @@ const userSchema = new mongoose.Schema({
         type: Date,
         select: false
     },
+    loginOtpHash: {
+        type: String,
+        select: false
+    },
+    loginOtpExpiresAt: {
+        type: Date,
+        select: false
+    },
+    loginOtpAttempts: {
+        type: Number,
+        default: 0
+    },
     createdAt: {
         type: Date,
         default: Date.now

@@ -12,6 +12,8 @@ authRouter.post('/sign-up', authentication.signup);
 
 // Route for user signin (with rate limiting)
 authRouter.post('/sign-in', loginLimiter, authentication.signin);   // Apply throttling
+authRouter.post('/sign-in/verify-otp', loginLimiter, authentication.verifySigninOtp);
+authRouter.post('/sign-in/candidate/verify-otp', loginLimiter, authentication.verifyCandidateSigninOtp);
 
 // Route for password reset request
 authRouter.put('/reset-password', authenticate, authorize(['hr-admin', 'employer', 'candidate']), authentication.changePassword);

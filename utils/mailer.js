@@ -6,6 +6,9 @@ const isProd = process.env.NODE_ENV === "production";
 
 // mail delay helper
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const defaultFromAddress = isProd
+  ? (process.env.MAIL_FROM || 'no-reply@coimbatorejobs.in')
+  : (process.env.EMAIL_USER || process.env.MAIL_FROM || 'no-reply@coimbatorejobs.in');
 
 let transporter;
 
@@ -108,10 +111,10 @@ transporter.verify((error) => {
 
 
 // BASE EMAIL SENDER (DO NOT CHANGE UI)
-const sendMail = async ({ to, subject, html, text = '', cc = [] }) => {
+const sendMail = async ({ to, subject, html, text = '', cc = [], from }) => {
   try {
     const info = await transporter.sendMail({
-      from: `"Coimbatore Jobs" <no-reply@coimbatorejobs.in>`,
+      from: from || `"Coimbatore Jobs" <${defaultFromAddress}>`,
       to,
       cc,
       subject,
@@ -268,6 +271,43 @@ const sendPasswordResetEmail = async ({ recipient, name, resetUrl }) => {
   } catch (error) {
     console.error('Password reset email failed:', error);
     throw new Error('Failed to send password reset email');
+  }
+};
+
+// Candidate/Employer login OTP email
+const sendLoginOtpEmail = async ({ recipient, name, otp, expiresInMinutes = 10, role = 'candidate' }) => {
+  try {
+    if (!recipient) throw new Error('Recipient email is missing');
+    const roleLabel = role === 'employer' ? 'Employer' : 'Candidate';
+
+    await sendMail({
+      to: recipient,
+      subject: 'Your Coimbatore Jobs login OTP',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+          <h2 style="color: #2563eb;">${roleLabel} Login Verification</h2>
+          <p>Hello ${name || roleLabel},</p>
+          <p>Your One Time Password (OTP) for login is:</p>
+          <div style="margin: 20px 0; text-align: center;">
+            <span style="display: inline-block; font-size: 28px; letter-spacing: 8px; font-weight: 700; color: #0f172a; background: #f1f5f9; padding: 14px 20px; border-radius: 10px;">
+              ${otp}
+            </span>
+          </div>
+          <p>This OTP expires in <strong>${expiresInMinutes} minutes</strong>.</p>
+          <p>If you did not try to login, please reset your password immediately.</p>
+          <hr style="margin: 28px 0; border: none; border-top: 1px solid #e2e8f0;" />
+          <p style="color: #64748b; font-size: 12px; text-align: center;">
+            &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro
+          </p>
+        </div>
+      `,
+      cc: [process.env.MAIL_SECURITY]
+    });
+
+    console.log(`${roleLabel} login OTP email sent to ${recipient}`);
+  } catch (error) {
+    console.error(`Failed to send login OTP to ${recipient}:`, error);
+    throw new Error('Failed to send login OTP email');
   }
 };
 
@@ -733,4 +773,4 @@ export const sendContactEmails = async ({
 };
 
 
-export { sendJobAlertEmail, sendResumeAlertEmail, sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendCompanyProfileStatusEmail, sendCandidateProfileStatusEmail };
+export { sendJobAlertEmail, sendResumeAlertEmail, sendPasswordResetEmail, sendLoginOtpEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendCompanyProfileStatusEmail, sendCandidateProfileStatusEmail };

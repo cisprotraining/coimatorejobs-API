@@ -5,16 +5,47 @@ import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 import { JWT_SECRET, JWT_EXPIRES_IN, SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import crypto from 'crypto';
-import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
+import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendLoginOtpEmail } from '../utils/mailer.js';
 import { BadRequestError, ForbiddenError,NotFoundError} from '../utils/errors.js';
 
 import { log } from "console";
 
 import { OAuth2Client } from 'google-auth-library';
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const LOGIN_OTP_EXPIRY_MINUTES = Number(
+  process.env.LOGIN_OTP_EXPIRY_MINUTES || process.env.CANDIDATE_LOGIN_OTP_EXPIRY_MINUTES || 10
+);
+const LOGIN_OTP_MAX_ATTEMPTS = Number(
+  process.env.LOGIN_OTP_MAX_ATTEMPTS || process.env.CANDIDATE_LOGIN_OTP_MAX_ATTEMPTS || 5
+);
 
 // Authentication controller object
 const authentication = {};
+
+const generateSixDigitOtp = () => `${crypto.randomInt(100000, 1000000)}`;
+
+const hashLoginOtp = (otp, userId) => {
+  return crypto
+    .createHash('sha256')
+    .update(`${otp}:${String(userId)}:${JWT_SECRET}`)
+    .digest('hex');
+};
+
+const resolveLoginOtpRecipient = (user) => {
+  if (user.role === 'candidate') {
+    if (user.isSystemGeneratedEmail) return null;
+    return user.email;
+  }
+
+  if (user.role === 'employer') {
+    if (user.isSystemGeneratedEmail) {
+      return user.contactEmail?.trim()?.toLowerCase() || null;
+    }
+    return user.email;
+  }
+
+  return null;
+};
 
 /**
  * Registers a new user (candidate or employer) with transaction support
@@ -28,22 +59,35 @@ authentication.signup = async (req, res, next) => {
 
     try {
         const { name, email, password, role } = req.body;
+        const normalizedEmail = email?.trim().toLowerCase();
         // Only allow candidate, employer, hr-admin roles on signup
         const safeRole = ['candidate', 'employer', 'hr-admin'].includes(role) ? role : 'candidate';
 
         // Validate required fields
-        if (!name || !email || !password) {
+        if (!name || !normalizedEmail || !password) {
             await session.abortTransaction();
             session.endSession();
             return res.status(400).json({ message: 'All fields (name, email, password) are required' });
         }
 
-        // Check for existing user
-        const existingUser = await User.findOne({ email }).session(session);
-        if (existingUser) {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(400).json({ message: "User already exists" });
+        // Check for existing users with the same email.
+        // If all existing records are deleted/deactivated, purge them and allow fresh signup.
+        const existingUsers = await User.find({ email: normalizedEmail })
+          .sort({ createdAt: -1 })
+          .session(session);
+
+        if (existingUsers.length > 0) {
+            const hasActiveAccount = existingUsers.some(
+              (user) => user.isActive && !user.isDeleted
+            );
+
+            if (hasActiveAccount) {
+                await session.abortTransaction();
+                session.endSession();
+                return res.status(400).json({ message: "User already exists" });
+            }
+
+            await User.deleteMany({ email: normalizedEmail }).session(session);
         }
 
         // Hash the password
@@ -60,7 +104,13 @@ authentication.signup = async (req, res, next) => {
         //   : 'approved';
 
         // Create new user with optional role (defaults to 'candidate' in schema)
-        const newUser = new User({ name, email, password: hashedPassword, role: safeRole, status });
+        const newUser = new User({
+          name,
+          email: normalizedEmail,
+          password: hashedPassword,
+          role: safeRole,
+          status
+        });
         await newUser.save({ session });
 
         // Generate JWT token
@@ -71,7 +121,7 @@ authentication.signup = async (req, res, next) => {
         session.endSession();
 
         // Send welcome email to new user
-        await sendWelcomeEmail({ recipient: email, name });
+        await sendWelcomeEmail({ recipient: normalizedEmail, name });
 
         // Small delay for Mailtrap
         await new Promise(resolve => setTimeout(resolve, 6000)); //remove when in production
@@ -79,7 +129,7 @@ authentication.signup = async (req, res, next) => {
         await sendSuperadminAlertEmail({
           superadminEmail: SUPERADMIN_EMAIL,
           eventType: 'new_registration',
-          userEmail: email,
+          userEmail: normalizedEmail,
           userRole: safeRole,
           message: 'New user registration via signup form'
         });
@@ -356,28 +406,51 @@ authentication.getAssignedUsers = async (req, res, next) => {
  */
 authentication.signin = async (req, res, next) => {
     try {
-        const { identifier, password } = req.body;
+        const { identifier, password, requestedRole } = req.body;
+        const normalizedIdentifier = identifier?.trim();
+        const normalizedEmailIdentifier = normalizedIdentifier?.toLowerCase();
+        const normalizedRequestedRole = requestedRole?.trim()?.toLowerCase();
         // identifier = email OR loginId
 
         // Validate required fields
-        if (!identifier || !password) {
+        if (!normalizedIdentifier || !password) {
             return res.status(400).json({ message: "Login ID/Email and password are required" });
          }
 
-        // Find user by email OR loginId
-        const user = await User.findOne({
+        // Prefer the latest active account and ignore soft-deleted users.
+        let user = await User.findOne({
+            isActive: true,
             $or: [
-              { email: identifier.toLowerCase() },
-              { loginId: identifier }
+              { isDeleted: false },
+              { isDeleted: { $exists: false } }
+            ],
+            $and: [{
+              $or: [
+                { email: normalizedEmailIdentifier },
+                { loginId: normalizedIdentifier }
+              ]
+            }]
+        }).sort({ createdAt: -1 });
+
+        // If no active user was found, look for any matching record to return a precise message.
+        if (!user) {
+          user = await User.findOne({
+            $or: [
+              { email: normalizedEmailIdentifier },
+              { loginId: normalizedIdentifier }
             ]
-        });
+          }).sort({ createdAt: -1 });
+        }
 
         if (!user) {
-            return res.status(400).json({ message: "User Not Found" });
+            const registerLabel = normalizedRequestedRole === 'employer' ? 'Employer' : 'Candidate';
+            return res.status(404).json({
+              message: `User not found. Please register as ${registerLabel} first.`
+            });
         }
 
         // Check if account active
-        if (!user.isActive) {
+        if (!user.isActive || user.isDeleted) {
             return res.status(403).json({ message: "User account is deactivated" });
         }
 
@@ -387,6 +460,22 @@ authentication.signin = async (req, res, next) => {
             return res.status(400).json({ message: "Invalid Password" });
         }
 
+        // Prevent OTP send/login when user attempts with wrong role tab.
+        if (normalizedRequestedRole === 'candidate' && user.role !== 'candidate') {
+          return res.status(403).json({
+            message: `Account is registered as ${user.role}. Please login via Employer tab.`
+          });
+        }
+
+        if (
+          normalizedRequestedRole === 'employer' &&
+          !['employer', 'hr-admin', 'superadmin'].includes(user.role)
+        ) {
+          return res.status(403).json({
+            message: `Account is registered as ${user.role}. Please login via Candidate tab.`
+          });
+        }
+
         // Check approval status for candidate and employer roles(for now this we can handle in frontend)
         // if (user.status !== 'approved') {
         //   return res.status(403).json({
@@ -394,6 +483,55 @@ authentication.signin = async (req, res, next) => {
         //   });
         // }
 
+
+        if (['candidate', 'employer'].includes(user.role)) {
+          const otpRecipient = resolveLoginOtpRecipient(user);
+          if (!otpRecipient) {
+            return res.status(403).json({
+              message: `${user.role === 'employer' ? 'Employer' : 'Candidate'} account does not have a valid email for OTP login`
+            });
+          }
+
+          const otp = generateSixDigitOtp();
+          const otpHash = hashLoginOtp(otp, user._id);
+          const otpExpiresAt = new Date(Date.now() + LOGIN_OTP_EXPIRY_MINUTES * 60 * 1000);
+
+          user.loginOtpHash = otpHash;
+          user.loginOtpExpiresAt = otpExpiresAt;
+          user.loginOtpAttempts = 0;
+          await user.save({ validateBeforeSave: false });
+
+          await sendLoginOtpEmail({
+            recipient: otpRecipient,
+            name: user.name,
+            otp,
+            expiresInMinutes: LOGIN_OTP_EXPIRY_MINUTES,
+            role: user.role
+          });
+
+          const challengeToken = jwt.sign(
+            { userId: user._id, role: user.role, purpose: 'login_otp' },
+            JWT_SECRET,
+            { expiresIn: `${LOGIN_OTP_EXPIRY_MINUTES}m` }
+          );
+
+          return res.status(200).json({
+            success: true,
+            requiresOtp: true,
+            message: 'OTP sent to your email. Please verify to continue.',
+            otpExpiresInSeconds: LOGIN_OTP_EXPIRY_MINUTES * 60,
+            challengeToken,
+            user: {
+              id: user._id,
+              name: user.name,
+              role: user.role,
+              status: user.status,
+              loginId: user.loginId || null,
+              email: user.email,
+              isSystemGeneratedEmail: user.isSystemGeneratedEmail
+            }
+          });
+        }
 
         // Generate JWT token
         const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
@@ -420,6 +558,89 @@ authentication.signin = async (req, res, next) => {
         next(error);
     }
 };
+
+authentication.verifySigninOtp = async (req, res, next) => {
+  try {
+    const { challengeToken, otp } = req.body;
+
+    if (!challengeToken || !otp) {
+      return res.status(400).json({ message: 'challengeToken and otp are required' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(challengeToken, JWT_SECRET);
+    } catch (error) {
+      return res.status(401).json({ message: 'OTP session expired. Please login again.' });
+    }
+
+    if (decoded.purpose !== 'login_otp' || !decoded.userId) {
+      return res.status(401).json({ message: 'Invalid OTP session. Please login again.' });
+    }
+
+    const user = await User.findById(decoded.userId).select('+loginOtpHash +loginOtpExpiresAt');
+    if (!user || !['candidate', 'employer'].includes(user.role)) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!user.isActive || user.isDeleted) {
+      return res.status(403).json({ message: 'User account is deactivated' });
+    }
+
+    if (!user.loginOtpHash || !user.loginOtpExpiresAt) {
+      return res.status(400).json({ message: 'No OTP request found. Please login again.' });
+    }
+
+    if (new Date() > new Date(user.loginOtpExpiresAt)) {
+      user.loginOtpHash = undefined;
+      user.loginOtpExpiresAt = undefined;
+      user.loginOtpAttempts = 0;
+      await user.save({ validateBeforeSave: false });
+      return res.status(400).json({ message: 'OTP expired. Please login again.' });
+    }
+
+    if ((user.loginOtpAttempts || 0) >= LOGIN_OTP_MAX_ATTEMPTS) {
+      return res.status(429).json({ message: 'Too many incorrect OTP attempts. Please login again.' });
+    }
+
+    const normalizedOtp = String(otp).trim();
+    const incomingHash = hashLoginOtp(normalizedOtp, user._id);
+
+    if (incomingHash !== user.loginOtpHash) {
+      user.loginOtpAttempts = (user.loginOtpAttempts || 0) + 1;
+      await user.save({ validateBeforeSave: false });
+      return res.status(400).json({ message: 'Invalid OTP' });
+    }
+
+    user.loginOtpHash = undefined;
+    user.loginOtpExpiresAt = undefined;
+    user.loginOtpAttempts = 0;
+    await user.save({ validateBeforeSave: false });
+
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+
+    return res.status(200).json({
+      success: true,
+      message: 'User signed in successfully',
+      user: {
+        token,
+        id: user._id,
+        name: user.name,
+        role: user.role,
+        status: user.status,
+        loginId: user.loginId || null,
+        email: user.isSystemGeneratedEmail ? null : user.email,
+        isSystemGeneratedEmail: user.isSystemGeneratedEmail
+      }
+    });
+  } catch (error) {
+    console.error('Error in authentication.verifySigninOtp:', error);
+    next(error);
+  }
+};
+
+// Backward compatibility
+authentication.verifyCandidateSigninOtp = authentication.verifySigninOtp;
 
 
 /**
@@ -773,32 +994,33 @@ authentication.deleteUserProfile = async (req, res, next) => {
       });
     }
 
-    // Soft delete 
-    targetUser.isActive = false;
-    targetUser.isDeleted = true;
-    targetUser.deletedAt = new Date();
-    targetUser.deletedBy = loggedInUser.id;
+    const deletedUserSnapshot = {
+      email: targetUser.email,
+      name: targetUser.name,
+      role: targetUser.role
+    };
 
-    await targetUser.save();
+    // Hard delete user so the same email can re-register
+    await User.deleteOne({ _id: targetUserId });
 
     // Send deletion confirmation email to user
     await sendProfileDeletionEmail({
-      recipient: targetUser.email,
-      name: targetUser.name,
-      role: targetUser.role,
+      recipient: deletedUserSnapshot.email,
+      name: deletedUserSnapshot.name,
+      role: deletedUserSnapshot.role,
       deletedBy: loggedInUser.email
     });
     // Send alert to superadmin
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
-      userEmail: targetUser.email,
-      userRole: targetUser.role,
+      userEmail: deletedUserSnapshot.email,
+      userRole: deletedUserSnapshot.role,
       message: `User profile deleted by ${loggedInUser.email}`
     });
 
     return res.status(200).json({
       success: true,
-      message: 'User profile deleted successfully (soft delete)'
+      message: 'User profile deleted successfully'
     });
 
   } catch (error) {
