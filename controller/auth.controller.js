@@ -12,12 +12,8 @@ import { log } from "console";
 
 import { OAuth2Client } from 'google-auth-library';
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
-const LOGIN_OTP_EXPIRY_MINUTES = Number(
-  process.env.LOGIN_OTP_EXPIRY_MINUTES || process.env.CANDIDATE_LOGIN_OTP_EXPIRY_MINUTES || 10
-);
-const LOGIN_OTP_MAX_ATTEMPTS = Number(
-  process.env.LOGIN_OTP_MAX_ATTEMPTS || process.env.CANDIDATE_LOGIN_OTP_MAX_ATTEMPTS || 5
-);
+const LOGIN_OTP_EXPIRY_MINUTES = 10;
+const LOGIN_OTP_MAX_ATTEMPTS = 5;
 
 // Authentication controller object
 const authentication = {};

@@ -21,8 +21,11 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     let employerIds = user.employerIds || [];
+    let candidateIds = user.candidateIds || [];
     let companyFilter = {};
     let jobFilter = {};
+    let applicationJobMatch = {};
+    let candidateFilter = { role: 'candidate', isActive: true };
 
     if (user.role === 'hr-admin') {
       companyFilter = {
@@ -38,9 +41,22 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
           { postedBy: user.id }
         ]
       };
+      applicationJobMatch = {
+        $or: [
+          { 'job.employer': { $in: employerIds } },
+          { 'job.postedBy': user.id }
+        ]
+      };
+      candidateFilter = {
+        role: 'candidate',
+        isActive: true,
+        _id: { $in: candidateIds },
+      };
     } else if (user.role === 'superadmin') {
       companyFilter = {};
       jobFilter = {};
+      applicationJobMatch = {};
+      candidateFilter = { role: 'candidate', isActive: true };
     } else {
       return res.status(403).json({ success: false, message: 'Forbidden' });
     }
@@ -78,14 +94,7 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
       Application.aggregate([
         { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'job' } },
         { $unwind: '$job' },
-        {
-          $match: {
-            $or: [
-              { 'job.employer': { $in: employerIds } },
-              { 'job.postedBy': user.id }
-            ]
-          }
-        },
+        { $match: applicationJobMatch },
         { $count: 'total' }
       ]).then(r => r[0]?.total || 0),
 
@@ -95,10 +104,7 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
         { $unwind: '$job' },
         {
           $match: {
-            $or: [
-              { 'job.employer': { $in: employerIds } },
-              { 'job.postedBy': user.id }
-            ],
+            ...applicationJobMatch,
             createdAt: { $gte: thirtyDaysAgo }
           }
         },
@@ -111,25 +117,21 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
         { $unwind: '$job' },
         {
           $match: {
-            $or: [
-              { 'job.employer': { $in: employerIds } },
-              { 'job.postedBy': user.id }
-            ],
+            ...applicationJobMatch,
             shortlisted: true
           }
         },
         { $count: 'total' }
       ]).then(r => r[0]?.total || 0),
 
-      User.countDocuments({ role: 'candidate', isActive: true }),
+      User.countDocuments(candidateFilter),
 
       User.countDocuments({
-        role: 'candidate',
-        isActive: true,
+        ...candidateFilter,
         createdAt: { $gte: thirtyDaysAgo }
       }),
 
-      getLastMonthStats(user, employerIds, jobFilter, companyFilter),
+      getLastMonthStats(user, employerIds, jobFilter, companyFilter, applicationJobMatch, candidateFilter),
     ]);
     
     // Growth percentages (Month-over-Month)
@@ -217,43 +219,37 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
 hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
   try {
     const user = req.user;
-    // console.log("user in assigned employers:", user);
     const { limit = 10, page = 1 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const parsedLimit = parseInt(limit);
+    const parsedPage = parseInt(page);
+    const skip = (parsedPage - 1) * parsedLimit;
 
-    let employerIds = [];
+    const employerUserMatch = {
+      role: 'employer',
+      isActive: true,
+    };
 
     if (user.role === 'hr-admin') {
-      if (!user.employerIds || user.employerIds.length === 0) {
+      const hrEmployerIds = user.employerIds || [];
+      if (hrEmployerIds.length === 0) {
         return res.status(200).json({
           success: true,
           employers: [],
           pagination: {
-            currentPage: parseInt(page),
+            currentPage: parsedPage,
             totalPages: 0,
             total: 0,
-            limit: parseInt(limit),
+            limit: parsedLimit,
           },
         });
       }
-      employerIds = user.employerIds;
-    } else {
-      // Superadmin gets all employers
-      const employers = await User.find({ role: 'employer', isActive: true })
-        .select('_id')
-        .limit(parseInt(limit))
-        .skip(skip);
-      employerIds = employers.map(e => e._id);
+      employerUserMatch._id = { $in: hrEmployerIds };
     }
 
     // Get employer details with their stats
     const employers = await User.aggregate([
       {
-        $match: {
-          _id: { $in: employerIds.map(id => new mongoose.Types.ObjectId(id)) },
-          role: 'employer',
-          isActive: true,
-        },
+        $match: employerUserMatch,
       },
       {
         $lookup: {
@@ -353,24 +349,20 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
       },
       { $sort: { totalApplications: -1 } },
       { $skip: skip },
-      { $limit: parseInt(limit) },
+      { $limit: parsedLimit },
     ]);
 
     // Get total count for pagination
-    const total = await User.countDocuments({
-      _id: { $in: employerIds.map(id => new mongoose.Types.ObjectId(id)) },
-      role: 'employer',
-      isActive: true,
-    });
+    const total = await User.countDocuments(employerUserMatch);
 
     return res.status(200).json({
       success: true,
       employers,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(total / limit),
+        currentPage: parsedPage,
+        totalPages: Math.ceil(total / parsedLimit),
         total,
-        limit: parseInt(limit),
+        limit: parsedLimit,
       },
     });
   } catch (error) {
@@ -395,8 +387,8 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
         let jobMatch = {};
 
         // For HR-Admin, filter by assigned employers
-        if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
-            jobMatch.employer = { $in: user.employerIds };
+        if (user.role === 'hr-admin') {
+            jobMatch.employer = { $in: user.employerIds || [] };
         }
 
         // First, get all job IDs from assigned employers
@@ -672,8 +664,9 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
     let applicationMatch = {};
 
     // For HR-Admin, filter by assigned employers
-    if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
-      jobMatch.employer = { $in: user.employerIds };
+    if (user.role === 'hr-admin') {
+      const hrEmployerIds = user.employerIds || [];
+      jobMatch.employer = { $in: hrEmployerIds };
       
       // Get job IDs for assigned employers
       const assignedJobIds = await JobPost.find(jobMatch).select('_id');
@@ -811,9 +804,14 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
  */
 hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
   try {
+    const user = req.user;
     const { days = 30 } = req.query;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - parseInt(days));
+    const candidateIds = user.role === 'hr-admin' ? (user.candidateIds || []) : [];
+    const candidateUserMatch = user.role === 'hr-admin' ? { _id: { $in: candidateIds } } : {};
+    const candidateProfileMatch = user.role === 'hr-admin' ? { candidate: { $in: candidateIds } } : {};
+    const applicationMatch = user.role === 'hr-admin' ? { candidate: { $in: candidateIds } } : {};
 
     // 1. Registration trends (daily)
     const registrationTrends = await User.aggregate([
@@ -822,6 +820,7 @@ hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
           role: 'candidate',
           isActive: true,
           createdAt: { $gte: startDate },
+          ...candidateUserMatch,
         },
       },
       {
@@ -839,6 +838,7 @@ hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
 
     // 2. Profile completion stats (improved – no profileCompletion field needed)
     const profileStats = await CandidateProfile.aggregate([
+      { $match: candidateProfileMatch },
       {
         $group: {
           _id: null,
@@ -887,9 +887,41 @@ hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
 
     // 3. Top 10 skills
     const topSkills = await CandidateProfile.aggregate([
-      { $match: { skills: { $exists: true, $type: 'array', $ne: [] } } },
+      { $match: { ...candidateProfileMatch, skills: { $exists: true, $type: 'array', $ne: [] } } },
       { $unwind: '$skills' },
       { $group: { _id: '$skills', count: { $sum: 1 } } },
+      {
+        $lookup: {
+          from: 'skills',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'skillDoc',
+        },
+      },
+      {
+        $unwind: {
+          path: '$skillDoc',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          skill: {
+            $ifNull: [
+              '$skillDoc.name',
+              {
+                $cond: [
+                  { $eq: [{ $type: '$_id' }, 'string'] },
+                  '$_id',
+                  'Unknown Skill',
+                ],
+              },
+            ],
+          },
+          count: 1,
+        },
+      },
       { $sort: { count: -1 } },
       { $limit: 10 },
     ]);
@@ -897,7 +929,7 @@ hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
 
     // 4. Application behavior
     const applicationBehavior = await Application.aggregate([
-      { $match: { createdAt: { $gte: startDate } } },
+      { $match: { createdAt: { $gte: startDate }, ...applicationMatch } },
       {
         $group: {
           _id: '$candidate',
@@ -959,7 +991,7 @@ hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
         locationAddedRate: stats.totalProfiles ? Math.round((stats.withLocation / stats.totalProfiles) * 100) : 0,
         avgCompletionPercentage: Math.round(stats.avgCompletionPercentage) || 0,    
       },
-      topSkills: topSkills.map(s => ({ skill: s._id, count: s.count })),
+      topSkills: topSkills,
       applicationBehavior: {
         totalActiveCandidates: behavior.totalActiveCandidates,
         avgApplicationsPerCandidate: Number(behavior.avgApplicationsPerCandidate.toFixed(1)),
@@ -1088,13 +1120,9 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
 
     // For HR-Admin, filter by assigned employers and candidates
     if (user.role === 'hr-admin') {
-      if (user.employerIds && user.employerIds.length > 0) {
-        companyMatch.employer = { $in: user.employerIds };
-        userMatch._id = { $in: user.employerIds };
-      }
-      if (user.candidateIds && user.candidateIds.length > 0) {
-        candidateProfileMatch.candidate = { $in: user.candidateIds };
-      }
+      companyMatch.employer = { $in: user.employerIds || [] };
+      userMatch._id = { $in: user.employerIds || [] };
+      candidateProfileMatch.candidate = { $in: user.candidateIds || [] };
     }
 
     // 1. Get pending company profile approvals (CompanyProfile model)
@@ -1110,7 +1138,7 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
     // 2. Get pending job approvals (JobPost model)
     const pendingJobs = await JobPost.find({
       status: 'Pending',
-      ...(user.role === 'hr-admin' && user.employerIds ? { employer: { $in: user.employerIds } } : {}),
+      ...(user.role === 'hr-admin' ? { employer: { $in: user.employerIds || [] } } : {}),
     })
       .populate('employer', 'name email')
       .populate('companyProfile', 'companyName')
@@ -1192,8 +1220,8 @@ hrAdminDashboardController.getRevenueMetrics = async (req, res, next) => {
     let jobMatch = {};
 
     // For HR-Admin, filter by assigned employers
-    if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
-      jobMatch.employer = { $in: user.employerIds };
+    if (user.role === 'hr-admin') {
+      jobMatch.employer = { $in: user.employerIds || [] };
     }
 
     // Get job postings over time (assuming each job posting generates revenue)
@@ -1338,8 +1366,8 @@ hrAdminDashboardController.getMonthlyPerformanceReport = async (req, res, next) 
 
     // Role-based filters
     let jobFilter = {};
-    if (user.role === 'hr-admin' && user.employerIds?.length) {
-      jobFilter = { employer: { $in: user.employerIds } };
+    if (user.role === 'hr-admin') {
+      jobFilter = { employer: { $in: user.employerIds || [] } };
     }
 
     // Get essential data only
@@ -1384,9 +1412,9 @@ hrAdminDashboardController.getMonthlyPerformanceReport = async (req, res, next) 
         },
         { $unwind: '$job' },
         {
-          $match: user.role === 'hr-admin' && user.employerIds?.length ? {
-            'job.employer': { $in: user.employerIds }
-          } : {}
+          $match: user.role === 'hr-admin'
+            ? { 'job.employer': { $in: user.employerIds || [] } }
+            : {}
         },
         {
           $group: {
@@ -1540,8 +1568,8 @@ hrAdminDashboardController.getEmployerActivityReport = async (req, res, next) =>
     
     // Role-based filter
     let employerFilter = {};
-    if (user.role === 'hr-admin' && user.employerIds?.length) {
-      employerFilter = { _id: { $in: user.employerIds } };
+    if (user.role === 'hr-admin') {
+      employerFilter = { _id: { $in: user.employerIds || [] } };
     }
     
     // First, get all employers
@@ -1762,8 +1790,8 @@ hrAdminDashboardController.getSkillsDemandReport = async (req, res, next) => {
     
     // Role-based filter for jobs
     let jobFilter = {};
-    if (user.role === 'hr-admin' && user.employerIds?.length) {
-      jobFilter = { employer: { $in: user.employerIds } };
+    if (user.role === 'hr-admin') {
+      jobFilter = { employer: { $in: user.employerIds || [] } };
     }
 
     console.log("Fetching skills data for last", monthsNum, "months...");
@@ -2152,7 +2180,7 @@ hrAdminDashboardController.getSkillsDemandReport = async (req, res, next) => {
 
 
 // Helper: Last month's baseline stats for growth calculation
-async function getLastMonthStats(user, employerIds, jobFilter, companyFilter) {
+async function getLastMonthStats(user, employerIds, jobFilter, companyFilter, applicationJobMatch, candidateFilter) {
   const lastMonth = new Date();
   lastMonth.setMonth(lastMonth.getMonth() - 1);
 
@@ -2171,11 +2199,11 @@ async function getLastMonthStats(user, employerIds, jobFilter, companyFilter) {
     Application.aggregate([
       { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'job' } },
       { $unwind: '$job' },
-      { $match: { ...jobFilter, createdAt: { $lt: lastMonth } } },
+      { $match: { ...applicationJobMatch, createdAt: { $lt: lastMonth } } },
       { $count: 'total' }
     ]).then(r => r[0]?.total || 0),
 
-    User.countDocuments({ role: 'candidate', isActive: true, createdAt: { $lt: lastMonth } }),
+    User.countDocuments({ ...candidateFilter, createdAt: { $lt: lastMonth } }),
   ]);
 
   return { totalEmployers, totalJobs, totalApplications, totalCandidates };
