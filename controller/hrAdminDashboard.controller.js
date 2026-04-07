@@ -20,46 +20,15 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    let employerIds = user.employerIds || [];
-    let candidateIds = user.candidateIds || [];
-    let companyFilter = {};
-    let jobFilter = {};
-    let applicationJobMatch = {};
-    let candidateFilter = { role: 'candidate', isActive: true };
-
-    if (user.role === 'hr-admin') {
-      companyFilter = {
-        $or: [
-          { employer: { $in: employerIds } },
-          { createdBy: user.id }
-        ]
-      };
-
-      jobFilter = {
-        $or: [
-          { employer: { $in: employerIds } },
-          { postedBy: user.id }
-        ]
-      };
-      applicationJobMatch = {
-        $or: [
-          { 'job.employer': { $in: employerIds } },
-          { 'job.postedBy': user.id }
-        ]
-      };
-      candidateFilter = {
-        role: 'candidate',
-        isActive: true,
-        _id: { $in: candidateIds },
-      };
-    } else if (user.role === 'superadmin') {
-      companyFilter = {};
-      jobFilter = {};
-      applicationJobMatch = {};
-      candidateFilter = { role: 'candidate', isActive: true };
-    } else {
+    if (!['hr-admin', 'superadmin'].includes(user.role)) {
       return res.status(403).json({ success: false, message: 'Forbidden' });
     }
+
+    // Platform-wide counts for both HR Admin and Super Admin.
+    const companyFilter = {};
+    const jobFilter = {};
+    const applicationJobMatch = {};
+    const candidateFilter = { role: 'candidate', isActive: true };
 
    const [
       totalEmployers,
@@ -73,9 +42,7 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
       recentCandidates,
       lastMonthStats,
     ] = await Promise.all([
-      user.role === 'hr-admin' 
-        ? employerIds.length : await User.countDocuments({ role: "employer", isActive: true }),
-        // : User.countDocuments({ role: 'employer', isActive: true }), //old commented out
+      User.countDocuments({ role: "employer", isActive: true }),
 
       CompanyProfile.countDocuments({
         status: 'approved',
@@ -131,7 +98,7 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
         createdAt: { $gte: thirtyDaysAgo }
       }),
 
-      getLastMonthStats(user, employerIds, jobFilter, companyFilter, applicationJobMatch, candidateFilter),
+      getLastMonthStats(jobFilter, applicationJobMatch, candidateFilter),
     ]);
     
     // Growth percentages (Month-over-Month)
@@ -200,8 +167,8 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
       shortlistConversionRate,
 
       // Scope info
-      scope: user.role === 'hr-admin' ? 'assigned-employers' : 'platform-wide',
-      assignedEmployerCount: user.role === 'hr-admin' ? employerIds.length : null,
+      scope: 'platform-wide',
+      assignedEmployerCount: null,
       lastUpdated: new Date().toISOString(),
     };
 
@@ -757,6 +724,7 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
           employerName: '$employer.name',
           companyName: { $ifNull: ['$company.companyName', 'N/A'] },
           totalApplications: 1,
+          acceptedApplications: '$accepted',
           shortlistRate: { $cond: [{ $gt: ['$totalApplications', 0] }, { $round: [{ $multiply: [{ $divide: ['$shortlisted', '$totalApplications'] }, 100] }, 1] }, 0] },
           acceptanceRate: { $cond: [{ $gt: ['$totalApplications', 0] }, { $round: [{ $multiply: [{ $divide: ['$accepted', '$totalApplications'] }, 100] }, 1] }, 0] },
           daysSinceLastActivity: {
@@ -764,7 +732,7 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
           },
         },
       },
-      { $sort: { totalApplications: -1 } },
+      { $sort: { totalApplications: -1, acceptedApplications: -1, employerName: 1 } },
       { $limit: 5 },
     ];
 
@@ -776,8 +744,10 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
       employerName: item.employerName,
       companyName: item.companyName,
       totalApplications: item.totalApplications,
+      acceptedApplications: item.acceptedApplications || 0,
       shortlistRate: item.shortlistRate,
       acceptanceRate: item.acceptanceRate,
+      avgResponseTime: item.daysSinceLastActivity,
       daysSinceLastActivity: item.daysSinceLastActivity,
     }));
 
@@ -2180,7 +2150,7 @@ hrAdminDashboardController.getSkillsDemandReport = async (req, res, next) => {
 
 
 // Helper: Last month's baseline stats for growth calculation
-async function getLastMonthStats(user, employerIds, jobFilter, companyFilter, applicationJobMatch, candidateFilter) {
+async function getLastMonthStats(jobFilter, applicationJobMatch, candidateFilter) {
   const lastMonth = new Date();
   lastMonth.setMonth(lastMonth.getMonth() - 1);
 
@@ -2190,9 +2160,7 @@ async function getLastMonthStats(user, employerIds, jobFilter, companyFilter, ap
     totalApplications,
     totalCandidates,
   ] = await Promise.all([
-    user.role === 'hr-admin' 
-      ? employerIds.length 
-      : User.countDocuments({ role: 'employer', isActive: true, createdAt: { $lt: lastMonth } }),
+    User.countDocuments({ role: 'employer', isActive: true, createdAt: { $lt: lastMonth } }),
 
     JobPost.countDocuments({ createdAt: { $lt: lastMonth }, ...jobFilter }),
 
