@@ -129,7 +129,10 @@ adminController.getFeaturedJobs = async (req, res, next) => {
     try {
         const homeData = await Homepage.findOne().populate({
             path: 'featuredJobs',
-            populate: { path: 'companyProfile' } // Getting the logo/name for the card
+            populate: [
+                { path: 'companyProfile' }, // Getting the logo/name for the card
+                { path: 'industry', select: 'name slug' }, // Resolve industry ObjectId to readable name
+            ]
         });
         return res.status(200).json({
             success: true,

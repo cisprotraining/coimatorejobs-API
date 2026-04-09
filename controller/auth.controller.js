@@ -352,6 +352,10 @@ authentication.getAssignedUsers = async (req, res, next) => {
           ? ['employer', 'candidate', 'hr-admin']
           : ['employer', 'candidate'];
     }
+
+    const includesHrAdminRole = roleFilter.includes('hr-admin');
+    const includesAssignableRole = roleFilter.some((role) => ['employer', 'candidate'].includes(role));
+    const shouldApplyAssignedFilter = includesAssignableRole && !includesHrAdminRole;
  
     let query = {
       role: { $in: roleFilter },
@@ -369,13 +373,29 @@ authentication.getAssignedUsers = async (req, res, next) => {
     /**
      * HR-ADMIN → ONLY USERS ASSIGNED TO THEM
      */
-    if (loggedInUser.role === 'hr-admin') {
-      const assignedIds = [
-        ...(loggedInUser.employerIds || []),
-        ...(loggedInUser.candidateIds || [])
-      ];
+    if (shouldApplyAssignedFilter) {
+      let assignedIds = [];
 
-      query._id = { $in: assignedIds };
+      // HR-ADMIN -> users assigned to this HR-admin
+      if (loggedInUser.role === 'hr-admin') {
+        assignedIds = [
+          ...(loggedInUser.employerIds || []),
+          ...(loggedInUser.candidateIds || [])
+        ];
+      }
+
+      // SUPERADMIN -> users assigned to any HR-admin
+      if (loggedInUser.role === 'superadmin') {
+        const hrAdmins = await User.find({ role: 'hr-admin', isActive: true })
+          .select('employerIds candidateIds');
+
+        assignedIds = hrAdmins.flatMap((hrAdmin) => ([
+          ...(hrAdmin.employerIds || []),
+          ...(hrAdmin.candidateIds || [])
+        ]));
+      }
+
+      query._id = { $in: [...new Set(assignedIds.map((id) => id.toString()))] };
     }
  
     // SUPERADMIN → sees all
@@ -825,8 +845,7 @@ authentication.adminResetUserPassword = async (req, res, next) => {
  */
 authentication.getUsersByRole = async (req, res, next) => {
   try {
-    const { roles, page = 1, limit = 20 } = req.query; // default page=1, limit=10
-    const loggedInUser = req.user;
+    const { roles, page = 1, limit = 20, status, search } = req.query;
 
     // Default roles
     let roleFilter = ['candidate', 'employer'];
@@ -844,6 +863,45 @@ authentication.getUsersByRole = async (req, res, next) => {
       ]
     };
 
+    // Optional status filter
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+    if (normalizedStatus && normalizedStatus !== 'all') {
+      const allowedStatuses = ['pending', 'approved', 'rejected'];
+      if (allowedStatuses.includes(normalizedStatus)) {
+        if (normalizedStatus === 'pending') {
+          // Backward compatibility: old users may have missing/null status; treat them as pending.
+          query.$and = query.$and || [];
+          query.$and.push({
+            $or: [
+              { status: 'pending' },
+              { status: { $exists: false } },
+              { status: null },
+            ],
+          });
+        } else {
+          query.status = normalizedStatus;
+        }
+      }
+    }
+
+    // Optional keyword search across key fields
+    const normalizedSearch = String(search || '').trim();
+    if (normalizedSearch) {
+      const regex = new RegExp(normalizedSearch, 'i');
+      query.$and = [
+        {
+          $or: [
+            { name: regex },
+            { email: regex },
+            { loginId: regex },
+            { contactEmail: regex },
+            { role: regex },
+            { status: regex },
+          ],
+        },
+      ];
+    }
+
     /**
      * HR-ADMIN RULE:
      * Show only users assigned to this HR-admin
@@ -857,11 +915,13 @@ authentication.getUsersByRole = async (req, res, next) => {
      * No restriction
      */
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNumber = Math.max(1, parseInt(page, 10) || 1);
+    const limitNumber = Math.max(1, parseInt(limit, 10) || 20);
+    const skip = (pageNumber - 1) * limitNumber;
     const usersPromise = User.find(query, { password: 0 })
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(limitNumber);
 
     const countPromise = User.countDocuments(query);
 
@@ -869,9 +929,9 @@ authentication.getUsersByRole = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(totalCount / limit),
+      page: pageNumber,
+      limit: limitNumber,
+      totalPages: Math.ceil(totalCount / limitNumber),
       totalCount,
       data: users
     });

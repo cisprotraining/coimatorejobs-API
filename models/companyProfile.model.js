@@ -37,6 +37,16 @@ const companyProfileSchema = new mongoose.Schema({
     minlength: 8,
     maxlength: 20
   },
+  companyGSTIN: {
+    type: String,
+    trim: true,
+    uppercase: true
+  },
+  panNo: {
+    type: String,
+    trim: true,
+    uppercase: true
+  },
   website: {
     type: String,
     trim: true,

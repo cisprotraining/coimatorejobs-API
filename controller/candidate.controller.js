@@ -841,9 +841,8 @@ candidateController.applyToJob = async (req, res, next) => {
       throw new BadRequestError('This job posting has expired and is no longer accepting applications.');
     }
 
-    if (jobPost.positions.remaining <= 0) {
-      throw new BadRequestError('All open positions are closed for this job');
-    }
+    // Openings count should not auto-close application flow.
+    // Closure is handled by deadline, explicit status, or maxApplicants.
 
     // Ensure candidate has a profile
     const candidateProfile = await CandidateProfile.findOne({ candidate: candidateId });
@@ -851,6 +850,15 @@ candidateController.applyToJob = async (req, res, next) => {
     
     if (!candidateProfile) {
       throw new BadRequestError('Please create a candidate profile before applying');
+    }
+
+    const candidateUser = await User.findById(candidateId).select('status');
+    if (!candidateUser || candidateUser.status !== 'approved') {
+      throw new ForbiddenError('Your account is pending HR approval. You can apply only after approval.');
+    }
+
+    if (candidateProfile.status !== 'approved') {
+      throw new ForbiddenError('Your candidate profile is pending HR approval. You can apply only after approval.');
     }
     // console.log("Candidate profile found:", candidateProfile);
     

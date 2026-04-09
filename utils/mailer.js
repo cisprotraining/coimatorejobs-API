@@ -210,7 +210,7 @@ const sendResumeAlertEmail = async ({
             </ul>
           </div>
           <div style="text-align: center; margin-top: 20px;">
-            <a href="${process.env.FRONTEND_URL}employer-dashboard/candidates/${profileId}"
+            <a href="${(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/candidates-single/${profileId}"
                style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
               View Candidate Profile
             </a>
@@ -218,8 +218,8 @@ const sendResumeAlertEmail = async ({
           <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
             <p style="color: #64748b; font-size: 14px;">
               You’re receiving this email because you set up a resume alert on our platform.<br>
-              <a href="${process.env.FRONTEND_URL}employer-dashboard/resume-alerts/${alert._id}/manage" style="color: #2563eb;">Manage this alert</a> |
-              <a href="${process.env.FRONTEND_URL}employer-dashboard/notification-settings" style="color: #2563eb;">Notification Settings</a>
+              <a href="${(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/employers-dashboard/resume-alerts" style="color: #2563eb;">Manage this alert</a> |
+              <a href="${(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/employers-dashboard/dashboard" style="color: #2563eb;">Notification Settings</a>
             </p>
           </div>
         </div>

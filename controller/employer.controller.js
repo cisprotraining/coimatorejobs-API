@@ -178,9 +178,12 @@ employerController.createCompanyProfile = async (req, res, next) => {
     const { 
       companyName, email, phone, website, establishedSince, 
       teamSize, categories, allowInSearch, description, 
-      socialMedia, location, companyType, culture, 
+      socialMedia, location, companyType, companyGSTIN, panNo, culture, 
       revenue, founders, branches, isHiring
     } = profileData;
+
+    const normalizedCompanyGSTIN = typeof companyGSTIN === 'string' ? companyGSTIN.trim().toUpperCase() : '';
+    const normalizedPanNo = typeof panNo === 'string' ? panNo.trim().toUpperCase() : '';
 
     // Validate required fields
     // const requiredFields = ['companyName', 'email', 'phone', 'establishedSince', 
@@ -221,6 +224,8 @@ employerController.createCompanyProfile = async (req, res, next) => {
       companyName,
       email,
       phone,
+      companyGSTIN: normalizedCompanyGSTIN,
+      panNo: normalizedPanNo,
       website,
       establishedSince,
       teamSize,
@@ -441,6 +446,9 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     delete updateData.createdBy;
     delete updateData.employer;
 
+    const shouldRemoveLogo = updateData.removeLogo === true || updateData.removeLogo === 'true';
+    delete updateData.removeLogo;
+
     // Handle file uploads only if provided
     // if (files.logo) {
     //   if (profile.logo) {
@@ -461,6 +469,8 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     // AWS S3 FILE UPDATE
     if (files.logo) {
       updateData.logo = files.logo[0].location; // S3 URL
+    } else if (shouldRemoveLogo) {
+      updateData.logo = null;
     }
 
     if (files.coverImage) {
@@ -490,6 +500,13 @@ employerController.updateCompanyProfile = async (req, res, next) => {
       const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
       if (faCount !== faIds.length) throw new BadRequestError('Invalid Functional Areas');
       updateData.functionalAreas = faIds;
+    }
+
+    if (typeof updateData.companyGSTIN === 'string') {
+      updateData.companyGSTIN = updateData.companyGSTIN.trim().toUpperCase();
+    }
+    if (typeof updateData.panNo === 'string') {
+      updateData.panNo = updateData.panNo.trim().toUpperCase();
     }
 
     //  Handle categories array

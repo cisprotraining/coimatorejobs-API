@@ -185,7 +185,6 @@ hrAdminDashboardController.getPlatformStats = async (req, res, next) => {
  */
 hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
   try {
-    const user = req.user;
     const { limit = 10, page = 1 } = req.query;
     const parsedLimit = parseInt(limit);
     const parsedPage = parseInt(page);
@@ -195,23 +194,6 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
       role: 'employer',
       isActive: true,
     };
-
-    if (user.role === 'hr-admin') {
-      const hrEmployerIds = user.employerIds || [];
-      if (hrEmployerIds.length === 0) {
-        return res.status(200).json({
-          success: true,
-          employers: [],
-          pagination: {
-            currentPage: parsedPage,
-            totalPages: 0,
-            total: 0,
-            limit: parsedLimit,
-          },
-        });
-      }
-      employerUserMatch._id = { $in: hrEmployerIds };
-    }
 
     // Get employer details with their stats
     const employers = await User.aggregate([
@@ -344,19 +326,15 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
  */
 hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
     try {
-        const user = req.user;
         const { period = 'monthly', limit = 10, months = 6 } = req.query;
 
         // Calculate start date based on months parameter
         const startDate = new Date();
         startDate.setMonth(startDate.getMonth() - parseInt(months));
 
-        let jobMatch = {};
-
-        // For HR-Admin, filter by assigned employers
-        if (user.role === 'hr-admin') {
-            jobMatch.employer = { $in: user.employerIds || [] };
-        }
+        // Keep job performance metrics platform-wide for both HR Admin and Super Admin
+        // so both dashboards show the same values.
+        const jobMatch = {};
 
         // First, get all job IDs from assigned employers
         const assignedJobIds = await JobPost.find(jobMatch).distinct('_id');
@@ -517,8 +495,9 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
             _id: status,
             count: data.count,
             totalApplications: data.totalApplications,
-            avgApplications: Math.round(data.totalApplications / data.count) || 0,
-            avgFillRate: Math.round(data.filledPositions / data.count) || 0
+            // Keep one decimal so low-volume ratios (e.g., 17/108) don't collapse to 0
+            avgApplications: data.count > 0 ? Number((data.totalApplications / data.count).toFixed(1)) : 0,
+            avgFillRate: data.count > 0 ? Number((data.filledPositions / data.count).toFixed(1)) : 0,
         })).sort((a, b) => b.count - a.count);
 
         // Get job type distribution
@@ -556,7 +535,7 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
             count: data.count,
             avgSalary: data.salaryCount > 0 ? Math.round(data.totalSalary / data.salaryCount) : 0,
             totalApplications: data.totalApplications,
-            avgApplications: Math.round(data.totalApplications / data.count) || 0
+            avgApplications: data.count > 0 ? Number((data.totalApplications / data.count).toFixed(1)) : 0,
         })).sort((a, b) => b.count - a.count);
 
         // Calculate overall metrics
@@ -621,26 +600,14 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
  */
 hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
   try {
-    const user = req.user;
     const { period = 'monthly', months = 6 } = req.query;
 
     // console.log("testtt", user);
 
 
-    let jobMatch = {};
-    let applicationMatch = {};
-
-    // For HR-Admin, filter by assigned employers
-    if (user.role === 'hr-admin') {
-      const hrEmployerIds = user.employerIds || [];
-      jobMatch.employer = { $in: hrEmployerIds };
-      
-      // Get job IDs for assigned employers
-      const assignedJobIds = await JobPost.find(jobMatch).select('_id');
-      const jobIdArray = assignedJobIds.map(job => job._id);
-      
-      applicationMatch.jobPost = { $in: jobIdArray };
-    }
+    // Keep application trends platform-wide for both HR Admin and Super Admin
+    // so both dashboards show the same values.
+    const applicationMatch = {};
 
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - parseInt(months));
@@ -774,14 +741,14 @@ hrAdminDashboardController.getApplicationTrends = async (req, res, next) => {
  */
 hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
   try {
-    const user = req.user;
     const { days = 30 } = req.query;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - parseInt(days));
-    const candidateIds = user.role === 'hr-admin' ? (user.candidateIds || []) : [];
-    const candidateUserMatch = user.role === 'hr-admin' ? { _id: { $in: candidateIds } } : {};
-    const candidateProfileMatch = user.role === 'hr-admin' ? { candidate: { $in: candidateIds } } : {};
-    const applicationMatch = user.role === 'hr-admin' ? { candidate: { $in: candidateIds } } : {};
+    // Keep candidate analytics platform-wide for both HR Admin and Super Admin
+    // so both dashboards show the same values.
+    const candidateUserMatch = {};
+    const candidateProfileMatch = {};
+    const applicationMatch = {};
 
     // 1. Registration trends (daily)
     const registrationTrends = await User.aggregate([
@@ -1082,18 +1049,11 @@ hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
  */
 hrAdminDashboardController.getPendingActions = async (req, res, next) => {
   try {
-    const user = req.user;
-
-    let companyMatch = {};
-    let userMatch = {};
-    let candidateProfileMatch = {};
-
-    // For HR-Admin, filter by assigned employers and candidates
-    if (user.role === 'hr-admin') {
-      companyMatch.employer = { $in: user.employerIds || [] };
-      userMatch._id = { $in: user.employerIds || [] };
-      candidateProfileMatch.candidate = { $in: user.candidateIds || [] };
-    }
+    // Keep pending actions platform-wide for both HR Admin and Super Admin
+    // so both dashboards show the same values.
+    const companyMatch = {};
+    const userMatch = {};
+    const candidateProfileMatch = {};
 
     // 1. Get pending company profile approvals (CompanyProfile model)
     const pendingCompanies = await CompanyProfile.find({
@@ -1108,7 +1068,6 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
     // 2. Get pending job approvals (JobPost model)
     const pendingJobs = await JobPost.find({
       status: 'Pending',
-      ...(user.role === 'hr-admin' ? { employer: { $in: user.employerIds || [] } } : {}),
     })
       .populate('employer', 'name email')
       .populate('companyProfile', 'companyName')
@@ -1139,7 +1098,6 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
 
     // 5. Get recent activities by HR-Admin
     const recentActivities = await JobPost.find({
-      postedBy: user.id,
       createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }, // Last 7 days
     })
       .select('title status createdAt')
@@ -1181,18 +1139,14 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
  */
 hrAdminDashboardController.getRevenueMetrics = async (req, res, next) => {
   try {
-    const user = req.user;
     const { months = 6 } = req.query;
 
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - parseInt(months));
 
-    let jobMatch = {};
-
-    // For HR-Admin, filter by assigned employers
-    if (user.role === 'hr-admin') {
-      jobMatch.employer = { $in: user.employerIds || [] };
-    }
+    // Keep revenue metrics platform-wide for both HR Admin and Super Admin
+    // so both dashboards show the same values.
+    const jobMatch = {};
 
     // Get job postings over time (assuming each job posting generates revenue)
     const jobPostingTrends = await JobPost.aggregate([

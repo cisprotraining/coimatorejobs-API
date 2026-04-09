@@ -335,38 +335,10 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
  */
 employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, next) => {
   try {
-    const user = req.user;
     const { status, dateRange, page = 1, limit = 10, search } = req.query;
 
-    // Resolve employer scope
-    let employerFilter = {};
-
-    if (user.role === 'hr-admin') {
-      if (!user.employerIds || !user.employerIds.length) {
-        return res.status(200).json({
-          success: true,
-          applicants: [],
-          pagination: {
-            currentPage: Number(page),
-            totalPages: 0,
-            total: 0,
-            limit: Number(limit),
-          },
-          statusCounts: {
-            Total: 0,
-            Pending: 0,
-            Reviewed: 0,
-            Accepted: 0,
-            Rejected: 0,
-          },
-        });
-      }
-
-      employerFilter = { employer: { $in: user.employerIds } };
-    }
-
-    //Fetch jobs under those employers
-    const jobs = await JobPost.find(employerFilter).select('_id');
+    // Keep this endpoint platform-wide for both HR Admin and Super Admin
+    const jobs = await JobPost.find({}).select('_id');
 
     if (!jobs.length) {
       return res.status(200).json({

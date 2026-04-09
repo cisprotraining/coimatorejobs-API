@@ -18,7 +18,7 @@ export const isPlatformAdmin = (role) => PLATFORM_ADMIN_ROLES.includes(role);
  * ------------------------------------------------
  * superadmin → can manage all jobs
  * employer   → can manage jobs they own
- * hr-admin   → can manage jobs of assigned employers
+ * hr-admin   -> can manage all jobs
  *
  * @param {Object} jobPost - JobPost document
  * @param {Object} user - Logged-in user
@@ -36,9 +36,9 @@ export const canManageJob = (jobPost, user) => {
   // console.log("tetttt", user.id);
 
    // HR-Admin → manages jobs for assigned employer
-  if (user.role === 'hr-admin' && user.employerIds?.some(eid => eid.toString() === jobPost.employer.toString())) {
+  if (user.role === 'hr-admin') {
     return true;
-}
+  }
 
   return false;
 };

@@ -241,6 +241,11 @@ jobsController.createJobPost = async (req, res, next) => {
 jobsController.getJobPosts = async (req, res, next) => {
   try {
     const { role: userRole, id: userId } = req.user; 
+    const {
+      scope = 'all', // hr-admin: assigned | all
+      status = 'All',
+      search = '',
+    } = req.query;
 
     // Build base query
     let query = {};
@@ -252,24 +257,52 @@ jobsController.getJobPosts = async (req, res, next) => {
     }
 
     if (userRole === 'hr-admin') {
-      // HR-Admin → jobs they posted
-      query.postedBy = userId;
+      if (scope === 'assigned') {
+        const assignedEmployerIds = Array.isArray(req.user.employerIds)
+          ? req.user.employerIds
+          : [];
+        if (assignedEmployerIds.length === 0) {
+          query._id = null;
+        } else {
+          query.employer = { $in: assignedEmployerIds };
+        }
+      } else {
+        // `all` scope = platform-wide for HR Admin
+        query = {};
+      }
     }
-    
+
+    if (status && status !== 'All') {
+      query.status = status;
+    }
 
     // Query and populate related company profile (only name and logo)
     const jobPosts = await JobPost.find(query)
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo email')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
       .populate('role', 'name slug')
       .populate('skills', 'name')
-      .select('employer companyProfile title location applicantCount status createdAt applicationDeadline')
+      .select('employer companyProfile title location applicantCount status createdAt applicationDeadline postedBy')
       .sort({ createdAt: -1 });  // Most recent first
+
+    const normalizedSearch = String(search || '').trim().toLowerCase();
+    const filteredJobPosts = normalizedSearch
+      ? jobPosts.filter((job) => {
+          const title = String(job.title || '').toLowerCase();
+          const companyName = String(job.companyProfile?.companyName || '').toLowerCase();
+          const companyEmail = String(job.companyProfile?.email || '').toLowerCase();
+          return (
+            title.includes(normalizedSearch) ||
+            companyName.includes(normalizedSearch) ||
+            companyEmail.includes(normalizedSearch)
+          );
+        })
+      : jobPosts;
 
     return res.status(200).json({
       success: true,
-      jobPosts,
+      jobPosts: filteredJobPosts,
     });
   } catch (error) {
     next(error);
@@ -612,12 +645,8 @@ jobsController.updateJobPost = async (req, res, next) => {
         remaining: newRemaining,
       };
 
-      // auto close / reopen job
-      if (newRemaining === 0) {
-        updateData.status = 'Closed';
-      } else if (jobPost.status === 'Closed') {
-        updateData.status = 'Published';
-      }
+      // Do not auto-close based on openings.
+      // Job closure is controlled by status, deadline, or maxApplicants.
     }
     
 
