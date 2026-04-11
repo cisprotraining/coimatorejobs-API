@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+﻿import nodemailer from 'nodemailer';
 import ResumeAlert from '../models/resumeAlert.model.js';
 import { BadRequestError } from './errors.js';
 
@@ -27,7 +27,7 @@ if (isProd) {
     },
   });
 } else {
-  // Development → Mailtrap
+  // Development â†’ Mailtrap
   // transporter = nodemailer.createTransport({
   //   host: process.env.MAILTRAP_HOST,
   //   port: process.env.MAILTRAP_PORT,
@@ -36,7 +36,7 @@ if (isProd) {
   //     pass: process.env.MAILTRAP_PASS,
   //   },
   // });
-  // Development → google gmail
+  // Development â†’ google gmail
    transporter = nodemailer.createTransport({
         host: "smtp.gmail.com",
         port: 587,
@@ -59,9 +59,9 @@ if (isProd) {
 // Verify connection on startup
 transporter.verify((error) => {
   if (error) {
-    console.error("❌ Email transporter failed to connect:", error);
+    console.error("âŒ Email transporter failed to connect:", error);
   } else {
-    console.log(`✅ Email transporter connected successfully (${isProd ? 'AWS SES' : 'Google SMTP'})`);
+    console.log(`âœ… Email transporter connected successfully (${isProd ? 'AWS SES' : 'Google SMTP'})`);
   }
 }); 
 
@@ -89,7 +89,7 @@ transporter.verify((error) => {
 //       }
 //     : {
 
-//          // 🧪 DEVELOPMENT → Mailtrap
+//          // ðŸ§ª DEVELOPMENT â†’ Mailtrap
 //         host: process.env.MAILTRAP_HOST,
 //         port: process.env.MAILTRAP_PORT,
 //         auth: {
@@ -98,7 +98,7 @@ transporter.verify((error) => {
 //         },
 //          pool: false,
 
-//         //  development → Gmail SMTP
+//         //  development â†’ Gmail SMTP
 //         // host: "smtp.gmail.com",
 //         // port: 587,
 //         // secure: false,
@@ -122,7 +122,7 @@ const sendMail = async ({ to, subject, html, text = '', cc = [], from }) => {
       html,
     });
 
-    console.log(`Email sent successfully → ${to} | MessageId: ${info.messageId}`);
+    console.log(`Email sent successfully â†’ ${to} | MessageId: ${info.messageId}`);
     return info;
   } catch (error) {
     console.error("Email sending failed:", error);
@@ -145,7 +145,7 @@ const sendJobAlertEmail = async ({ recipient, jobTitle, companyName, jobId }) =>
         <p>A new job matching your alert criteria has been posted:</p>
         <p><strong>Job Title:</strong> ${jobTitle}</p>
         <p><strong>Company:</strong> ${companyName}</p>
-        <p><a href="${process.env.FRONTEND_URL}/job-single-v3/${jobId}">View Job Details</a></p>
+        <p><a href="${process.env.FRONTEND_URL}/job-single/${jobId}">View Job Details</a></p>
         <p>Update your job alerts or apply directly via your dashboard.</p>
         <p>Best regards,<br><strong>Coimbatore Jobs Team</strong></p>
       `,
@@ -174,7 +174,7 @@ const sendResumeAlertEmail = async ({
       subject: `New Resume Match: ${candidateName} for "${alert.title}"`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #2563eb;">🎯 New Candidate Match!</h2>
+          <h2 style="color: #2563eb;">ðŸŽ¯ New Candidate Match!</h2>
           <p>We found a new candidate who closely matches your alert <strong>"${alert.title}"</strong>.</p>
           <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <p><strong>Candidate:</strong> ${candidateName}</p>
@@ -217,7 +217,7 @@ const sendResumeAlertEmail = async ({
           </div>
           <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
             <p style="color: #64748b; font-size: 14px;">
-              You’re receiving this email because you set up a resume alert on our platform.<br>
+              Youâ€™re receiving this email because you set up a resume alert on our platform.<br>
               <a href="${(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/employers-dashboard/resume-alerts" style="color: #2563eb;">Manage this alert</a> |
               <a href="${(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/employers-dashboard/dashboard" style="color: #2563eb;">Notification Settings</a>
             </p>
@@ -227,7 +227,7 @@ const sendResumeAlertEmail = async ({
       cc: [process.env.MAIL_SUPPORT] // Provision for other mails (e.g., support@)
     });
     console.log(
-      `📧 Resume alert sent to ${recipient} for candidate ${candidateName} (${matchScore?.toFixed(1) || 'N/A'}%)`
+      `ðŸ“§ Resume alert sent to ${recipient} for candidate ${candidateName} (${matchScore?.toFixed(1) || 'N/A'}%)`
     );
     // Update alert stats in DB
     await ResumeAlert.findByIdAndUpdate(alert._id, {
@@ -262,7 +262,7 @@ const sendPasswordResetEmail = async ({ recipient, name, resetUrl }) => {
           <p><small>This link expires in 10 minutes.</small></p>
           <p>If you didn't request this, ignore this email.</p>
           <hr>
-          <p style="color: #666; font-size: 12px;">© ${new Date().getFullYear()} Coimbatore Jobs by Cispro</p>
+          <p style="color: #666; font-size: 12px;">Â© ${new Date().getFullYear()} Coimbatore Jobs by Cispro</p>
         </div>
       `,
       cc: [process.env.MAIL_SECURITY] // Provision for security@ or other
@@ -316,7 +316,7 @@ const sendWelcomeEmail = async ({ recipient, name }) => {
   try {
     if (!recipient) throw new Error('Recipient email is missing');
      await sendMail({
-      from: `"Welcome to Coimbatore Jobs" <${process.env.EMAIL_USER}>`,
+      from: `"Welcome to Coimbatore Jobs" <${defaultFromAddress}>`,
       to: recipient,
       subject: 'Welcome to Coimbatore Jobs - Your Registration is Successful!',
       html: `
@@ -326,7 +326,7 @@ const sendWelcomeEmail = async ({ recipient, name }) => {
           <p>Thank you for registering with <strong>Coimbatore Jobs</strong>. Your account has been successfully created.</p>
          
           <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>What’s Next?</strong></p>
+            <p><strong>Whatâ€™s Next?</strong></p>
             <ul style="list-style-type: disc; padding-left: 20px;">
               <li>Complete your profile to get better job matches</li>
               <li>Browse and apply to jobs in Coimbatore</li>
@@ -347,7 +347,7 @@ const sendWelcomeEmail = async ({ recipient, name }) => {
          
           <p style="color: #64748b; font-size: 12px; text-align: center;">
             &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.<br />
-            This is an automated message — please do not reply.
+            This is an automated message â€” please do not reply.
           </p>
         </div>
       `,
@@ -362,26 +362,30 @@ const sendWelcomeEmail = async ({ recipient, name }) => {
 // Helper to get status color & icon
 const getStatusStyle = (eventType) => {
   switch (eventType) {
+    case 'job_posted':
+      return { color: '#2563eb', icon: '🧾', label: 'Job Posted' };
+    case 'job_applied':
+      return { color: '#7c3aed', icon: '📨', label: 'Job Applied' };
     case 'approved':
-      return { color: '#22c55e', icon: '✅', label: 'Approved' };
+      return { color: '#22c55e', icon: 'âœ…', label: 'Approved' };
     case 'rejected':
-      return { color: '#ef4444', icon: '❌', label: 'Rejected' };
+      return { color: '#ef4444', icon: 'âŒ', label: 'Rejected' };
     case 'deleted':
-      return { color: '#ef4444', icon: '🗑️', label: 'Deleted' };
+      return { color: '#ef4444', icon: 'ðŸ—‘ï¸', label: 'Deleted' };
     case 'password_reset':
-      return { color: '#f59e0b', icon: '🔑', label: 'Password Reset' };
+      return { color: '#f59e0b', icon: 'ðŸ”‘', label: 'Password Reset' };
     case 'create_profile':
-      return { color: '#0bf5f5', icon: '👍', label: 'Create Profile' };
+      return { color: '#0bf5f5', icon: 'ðŸ‘', label: 'Create Profile' };
     case 'new_registration':
     default:
-      return { color: '#3b82f6', icon: '🔔', label: 'New Registration' };
+      return { color: '#3b82f6', icon: 'ðŸ””', label: 'New Registration' };
   }
 };
 
 // Unified superadmin alert sender (used for all events)
 const sendSuperadminAlertEmail = async ({
   superadminEmail,
-  eventType = 'new_registration', // approved, rejected, deleted, password_reset, new_registration
+  eventType = 'new_registration', // approved, rejected, deleted, password_reset, new_registration, job_posted, job_applied
   userEmail,
   userRole,
   message = '',
@@ -397,7 +401,9 @@ const sendSuperadminAlertEmail = async ({
       approved: 'User / Profile Approved',
       rejected: 'User / Profile Rejected',
       deleted: 'User / Profile Deleted',
-      password_reset: 'User Password Reset by Admin'
+      password_reset: 'User Password Reset by Admin',
+      job_posted: 'New Job Posted',
+      job_applied: 'New Job Application'
     }[eventType] || 'Platform Alert';
 
     const html = `
@@ -426,14 +432,14 @@ const sendSuperadminAlertEmail = async ({
         <hr style="margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;" />
         
         <p style="color: #64748b; font-size: 12px; text-align: center;">
-          © ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.<br>
-          This is a system-generated notification — please do not reply.
+          Â© ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.<br>
+          This is a system-generated notification â€” please do not reply.
         </p>
       </div>
     `;
 
     await sendMail({
-      from: `"System Alert" <${process.env.EMAIL_USER}>`,
+      from: `"System Alert" <${defaultFromAddress}>`,
       to: superadminEmail,
       subject: `${subjectPrefix}: ${userEmail || 'Unknown'} (${userRole || 'User'})`,
       html,
@@ -451,7 +457,7 @@ const sendUserStatusUpdateEmail = async ({ recipient, name, status, role }) => {
   try {
     if (!recipient) throw new Error('Recipient email is missing');
     await sendMail({
-      from: `"Account Update" <${process.env.EMAIL_USER}>`,
+      from: `"Account Update" <${defaultFromAddress}>`,
       to: recipient,
       subject: `Your ${role} Account Status Updated`,
       html: `
@@ -498,7 +504,7 @@ const sendPasswordResetSuccessEmail = async ({ recipient, name }) => {
   try {
     if (!recipient) throw new Error('Recipient email is missing');
     await sendMail({
-      from: `"Security Alert" <${process.env.EMAIL_USER}>`,
+      from: `"Security Alert" <${defaultFromAddress}>`,
       to: recipient,
       subject: 'Password Reset Successful',
       html: `
@@ -541,7 +547,7 @@ const sendAdminPasswordResetEmail = async ({ recipient, name, adminEmail }) => {
   try {
     if (!recipient) throw new Error('Recipient email is missing');
     await sendMail({
-      from: `"Admin Notification" <${process.env.EMAIL_USER}>`,
+      from: `"Admin Notification" <${defaultFromAddress}>`,
       to: recipient,
       subject: 'Your Password Has Been Reset by Admin',
       html: `
@@ -584,7 +590,7 @@ const sendProfileDeletionEmail = async ({ recipient, name, role, deletedBy }) =>
   try {
     if (!recipient) throw new Error('Recipient email is missing');
     await sendMail({
-      from: `"Account Update" <${process.env.EMAIL_USER}>`,
+      from: `"Account Update" <${defaultFromAddress}>`,
       to: recipient,
       subject: 'Your Profile Has Been Deleted',
       html: `
@@ -627,7 +633,7 @@ const sendCompanyProfileStatusEmail = async ({ recipient, name, companyName, sta
   try {
     if (!recipient) throw new Error('Recipient email is missing');
     await sendMail({
-      from: `"Profile Update" <${process.env.EMAIL_USER}>`,
+      from: `"Profile Update" <${defaultFromAddress}>`,
       to: recipient,
       subject: `Your Company Profile Status: ${status.charAt(0).toUpperCase() + status.slice(1)}`,
       html: `
@@ -674,7 +680,7 @@ const sendCandidateProfileStatusEmail = async ({ recipient, name, status, reject
   try {
     if (!recipient) throw new Error('Recipient email is missing');
     await sendMail({
-      from: `"Profile Update" <${process.env.EMAIL_USER}>`,
+      from: `"Profile Update" <${defaultFromAddress}>`,
       to: recipient,
       subject: `Your Candidate Profile Status: ${status.charAt(0).toUpperCase() + status.slice(1)}`,
       html: `
@@ -727,7 +733,7 @@ export const sendContactEmails = async ({
 }) => {
   // Admin email
   const adminHtml = `
-    <h2>📩 New Contact Form Submission</h2>
+    <h2>ðŸ“© New Contact Form Submission</h2>
     <p><strong>Form Type:</strong> ${formType}</p>
     <p><strong>Name:</strong> ${name}</p>
     <p><strong>Email:</strong> ${email}</p>
@@ -751,8 +757,8 @@ export const sendContactEmails = async ({
     <p>Hi ${name},</p>
     <p>Thank you for contacting <strong>Coimbatore Jobs</strong>.</p>
 
-    <p>We’ve received your message and our team will respond within
-    <strong>24–48 hours</strong>.</p>
+    <p>Weâ€™ve received your message and our team will respond within
+    <strong>24â€“48 hours</strong>.</p>
 
     <blockquote style="background:#f8fafc;padding:10px;border-left:4px solid #2563eb">
       ${message.substring(0, 200)}${message.length > 200 ? '...' : ''}
@@ -767,10 +773,184 @@ export const sendContactEmails = async ({
 
   await sendMail({
     to: email,
-    subject: 'We received your message – Coimbatore Jobs',
+    subject: 'We received your message â€“ Coimbatore Jobs',
     html: userHtml
   });
 };
 
 
-export { sendJobAlertEmail, sendResumeAlertEmail, sendPasswordResetEmail, sendLoginOtpEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendCompanyProfileStatusEmail, sendCandidateProfileStatusEmail };
+// Send job application notification email to employer
+const sendJobApplicationNotificationEmail = async ({ employerEmail, employerName, candidateName, jobTitle, companyName, dashboardLink }) => {
+  try {
+    if (!employerEmail) throw new Error('Employer email is missing');
+    await sendMail({
+      from: `"Job Application Alert" <${defaultFromAddress}>`,
+      to: employerEmail,
+      subject: `New Application for ${jobTitle} - ${candidateName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+          <h2 style="color: #2563eb;">New Job Application Received</h2>
+          
+          <p>Dear ${employerName},</p>
+          <p>A new candidate has applied for your job posting!</p>
+          
+          <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #2563eb;">
+            <p style="margin: 5px 0;"><strong>Job Title:</strong> ${jobTitle}</p>
+            <p style="margin: 5px 0;"><strong>Company:</strong> ${companyName}</p>
+            <p style="margin: 5px 0;"><strong>Candidate Name:</strong> ${candidateName}</p>
+            <p style="margin: 5px 0;"><strong>Application Date:</strong> ${new Date().toLocaleDateString()}</p>
+          </div>
+          
+          <p>Review the full application details and candidate resume by clicking the button below:</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${dashboardLink}"
+               style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              View Application
+            </a>
+          </div>
+          
+          <p style="color: #64748b; font-size: 14px;">Managing your applications becomes easier on our dashboard. Check it regularly to stay updated with all applications.</p>
+          
+          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;" />
+          
+          <p style="color: #64748b; font-size: 12px; text-align: center;">
+            &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.
+          </p>
+        </div>
+      `
+    });
+    console.log(`Job application notification sent to ${employerEmail}`);
+  } catch (error) {
+    console.error(`Failed to send job application notification to ${employerEmail}:`, error);
+  }
+};
+
+// Send job application confirmation email to candidate
+const sendCandidateApplicationConfirmationEmail = async ({ candidateEmail, candidateName, jobTitle, companyName, jobId }) => {
+  try {
+    if (!candidateEmail) throw new Error('Candidate email is missing');
+    await sendMail({
+      from: `"Application Confirmation" <${defaultFromAddress}>`,
+      to: candidateEmail,
+      subject: `Application Confirmation - ${jobTitle} at ${companyName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+          <h2 style="color: #22c55e;">Application Submitted Successfully</h2>
+          
+          <p>Dear ${candidateName},</p>
+          <p>Thank you for applying! Your application has been successfully submitted.</p>
+          
+          <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #22c55e;">
+            <p style="margin: 5px 0;"><strong>Position:</strong> ${jobTitle}</p>
+            <p style="margin: 5px 0;"><strong>Company:</strong> ${companyName}</p>
+            <p style="margin: 5px 0;"><strong>Application Date:</strong> ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
+          </div>
+          
+          <h3 style="color: #1e293b; margin-top: 30px; margin-bottom: 10px;">Next Steps</h3>
+          <ul style="color: #475569; line-height: 1.8;">
+            <li>The employer will review your application shortly</li>
+            <li>If shortlisted, you will receive an email notification</li>
+            <li>Keep checking your email regularly for updates on your application status</li>
+            <li>Make sure your profile is complete and up-to-date</li>
+          </ul>
+          
+          <div style="background: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+            <p style="margin: 0; color: #92400e;"><strong>💡 Tip:</strong> Enable email notifications to stay updated on all job-related activities and new opportunities matching your profile.</p>
+          </div>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${process.env.FRONTEND_URL}/candidates-dashboard/applied-jobs"
+               style="background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              View Your Applications
+            </a>
+          </div>
+          
+          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;" />
+          
+          <p style="color: #64748b; font-size: 12px; text-align: center;">
+            If you have any questions, feel free to contact our support team.<br/>
+            &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.
+          </p>
+        </div>
+      `
+    });
+    console.log(`Application confirmation sent to ${candidateEmail}`);
+  } catch (error) {
+    console.error(`Failed to send application confirmation to ${candidateEmail}:`, error);
+  }
+};
+
+// Send job application status update email to candidate
+const sendApplicationStatusUpdateEmail = async ({ candidateEmail, candidateName, jobTitle, companyName, status }) => {
+  try {
+    if (!candidateEmail) throw new Error('Candidate email is missing');
+    
+    let statusColor = '#6366f1';
+    let statusMessage = '';
+    let nextSteps = '';
+    
+    if (status === 'shortlisted') {
+      statusColor = '#22c55e';
+      statusMessage = 'Congratulations! Your application has been shortlisted!';
+      nextSteps = '<li>The employer will schedule an interview or next round soon</li><li>Check your email regularly for interview details</li><li>Prepare your profile and answers for potential interview questions</li>';
+    } else if (status === 'selected') {
+      statusColor = '#22c55e';
+      statusMessage = 'Great news! You have been selected! 🎉';
+      nextSteps = '<li>Review the offer details shared by the employer</li><li>Contact the employer for any clarifications</li><li>Complete the remaining hiring process steps</li>';
+    } else if (status === 'rejected') {
+      statusColor = '#ef4444';
+      statusMessage = 'Thank you for applying';
+      nextSteps = '<li>Don\'t be discouraged! This is part of the job search process</li><li>Continue applying to similar positions</li><li>Update your profile with new skills and experience</li><li>Explore other job opportunities on Coimbatore Jobs</li>';
+    } else if (status === 'reviewed') {
+      statusColor = '#f59e0b';
+      statusMessage = 'Your application is under review';
+      nextSteps = '<li>The employer is reviewing your application</li><li>You will receive an update soon</li><li>Check your email for further communication</li>';
+    }
+    
+    await sendMail({
+      from: `"Application Status Update" <${defaultFromAddress}>`,
+      to: candidateEmail,
+      subject: `Application Status Update - ${jobTitle} at ${companyName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+          <h2 style="color: ${statusColor};">Application Status: ${status.charAt(0).toUpperCase() + status.slice(1)}</h2>
+          
+          <p>Dear ${candidateName},</p>
+          <p>${statusMessage}</p>
+          
+          <div style="background: ${statusColor === '#ef4444' ? '#fef2f2' : statusColor === '#f59e0b' ? '#fefce8' : '#f0fdf4'}; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid ${statusColor};">
+            <p style="margin: 5px 0;"><strong>Position:</strong> ${jobTitle}</p>
+            <p style="margin: 5px 0;"><strong>Company:</strong> ${companyName}</p>
+            <p style="margin: 5px 0;"><strong>Status Update Date:</strong> ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
+          </div>
+          
+          <h3 style="color: #1e293b; margin-top: 30px; margin-bottom: 10px;">Next Steps</h3>
+          <ul style="color: #475569; line-height: 1.8;">
+            ${nextSteps}
+          </ul>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${process.env.FRONTEND_URL}/candidates-dashboard/applied-jobs"
+               style="background: ${statusColor}; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              View Application Details
+            </a>
+          </div>
+          
+          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;" />
+          
+          <p style="color: #64748b; font-size: 12px; text-align: center;">
+            Keep checking Coimbatore Jobs for more opportunities<br/>
+            &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.
+          </p>
+        </div>
+      `
+    });
+    console.log(`Application status update sent to ${candidateEmail}`);
+  } catch (error) {
+    console.error(`Failed to send application status update to ${candidateEmail}:`, error);
+  }
+};
+
+export { sendJobAlertEmail, sendResumeAlertEmail, sendPasswordResetEmail, sendLoginOtpEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendCompanyProfileStatusEmail, sendCandidateProfileStatusEmail, sendJobApplicationNotificationEmail, sendCandidateApplicationConfirmationEmail, sendApplicationStatusUpdateEmail };
+

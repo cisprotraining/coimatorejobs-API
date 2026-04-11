@@ -1,14 +1,40 @@
 import mongoose from "mongoose";
 import JobPost from '../models/jobs.model.js';
 import CompanyProfile from '../models/companyProfile.model.js';
+import User from '../models/user.model.js';
 import Role from '../models/role.model.js';
 import Location from '../models/location.model.js';
 import Skill from '../models/skill.model.js';
 import Industry from '../models/industry.model.js';
 import FunctionalArea from '../models/functionalArea.model.js';
+import { sendSuperadminAlertEmail } from '../utils/mailer.js';
+import { SUPERADMIN_EMAIL } from '../config/env.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
+import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
 
 const jobsController = {};
+
+const getAdminAlertRecipients = async () => {
+  const recipients = new Set();
+
+  if (SUPERADMIN_EMAIL) {
+    recipients.add(String(SUPERADMIN_EMAIL).trim().toLowerCase());
+  }
+
+  const hrAdmins = await User.find({
+    role: 'hr-admin',
+    isActive: true,
+    status: 'approved',
+  }).select('email');
+
+  hrAdmins.forEach((admin) => {
+    if (admin?.email) {
+      recipients.add(String(admin.email).trim().toLowerCase());
+    }
+  });
+
+  return Array.from(recipients);
+};
 
 /**
  * Creates a new job post for an authenticated employer
@@ -89,6 +115,11 @@ jobsController.createJobPost = async (req, res, next) => {
     const missingFields = requiredFields.filter(field => !req.body[field]);
     if (missingFields.length > 0) {
       throw new BadRequestError(`Missing required fields: ${missingFields.join(', ')}`);
+    }
+
+    const normalizedContactEmail = normalizeEmail(contactEmail);
+    if (!isValidEmailAddress(normalizedContactEmail)) {
+      throw new BadRequestError('Please enter a valid contact email address');
     }
 
     // console.log("Creating job post with data:", req.body);
@@ -175,7 +206,7 @@ jobsController.createJobPost = async (req, res, next) => {
       companyProfile: companyProfile || companyProfileDoc._id, // Use provided ID or default to employer’s profile
       title,
       description,
-      contactEmail,
+      contactEmail: normalizedContactEmail,
       contactUsername,
       // specialisms,
       jobType,
@@ -220,6 +251,28 @@ jobsController.createJobPost = async (req, res, next) => {
 
     await newJobPost.save();
 
+    const recipients = await getAdminAlertRecipients();
+    const actor = await User.findById(req.user.id).select('email role');
+    const actorLabel =
+      actor?.email ||
+      (actor?.role === 'superadmin' ? 'Super Admin' : actor?.role === 'hr-admin' ? 'HR Admin' : 'Employer');
+
+    if (recipients.length) {
+      await Promise.all(
+        recipients.map((recipient) =>
+          sendSuperadminAlertEmail({
+            superadminEmail: recipient,
+            eventType: 'job_posted',
+            userEmail: newJobPost.contactEmail,
+            userRole: userRole || 'employer',
+            message: `Job "${newJobPost.title}" posted for ${companyProfileDoc.companyName} by ${actorLabel}`,
+            actorEmail: actorLabel,
+            dashboardLink: `${process.env.FRONTEND_URL}/super-admin-dashboard/manage-jobs`,
+          })
+        )
+      );
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Job post created successfully',
@@ -249,6 +302,7 @@ jobsController.getJobPosts = async (req, res, next) => {
 
     // Build base query
     let query = {};
+    const now = new Date();
 
     // Restrict to employer's own job posts unless superadmin, hr-admin
     if (userRole === 'employer') {
@@ -267,8 +321,19 @@ jobsController.getJobPosts = async (req, res, next) => {
           query.employer = { $in: assignedEmployerIds };
         }
       } else {
-        // `all` scope = platform-wide for HR Admin
+        // `all` scope = platform-wide for HR Admin - NO EXPIRY FILTER
         query = {};
+      }
+    }
+
+    // Filter expired jobs based on user role
+    // HR-Admin (all scope) and Superadmin: see ALL jobs including expired
+    // Employers: see only their own jobs (including expired)
+    // Candidates/Public: see only active, non-expired jobs
+    if (userRole !== 'hr-admin' && userRole !== 'superadmin') {
+      // For candidates/public: exclude expired jobs
+      if (userRole !== 'employer') {
+        query.applicationDeadline = { $gte: now };
       }
     }
 

@@ -1,6 +1,7 @@
 // controllers/contact.controller.js
 import ContactInquiry from  '../models/contactInquiry.model.js'; // optional MongoDB model
 import { sendContactEmails } from '../utils/mailer.js';
+import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
 
 const contactController = {};
 
@@ -27,7 +28,8 @@ contactController.submitContactForm = async (req, res) => {
       });
     }
 
-    if (!email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail || !isValidEmailAddress(normalizedEmail)) {
       return res.status(400).json({
         success: false,
         message: 'Valid email is required',
@@ -44,7 +46,7 @@ contactController.submitContactForm = async (req, res) => {
     // Save to database 
     const inquiry = new ContactInquiry({
       name: name.trim(),
-      email: email.trim(),
+      email: normalizedEmail,
       subject: subject.trim() || 'General Inquiry',
       message: message.trim(),
       formType,
@@ -105,7 +107,7 @@ contactController.submitContactForm = async (req, res) => {
     // send emails
      await sendContactEmails({
       name,
-      email,
+      email: normalizedEmail,
       subject,
       message,
       formType,

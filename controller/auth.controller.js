@@ -7,6 +7,7 @@ import { JWT_SECRET, JWT_EXPIRES_IN, SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BA
 import crypto from 'crypto';
 import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendLoginOtpEmail } from '../utils/mailer.js';
 import { BadRequestError, ForbiddenError,NotFoundError} from '../utils/errors.js';
+import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
 
 import { log } from "console";
 
@@ -55,7 +56,7 @@ authentication.signup = async (req, res, next) => {
 
     try {
         const { name, email, password, role } = req.body;
-        const normalizedEmail = email?.trim().toLowerCase();
+        const normalizedEmail = normalizeEmail(email);
         // Only allow candidate, employer, hr-admin roles on signup
         const safeRole = ['candidate', 'employer', 'hr-admin'].includes(role) ? role : 'candidate';
 
@@ -64,6 +65,12 @@ authentication.signup = async (req, res, next) => {
             await session.abortTransaction();
             session.endSession();
             return res.status(400).json({ message: 'All fields (name, email, password) are required' });
+        }
+
+        if (!isValidEmailAddress(normalizedEmail)) {
+          await session.abortTransaction();
+          session.endSession();
+          return res.status(400).json({ message: "Please enter a valid email address" });
         }
 
         // Check for existing users with the same email.
@@ -198,7 +205,7 @@ authentication.createAdminUser = async (req, res, next) => {
 
     /** new requirement for keeping confendicial employers emails */
     // Generate internal email if not provided
-    let finalEmail = email?.toLowerCase().trim();
+    let finalEmail = normalizeEmail(email);
 
     let isSystemGeneratedEmail = false;
 
@@ -206,6 +213,14 @@ authentication.createAdminUser = async (req, res, next) => {
       const randomSuffix = Math.floor(Math.random() * 100000);
       finalEmail = `${role}_${Date.now()}_${randomSuffix}@internal.coimbatorejobs.in`;
       isSystemGeneratedEmail = true;
+    }
+
+    if (!isSystemGeneratedEmail && !isValidEmailAddress(finalEmail)) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({
+        message: 'Please enter a valid email address'
+      });
     }
 
     // Check uniqueness
@@ -432,6 +447,10 @@ authentication.signin = async (req, res, next) => {
         if (!normalizedIdentifier || !password) {
             return res.status(400).json({ message: "Login ID/Email and password are required" });
          }
+
+        if (normalizedIdentifier.includes('@') && !isValidEmailAddress(normalizedEmailIdentifier)) {
+          return res.status(400).json({ message: "Please enter a valid email address" });
+        }
 
         // Prefer the latest active account and ignore soft-deleted users.
         let user = await User.findOne({
@@ -721,14 +740,23 @@ authentication.changePassword = async(req, res, next) => {
 authentication.forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ message: 'Email is required' });
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return res.status(400).json({ message: 'Email is required' });
+    if (!isValidEmailAddress(normalizedEmail)) {
+      return res.status(400).json({ message: 'Please enter a valid email address' });
+    }
 
-    const user = await User.findOne({ email }).select('+resetPasswordToken +resetPasswordExpire');
+    const user = await User.findOne({ email: normalizedEmail }).select('+resetPasswordToken +resetPasswordExpire');
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Generate reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
+    // Generate one-time nonce + signed reset token
+    const resetNonce = crypto.randomBytes(32).toString('hex');
+    const resetToken = jwt.sign(
+      { purpose: 'password_reset', userId: String(user._id), nonce: resetNonce },
+      JWT_SECRET,
+      { expiresIn: '10m' }
+    );
+    const resetTokenHash = crypto.createHash('sha256').update(resetNonce).digest('hex');
 
     // Save token and expiry in user doc
     user.resetPasswordToken = resetTokenHash;
@@ -736,7 +764,7 @@ authentication.forgotPassword = async (req, res, next) => {
     await user.save();
 
     // Send reset email
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${encodeURIComponent(resetToken)}`;
     await sendPasswordResetEmail({
       recipient: user.email,
       name: user.name || user.email,
@@ -763,17 +791,30 @@ authentication.resetPasswordWithToken = async (req, res, next) => {
     if (newPassword !== confirmPassword)
       return res.status(400).json({ message: 'Passwords do not match' });
 
-    // Hash token for comparison
-    const resetTokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (error) {
+      return res.status(400).json({ message: 'Reset token is invalid or expired' });
+    }
 
-    // Find user with valid token
+    if (decoded?.purpose !== 'password_reset' || !decoded?.userId || !decoded?.nonce) {
+      return res.status(400).json({ message: 'Reset token is invalid or expired' });
+    }
+
+    // Find user with valid one-time nonce
     const user = await User.findOne({
-      resetPasswordToken: resetTokenHash,
+      _id: decoded.userId,
       resetPasswordExpire: { $gt: Date.now() }
     });
 
     if (!user)
       return res.status(400).json({ message: 'Reset token is invalid or expired' });
+
+    const expectedHash = crypto.createHash('sha256').update(decoded.nonce).digest('hex');
+    if (!user.resetPasswordToken || user.resetPasswordToken !== expectedHash) {
+      return res.status(400).json({ message: 'Reset token is invalid or already used' });
+    }
 
     // Set new password
     const salt = await bcrypt.genSalt(10);

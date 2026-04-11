@@ -363,7 +363,7 @@ jobPostSchema.post('save', async function (doc) {
     console.log('Found job alerts:', alerts);
     
     for (const alert of alerts) {
-      if (alert.frequency !== 'Instant'  || !alert.candidate?.email) continue;
+      if (!alert.candidate?.email) continue;
 
       const matches = matchJobToAlert(populatedDoc, alert.criteria);
       if (matches && alert.candidate.email) {
@@ -444,7 +444,18 @@ function matchJobToAlert(job, criteria) {
   // if (criteria.categories?.length > 0 &&
   //     !criteria.categories.some(cat => job.specialisms.includes(cat))) return false;
 
-  if (criteria.location?.city && criteria.location.city !== job.location.city) return false;
+  if (criteria.location?.city) {
+    const alertCities = Array.isArray(criteria.location.city)
+      ? criteria.location.city.map((city) => String(city).toLowerCase())
+      : [String(criteria.location.city).toLowerCase()];
+
+    const jobCities = Array.isArray(job.location?.city)
+      ? job.location.city.map((city) => String(city).toLowerCase())
+      : [String(job.location?.city || '').toLowerCase()];
+
+    const hasCityMatch = alertCities.some((city) => jobCities.includes(city));
+    if (!hasCityMatch) return false;
+  }
 
   if (criteria.salaryRange && job.offeredSalary !== 'Negotiable') {
     // Improved parse: handle ₹ and ranges like '₹5-10 LPA'

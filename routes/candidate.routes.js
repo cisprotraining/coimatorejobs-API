@@ -3,15 +3,16 @@ import candidateController from "../controller/candidate.controller.js";
 import candidateCvController from '../controller/candidateCv.controller.js';
 import candidateResumeController from '../controller/candidateResume.controller.js';
 import candidateDashboardController from '../controller/candidateDashboard.controller.js';
-import { authenticate, authorize } from "../middleware/auth.js";
+import notificationController from '../controller/notification.controller.js';
+import { authenticate, authorize, optionalAuthenticate } from "../middleware/auth.js";
 import { candidateUpload, cvUpload } from "../utils/candidateFileUpload.js"; 
 import trackCandidateView from '../middleware/trackCandidateView.js';
 import normalizeBody from '../utils/normalizeBody.js';
 
 const candidateRouter = Router();
 
-// Get all candidate profiles (accessible to admins and superadmins)
-candidateRouter.get('/profile/fetch-all', candidateController.getAllCandidateProfiles);
+// Get candidate profiles (public-safe view for guests/candidates, full view for employer/admin roles)
+candidateRouter.get('/profile/fetch-all', optionalAuthenticate, candidateController.getAllCandidateProfiles);
 
 // Create candidate profile (with file upload)
 candidateRouter.post('/profile/create', authenticate, authorize(['candidate', 'hr-admin', 'superadmin']), candidateUpload, normalizeBody, candidateController.createCandidateProfile);
@@ -94,7 +95,7 @@ candidateRouter.delete('/cvs/delete/:id', authenticate, authorize(['candidate'])
 // Download resume
 candidateRouter.get("/resume/download", authenticate, authorize(["candidate", "hr-admin", "superadmin"]), candidateController.getResumeDownloadUrl);
 
-// HR admin download candidate resume
+// HR admin download candidate resume (employers can only download from applicants)
 candidateRouter.get( "/resume/download/:candidateId", authenticate, authorize(["hr-admin", "employer", "superadmin"]),candidateController.getResumeForHR);
 
 
@@ -115,7 +116,6 @@ candidateRouter.get('/application-trends', authenticate, authorize(['candidate']
 // Job type distribution route
 candidateRouter.get('/job-type-distribution', authenticate, authorize(['candidate']), candidateDashboardController.getJobTypeDistribution);
 
-
 // recommended jobs route
 candidateRouter.get('/recommended-jobs', authenticate, authorize(['candidate']), candidateController.getRecommendedJobs);
 
@@ -123,5 +123,21 @@ candidateRouter.get('/recommended-jobs', authenticate, authorize(['candidate']),
 candidateRouter.get('/trending-jobs', candidateController.getTrendingJobs);
 
 candidateRouter.get('/jobs/:id/similar', candidateController.getSimilarJobs);
+
+// Notification routes
+// Get all notifications
+candidateRouter.get('/notifications', authenticate, authorize(['candidate']), notificationController.getNotifications);
+
+// Get unread count
+candidateRouter.get('/notifications/unread/count', authenticate, authorize(['candidate']), notificationController.getUnreadCount);
+
+// Mark notification as read
+candidateRouter.put('/notifications/:id/read', authenticate, authorize(['candidate']), notificationController.markAsRead);
+
+// Mark all as read
+candidateRouter.put('/notifications/mark-all-read', authenticate, authorize(['candidate']), notificationController.markAllAsRead);
+
+// Delete notification
+candidateRouter.delete('/notifications/:id', authenticate, authorize(['candidate']), notificationController.deleteNotification);
 
 export default candidateRouter;

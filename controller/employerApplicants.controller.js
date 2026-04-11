@@ -5,6 +5,8 @@ import CandidateProfile from '../models/candidateProfile.model.js';
 import User from '../models/user.model.js';
 import { canManageJob, buildJobQueryForUser } from '../utils/roleHelper.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors.js';
+import { sendApplicationStatusUpdateEmail } from '../utils/mailer.js';
+import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
 
 const employerApplicantsController = {};
 
@@ -493,12 +495,10 @@ employerApplicantsController.updateApplicantStatus = async (req, res, next) => {
       throw new BadRequestError('Invalid status');
     }
 
-    const application = await Application.findById(applicationId).populate('jobPost');
-    // old ownership check
-    // if (!application || application.jobPost.employer.toString() !== employerId.toString()) {
-    //   throw new ForbiddenError('You do not have permission to update this application');
-    // }
-
+    const application = await Application.findById(applicationId)
+      .populate('jobPost')
+      .populate('candidate', 'email name');
+    
     // new ownership check using role helper
     if (!application || !canManageJob(application.jobPost, req.user)) {
       throw new ForbiddenError('You do not have permission to update this application');
@@ -506,6 +506,49 @@ employerApplicantsController.updateApplicantStatus = async (req, res, next) => {
 
     application.status = status;
     await application.save();
+
+    // Send status update email to candidate
+    try {
+      if (application.candidate && application.candidate.email) {
+        // Map displayed status to email status format
+        const emailStatus = status === 'Accepted' ? 'selected' : (status === 'Reviewed' ? 'reviewed' : 'rejected').toLowerCase();
+        
+        await sendApplicationStatusUpdateEmail({
+          candidateEmail: application.candidate.email,
+          candidateName: application.candidate.name || 'Candidate',
+          jobTitle: application.jobPost.title,
+          companyName: application.jobPost.companyProfile?.companyName || 'Company',
+          status: emailStatus,
+        });
+      }
+    } catch (emailError) {
+      console.error('Failed to send status update email:', emailError);
+      // Don't throw - let the status update succeed even if email fails
+    }
+
+    // Create notification for candidate
+    try {
+      let notificationType = 'application_reviewed';
+      let notificationData = notificationPresets.applicationReviewed(application.jobPost.title);
+
+      if (status === 'Accepted') {
+        notificationType = 'application_selected';
+        notificationData = notificationPresets.applicationSelected(application.jobPost.title);
+      } else if (status === 'Rejected') {
+        notificationType = 'application_rejected';
+        notificationData = notificationPresets.applicationRejected(application.jobPost.title);
+      }
+
+      await createNotification(application.candidate._id, notificationType, {
+        ...notificationData,
+        jobPost: application.jobPost._id,
+        application: applicationId,
+        actionUrl: `${process.env.FRONTEND_URL}/candidates-dashboard/applied-jobs`,
+      });
+    } catch (notificationError) {
+      console.error('Failed to create notification:', notificationError);
+      // Don't throw - let the status update succeed even if notification fails
+    }
 
     return res.status(200).json({
       success: true,

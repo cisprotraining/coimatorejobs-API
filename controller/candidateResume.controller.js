@@ -335,6 +335,7 @@ candidateResumeController.deleteResume = async (req, res, next) => {
  * @param {Function} next - Next middleware function
  */
 candidateResumeController.generatePDF = async (req, res, next) => {
+    let browser;
     try {
         const candidateId = req.user.id;
         const resumeId = req.params.id;
@@ -344,8 +345,11 @@ candidateResumeController.generatePDF = async (req, res, next) => {
             throw new NotFoundError('Resume not found or not yours');
         }
 
-        // Launch Puppeteer
-        const browser = await puppeteer.launch({ headless: true });
+        // Launch Puppeteer (production-safe flags for container/root environments)
+        browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
         const page = await browser.newPage();
 
         // Generate HTML template
@@ -354,15 +358,18 @@ candidateResumeController.generatePDF = async (req, res, next) => {
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
         const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
 
-        await browser.close();
-
         // Set headers for PDF download
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${resume.title}.pdf"`);
+        const safeTitle = (resume.title || 'resume').replace(/[<>:"/\\|?*\x00-\x1F]/g, '').trim() || 'resume';
+        res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.pdf"`);
 
         return res.send(pdfBuffer);
     } catch (error) {
         next(error);
+    } finally {
+        if (browser) {
+            await browser.close().catch(() => null);
+        }
     }
 };
 
@@ -394,6 +401,13 @@ function calculateAtsScore(resume, jobDescription = '') {
  * @returns {string} HTML string
  */
 function generateHTMLTemplate(resume) {
+    const experienceList = Array.isArray(resume.experience) ? resume.experience : [];
+    const educationList = Array.isArray(resume.education) ? resume.education : [];
+    const skillsList = Array.isArray(resume.skills) ? resume.skills : [];
+    const awardsList = Array.isArray(resume.awards) ? resume.awards : [];
+    const portfolioList = Array.isArray(resume.portfolio) ? resume.portfolio : [];
+    const summary = resume.personalInfo?.summary || resume.description || 'No summary available.';
+
     return `
     <!DOCTYPE html>
     <html lang="en">
@@ -416,41 +430,41 @@ function generateHTMLTemplate(resume) {
       
       <div class="section">
         <h2>Summary</h2>
-        <p>${resume.personalInfo?.summary || 'No summary available.'}</p>
+        <p>${summary}</p>
       </div>
 
       <div class="section">
         <h2>Experience</h2>
         <ul>
-          ${resume.experience.map(exp => `<li><strong>${exp.position}</strong> at ${exp.company} (${exp.years || ''})<br>${exp.description || ''}</li>`).join('')}
+          ${experienceList.map(exp => `<li><strong>${exp.position || ''}</strong> at ${exp.company || ''} (${exp.years || ''})<br>${exp.description || ''}</li>`).join('')}
         </ul>
       </div>
 
       <div class="section">
         <h2>Education</h2>
         <ul>
-          ${resume.education.map(edu => `<li><strong>${edu.degree}</strong> from ${edu.institution} (${edu.years || ''})<br>${edu.description || ''}</li>`).join('')}
+          ${educationList.map(edu => `<li><strong>${edu.degree || ''}</strong> from ${edu.institution || ''} (${edu.years || ''})<br>${edu.description || ''}</li>`).join('')}
         </ul>
       </div>
 
       <div class="section">
         <h2>Skills</h2>
         <ul>
-          ${resume.skills.map(skill => `<li>${skill}</li>`).join('')}
+          ${skillsList.map(skill => `<li>${skill}</li>`).join('')}
         </ul>
       </div>
 
       <div class="section">
         <h2>Awards</h2>
         <ul>
-          ${resume.awards.map(award => `<li><strong>${award.title}</strong> (${award.years || ''})<br>${award.description || ''}</li>`).join('')}
+          ${awardsList.map(award => `<li><strong>${award.title || ''}</strong> (${award.years || ''})<br>${award.description || ''}</li>`).join('')}
         </ul>
       </div>
 
       <div class="section">
         <h2>Portfolio</h2>
         <ul>
-          ${resume.portfolio.map(item => `<li><strong>${item.title}</strong>: <a href="${item.file}">${item.file}</a><br>${item.description || ''}</li>`).join('')}
+          ${portfolioList.map(item => `<li><strong>${item.title || ''}</strong>: <a href="${item.file || '#'}">${item.file || ''}</a><br>${item.description || ''}</li>`).join('')}
         </ul>
       </div>
     </body>

@@ -6,7 +6,8 @@ import JobApply from "../models/jobApply.model.js";
 import SavedJob from '../models/savedJob.model.js';
 import CandidateResume from '../models/candidateResume.model.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
-import { sendCandidateProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
+import { sendCandidateProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail, sendJobApplicationNotificationEmail, sendCandidateApplicationConfirmationEmail } from '../utils/mailer.js';
+import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
 import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
@@ -29,6 +30,28 @@ const parseField = (val) => {
   }
 };
 
+const getAdminAlertRecipients = async () => {
+  const recipients = new Set();
+
+  if (SUPERADMIN_EMAIL) {
+    recipients.add(String(SUPERADMIN_EMAIL).trim().toLowerCase());
+  }
+
+  const hrAdmins = await User.find({
+    role: 'hr-admin',
+    isActive: true,
+    status: 'approved',
+  }).select('email');
+
+  hrAdmins.forEach((admin) => {
+    if (admin?.email) {
+      recipients.add(String(admin.email).trim().toLowerCase());
+    }
+  });
+
+  return Array.from(recipients);
+};
+
 /**
  * Retrieves all candidate profiles (accessible to admins and superadmins)
  * @param {Object} req - Request object
@@ -37,8 +60,20 @@ const parseField = (val) => {
  */
 candidateController.getAllCandidateProfiles = async (req, res, next) => {
   try {
-    // Fetch all candidate profiles, excluding the version key
-    const profiles = await CandidateProfile.find().select('-__v');
+    const requesterRole = req.user?.role || 'guest';
+    const isPrivilegedViewer = ['employer', 'hr-admin', 'superadmin'].includes(requesterRole);
+
+    // Guests/candidates should only see searchable approved profiles with sensitive fields removed.
+    const query = isPrivilegedViewer
+      ? {}
+      : { status: 'approved', isActive: true, allowInSearch: true };
+
+    const projection = isPrivilegedViewer
+      ? '-__v'
+      : '-__v -resume -email -phone -website -socialMedia -location.completeAddress -dailyViews -uniqueViewers';
+
+    const profiles = await CandidateProfile.find(query).select(projection);
+
     return res.status(200).json({
       success: true,
       profiles
@@ -831,7 +866,7 @@ candidateController.applyToJob = async (req, res, next) => {
     const files = req.files || {};
 
     // Ensure job post exists and is published
-    const jobPost = await JobPost.findById(jobPostId);
+    const jobPost = await JobPost.findById(jobPostId).populate('companyProfile', 'companyName');
     if (!jobPost || jobPost.status !== 'Published') {
       throw new NotFoundError('Job post not found or not available');
     }
@@ -846,13 +881,11 @@ candidateController.applyToJob = async (req, res, next) => {
 
     // Ensure candidate has a profile
     const candidateProfile = await CandidateProfile.findOne({ candidate: candidateId });
-    console.log("test", candidateProfile);
-    
     if (!candidateProfile) {
       throw new BadRequestError('Please create a candidate profile before applying');
     }
 
-    const candidateUser = await User.findById(candidateId).select('status');
+    const candidateUser = await User.findById(candidateId).select('status email name');
     if (!candidateUser || candidateUser.status !== 'approved') {
       throw new ForbiddenError('Your account is pending HR approval. You can apply only after approval.');
     }
@@ -926,6 +959,73 @@ candidateController.applyToJob = async (req, res, next) => {
 
       // SAVE THE JOB POST 
       await jobPost.save();
+
+    // Send email to superadmins
+    const recipients = await getAdminAlertRecipients();
+    if (recipients.length) {
+      await Promise.all(
+        recipients.map((recipient) =>
+          sendSuperadminAlertEmail({
+            superadminEmail: recipient,
+            eventType: 'job_applied',
+            userEmail: candidateUser.email || candidateProfile.email,
+            userRole: 'candidate',
+            message: `${candidateProfile.fullName || candidateUser.name || 'Candidate'} applied to "${jobPost.title}" (${jobPost.companyProfile?.companyName || 'N/A'})`,
+            actorEmail: candidateUser.email || candidateProfile.email || 'Candidate',
+            dashboardLink: `${process.env.FRONTEND_URL}/super-admin-dashboard/all-applicants`,
+          })
+        )
+      );
+    }
+
+    // Send email to employer who posted the job
+    try {
+      const employer = await User.findById(jobPost.employer).select('email name');
+      if (employer && employer.email) {
+        await sendJobApplicationNotificationEmail({
+          employerEmail: employer.email,
+          employerName: employer.name || 'Employer',
+          candidateName: candidateProfile.fullName || candidateUser.name || 'A candidate',
+          jobTitle: jobPost.title,
+          companyName: jobPost.companyProfile?.companyName || 'Company',
+          dashboardLink: `${process.env.FRONTEND_URL}/employer-dashboard/shortlisted-resumes`,
+        });
+      }
+    } catch (emailError) {
+      console.error('Failed to send employer notification:', emailError);
+      // Don't throw - let the application succeed even if email fails
+    }
+
+    // Send confirmation email to candidate
+    try {
+      await sendCandidateApplicationConfirmationEmail({
+        candidateEmail: candidateUser.email,
+        candidateName: candidateProfile.fullName || candidateUser.name || 'Candidate',
+        jobTitle: jobPost.title,
+        companyName: jobPost.companyProfile?.companyName || 'Company',
+        jobId: jobPostId,
+      });
+    } catch (emailError) {
+      console.error('Failed to send candidate confirmation email:', emailError);
+      // Don't throw - let the application succeed even if email fails
+    }
+
+    // Create notification for candidate
+    try {
+      const notificationData = notificationPresets.applicationSubmitted(
+        jobPost.title,
+        jobPost.companyProfile?.companyName || 'Company'
+      );
+      await createNotification(candidateId, 'application_submitted', {
+        ...notificationData,
+        jobPost: jobPostId,
+        application: newApplication._id,
+        actionUrl: `${process.env.FRONTEND_URL}/candidates-dashboard/applied-jobs`,
+      });
+    } catch (notificationError) {
+      console.error('Failed to create notification:', notificationError);
+      // Don't throw - let the application succeed even if notification fails
+    }
 
     return res.status(201).json({
       success: true,
@@ -1465,6 +1565,32 @@ candidateController.getResumeDownloadUrl = async (req, res, next) => {
 candidateController.getResumeForHR = async (req, res, next) => {
   try {
     const { candidateId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    // hr-admin and superadmin can download any resume
+    if (!['hr-admin', 'superadmin'].includes(userRole)) {
+      // For employers: Check if candidate applied to any of their jobs
+      if (userRole === 'employer') {
+        // Get all jobs by this employer
+        const jobPosts = await JobPost.find({ employer: userId }).select('_id');
+        const jobIds = jobPosts.map(j => j._id);
+
+        // Check if the candidate has applied to any of these jobs
+        const application = await JobApply.findOne({
+          candidate: candidateId,
+          job: { $in: jobIds },
+          status: { $in: ['applied', 'reviewed', 'shortlisted', 'selected', 'rejected'] } // Consider all active statuses
+        });
+
+        if (!application) {
+          return res.status(403).json({
+            success: false,
+            message: "Access denied. This candidate has not applied to any of your jobs."
+          });
+        }
+      }
+    }
 
     const profile = await CandidateProfile.findOne({ candidate: candidateId });
 
