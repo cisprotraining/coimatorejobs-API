@@ -4,6 +4,9 @@ import cors from 'cors';
 import { PORT } from './config/env.js';
 import connectToDatabase from './database/mongodb.js';
 // import bodyParser from 'body-parser';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import authRouter from './routes/auth.routes.js';
 import adminRouter from './routes/admin.routes.js';
@@ -20,6 +23,10 @@ import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
 
 import CandidateCv from './models/candidateCv.model.js';
+
+// Get __dirname for ES6 modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // const express = require('express');
 const app = express();
@@ -58,6 +65,29 @@ app.use(express.json({ limit: '10kb' }));
 
 // Serve static files
 app.use(express.static('public'));
+
+// Middleware to handle missing image files - serve default if not found
+// Fallback for missing company logo images
+app.use('/uploads/company', (req, res, next) => {
+  const filePath = path.join(__dirname, 'public', 'uploads', 'company', path.basename(req.path));
+  
+  // Check if requested file exists
+  if (!fs.existsSync(filePath)) {
+    // Return one of the existing company logos as placeholder
+    const defaultLogoPath = path.join(__dirname, 'public', 'uploads', 'company', '0c433527-a5d8-4379-b1e1-dc39c78edabb.png');
+    
+    if (fs.existsSync(defaultLogoPath)) {
+      res.sendFile(defaultLogoPath);
+    } else {
+      // Fallback to 1x1 transparent PNG if default not available
+      res.set('Content-Type', 'image/png');
+      res.send(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64'));
+    }
+    return;
+  }
+  
+  next();
+});
 
 // Rate limiting
 // const limiter = rateLimit({

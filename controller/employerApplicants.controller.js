@@ -20,7 +20,15 @@ employerApplicantsController.getApplicantsByJob = async (req, res, next) => {
   try {
     const employerId = req.user.id;
     const jobId = req.params.jobId;
-    const { status, dateRange, page = 1, limit = 10, search } = req.query;
+    const {
+      status,
+      dateRange,
+      page = 1,
+      limit = 10,
+      search,
+      appliedDateSort = 'newest',
+    } = req.query;
+    const sortDirection = appliedDateSort === 'oldest' ? 1 : -1;
 
     //  Validate job ownership
     const jobPost = await JobPost.findById(jobId);
@@ -117,7 +125,7 @@ employerApplicantsController.getApplicantsByJob = async (req, res, next) => {
 
     //  Sorting + Pagination + Counting
     pipeline.push(
-      { $sort: { createdAt: -1 } },
+      { $sort: { createdAt: sortDirection } },
       {
         $facet: {
           // Paginated result set
@@ -197,7 +205,15 @@ employerApplicantsController.getApplicantsByJob = async (req, res, next) => {
 employerApplicantsController.getAllApplicants = async (req, res, next) => {
   try {
     const user = req.user;
-    const { status, dateRange, page = 1, limit = 10, search } = req.query;
+    const {
+      status,
+      dateRange,
+      page = 1,
+      limit = 10,
+      search,
+      appliedDateSort = 'newest',
+    } = req.query;
+    const sortDirection = appliedDateSort === 'oldest' ? 1 : -1;
     console.log("loggedin", user);
     // --------------------------------------------------
     // Determine which jobs the user can see
@@ -269,7 +285,7 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
     }
 
     pipeline.push(
-      { $sort: { createdAt: -1 } },
+      { $sort: { createdAt: sortDirection } },
       {
         $facet: {
           data: [
@@ -337,7 +353,15 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
  */
 employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, next) => {
   try {
-    const { status, dateRange, page = 1, limit = 10, search } = req.query;
+    const {
+      status,
+      dateRange,
+      page = 1,
+      limit = 10,
+      search,
+      appliedDateSort = 'newest',
+    } = req.query;
+    const sortDirection = appliedDateSort === 'oldest' ? 1 : -1;
 
     // Keep this endpoint platform-wide for both HR Admin and Super Admin
     const jobs = await JobPost.find({}).select('_id');
@@ -415,7 +439,7 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
 
     // Pagination + counts
     pipeline.push(
-      { $sort: { createdAt: -1 } },
+      { $sort: { createdAt: sortDirection } },
       {
         $facet: {
           data: [
