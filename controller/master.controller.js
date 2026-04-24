@@ -139,7 +139,15 @@ getFunctionalAreas: async (req, res) => {
       }
 
       const data = await Role.find(finalFilter)
-        .select('name slug priority isGlobal searchVolume isTrending')
+        .select('name slug priority isGlobal searchVolume isTrending keywords alternativeNames functionalArea')
+        .populate({
+          path: 'functionalArea',
+          select: 'name industry',
+          populate: {
+            path: 'industry',
+            select: 'name slug',
+          },
+        })
         .sort({ priority: -1, isTrending: -1, searchVolume: -1, name: 1 }) // SEO: trending/popular first
         .limit(100)
         .lean();

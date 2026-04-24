@@ -834,7 +834,7 @@ candidateController.getAllJobPosts = async (req, res, next) => {
   try {
     const jobPosts = await JobPost.find({ status: 'Published' })
       .populate('companyProfile', 'companyName logo') 
-      .populate('skills', 'name')           // Populates skill names for Tag2.jsx
+      .populate('skills', 'name slug keywords') // Required Skills matching: name + slug + keywords
       .populate('industry', 'name')         // Populates industry for FilterJobsBox
       .populate('functionalAreas', 'name')  // Populates functional areas for FilterJobsBox
       .populate('role', 'name')             // Populates role for FilterJobsBox
