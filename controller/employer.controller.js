@@ -9,10 +9,13 @@ import { sendCompanyProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDel
 import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import Industry from '../models/industry.model.js';
 import FunctionalArea from '../models/functionalArea.model.js';
+import { normalizeEmail } from "../utils/emailValidation.js";
 import fs from 'fs';
 import path from 'path';
 
 const employerController = {};
+const DEFAULT_COMPANY_EMAIL = "hello@coimbatorejobs.in";
+const INTERNAL_EMAIL_SUFFIX = "@internal.coimbatorejobs.in";
 
 const parseField = (val) => {
   if (!val) return [];
@@ -23,6 +26,25 @@ const parseField = (val) => {
   } catch (e) {
     return [val];
   }
+};
+
+const isInternalEmail = (email = "") =>
+  normalizeEmail(email).endsWith(INTERNAL_EMAIL_SUFFIX);
+
+const resolveCompanyEmailForEmployer = ({ employerUser, requestedEmail }) => {
+  const accountEmail = normalizeEmail(employerUser?.email || "");
+  const contactEmail = normalizeEmail(employerUser?.contactEmail || "");
+  const preferredEmail = normalizeEmail(requestedEmail || "");
+
+  // Non-confidential employers: always use account email as company email.
+  if (!employerUser?.isSystemGeneratedEmail) {
+    return accountEmail || preferredEmail || DEFAULT_COMPANY_EMAIL;
+  }
+
+  // Confidential employers: use explicit non-internal email when available.
+  if (preferredEmail && !isInternalEmail(preferredEmail)) return preferredEmail;
+  if (contactEmail && !isInternalEmail(contactEmail)) return contactEmail;
+  return DEFAULT_COMPANY_EMAIL;
 };
 
 
@@ -181,6 +203,11 @@ employerController.createCompanyProfile = async (req, res, next) => {
       socialMedia, location, companyType, companyGSTIN, panNo, culture, 
       revenue, founders, branches, isHiring
     } = profileData;
+    const requestedCompanyEmail = normalizeEmail(email || "");
+    const resolvedCompanyEmail = resolveCompanyEmailForEmployer({
+      employerUser,
+      requestedEmail: requestedCompanyEmail,
+    });
 
     const normalizedCompanyGSTIN = typeof companyGSTIN === 'string' ? companyGSTIN.trim().toUpperCase() : '';
     const normalizedPanNo = typeof panNo === 'string' ? panNo.trim().toUpperCase() : '';
@@ -189,7 +216,7 @@ employerController.createCompanyProfile = async (req, res, next) => {
     // const requiredFields = ['companyName', 'email', 'phone', 'establishedSince', 
     //                        'teamSize', 'categories', 'description', 'industry', 'companyType'];
 
-    const requiredFields = ['companyName', 'email', 'phone', 'establishedSince', 
+    const requiredFields = ['companyName', 'phone', 'establishedSince', 
     'teamSize', 'description'];
     
     const missingFields = requiredFields.filter(field => !profileData[field]);
@@ -222,7 +249,7 @@ employerController.createCompanyProfile = async (req, res, next) => {
       functionalAreas: parseField(profileData.functionalAreas),
 
       companyName,
-      email,
+      email: resolvedCompanyEmail,
       phone,
       companyGSTIN: normalizedCompanyGSTIN,
       panNo: normalizedPanNo,
@@ -255,12 +282,16 @@ employerController.createCompanyProfile = async (req, res, next) => {
      * - Company profile has real email
      */
     if (employerUser.isSystemGeneratedEmail && newProfile.email) {
-      employerUser.contactEmail = newProfile.email;
-      await employerUser.save();
+      if (requestedCompanyEmail && !isInternalEmail(requestedCompanyEmail)) {
+        employerUser.contactEmail = requestedCompanyEmail;
+        await employerUser.save();
+      }
     }
 
     // Send notification email to employer about profile status
-    const recipientEmail = employerUser.isSystemGeneratedEmail ? employerUser.contactEmail : employerUser.email;
+    const recipientEmail = employerUser.isSystemGeneratedEmail
+      ? (employerUser.contactEmail || DEFAULT_COMPANY_EMAIL)
+      : employerUser.email;
 
       await sendCompanyProfileStatusEmail({
       recipient: recipientEmail,
@@ -509,6 +540,18 @@ employerController.updateCompanyProfile = async (req, res, next) => {
       updateData.panNo = updateData.panNo.trim().toUpperCase();
     }
 
+    const employerUser = await User.findById(profile.employer).select(
+      "email contactEmail isSystemGeneratedEmail"
+    );
+    const requestedUpdateEmail = Object.prototype.hasOwnProperty.call(updateData, "email")
+      ? normalizeEmail(updateData.email || "")
+      : normalizeEmail(profile.email || "");
+    const resolvedCompanyEmail = resolveCompanyEmailForEmployer({
+      employerUser,
+      requestedEmail: requestedUpdateEmail,
+    });
+    updateData.email = resolvedCompanyEmail;
+
     //  Handle categories array
     // if (updateData.categories) {
     //   updateData.categories = Array.isArray(updateData.categories)
@@ -526,11 +569,9 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     /**
      * 🔐 Sync contactEmail for confidential employers
      */
-    if (updateData.email) {
-      const employerUser = await User.findById(updatedProfile.employer);
-
-      if (employerUser?.isSystemGeneratedEmail) {
-        employerUser.contactEmail = updateData.email.toLowerCase().trim();
+    if (employerUser?.isSystemGeneratedEmail) {
+      if (requestedUpdateEmail && !isInternalEmail(requestedUpdateEmail)) {
+        employerUser.contactEmail = requestedUpdateEmail;
         await employerUser.save();
       }
     }
