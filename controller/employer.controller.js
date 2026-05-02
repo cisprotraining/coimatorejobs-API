@@ -6,6 +6,7 @@ import JobPost from "../models/jobs.model.js";
 import User from "../models/user.model.js";
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { sendCompanyProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
+import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
 import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import Industry from '../models/industry.model.js';
 import FunctionalArea from '../models/functionalArea.model.js';
@@ -299,6 +300,15 @@ employerController.createCompanyProfile = async (req, res, next) => {
       companyName: newProfile.companyName,
       status: newProfile.status,
       dashboardUrl: `${process.env.FRONTEND_URL}employer-dashboard/dashboard`
+    });
+    await createNotification(employerUser._id, 'email_update', {
+      ...notificationPresets.emailUpdate(
+        'Company Profile Submitted',
+        `Your company profile "${newProfile.companyName}" is ${newProfile.status}.`
+      ),
+      actionUrl: '/employers-dashboard/company-profile',
+      icon: newProfile.status === 'approved' ? 'la-check-circle' : 'la-clock-o',
+      color: newProfile.status === 'approved' ? '#22c55e' : '#f59e0b',
     });
 
       // WAIT 6 SECONDS (Mailtrap throttle workaround)
@@ -885,6 +895,15 @@ employerController.approveCompanyProfile = async (req, res, next) => {
       rejectionReason,
       dashboardUrl: `${process.env.FRONTEND_URL}employer-dashboard/dashboard`,
       actionBy
+    });
+    await createNotification(employerUser._id, 'email_update', {
+      ...notificationPresets.emailUpdate(
+        'Company Profile Status Update',
+        `Your company profile "${profile.companyName}" has been ${status}.`
+      ),
+      actionUrl: '/employers-dashboard/company-profile',
+      icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
+      color: status === 'approved' ? '#22c55e' : '#ef4444',
     });
 
     // Mailtrap throttle workaround

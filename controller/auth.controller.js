@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendLoginOtpEmail } from '../utils/mailer.js';
 import { BadRequestError, ForbiddenError,NotFoundError} from '../utils/errors.js';
 import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
+import { createNotification, notificationPresets } from "../utils/notificationHelper.js";
 
 import { log } from "console";
 
@@ -97,8 +98,8 @@ authentication.signup = async (req, res, next) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // ✅ New: Automatically approve everyone for now
-        const status = 'approved';
+        // Candidate self-signup must stay pending until HR/Superadmin approval.
+        const status = safeRole === 'candidate' ? 'pending' : 'approved';
         
         // old approval logic (we can handle in frontend for now)
          // Approval logic
@@ -140,7 +141,9 @@ authentication.signup = async (req, res, next) => {
         // Send success response
         return res.status(201).json({
             success: true,
-            message: "User created successfully",
+            message: safeRole === 'candidate'
+              ? "Candidate registered successfully. Your account is pending approval."
+              : "User created successfully",
             user: {
                 token,
                 id: newUser._id,
@@ -337,6 +340,92 @@ authentication.createAdminUser = async (req, res, next) => {
     await session.abortTransaction();
     session.endSession();
     next(err);
+  }
+};
+
+/**
+ * Update employer account (name/email) by hr-admin or superadmin.
+ * Only assigned employers are editable.
+ */
+authentication.updateAdminUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, email } = req.body;
+
+    const editor = await User.findById(req.user.id).select('role employerIds');
+    if (!editor || !['hr-admin', 'superadmin'].includes(editor.role)) {
+      return res.status(403).json({ message: 'Not allowed to edit employer accounts' });
+    }
+
+    const targetUser = await User.findById(id);
+    if (!targetUser || targetUser.role !== 'employer') {
+      return res.status(404).json({ message: 'Employer not found' });
+    }
+
+    let isAssignedEmployer = false;
+
+    if (editor.role === 'hr-admin') {
+      isAssignedEmployer = (editor.employerIds || []).some(
+        (empId) => empId.toString() === id.toString()
+      );
+    } else if (editor.role === 'superadmin') {
+      const assignedHrAdmin = await User.findOne({
+        role: 'hr-admin',
+        isActive: true,
+        employerIds: targetUser._id
+      }).select('_id');
+      isAssignedEmployer = !!assignedHrAdmin;
+    }
+
+    if (!isAssignedEmployer) {
+      return res.status(403).json({
+        message: 'You can edit only assigned employers'
+      });
+    }
+
+    const updatePayload = {};
+
+    if (typeof name === 'string' && name.trim()) {
+      updatePayload.name = name.trim();
+    }
+
+    if (typeof email === 'string' && email.trim()) {
+      const normalizedEmail = normalizeEmail(email);
+
+      if (!isValidEmailAddress(normalizedEmail)) {
+        return res.status(400).json({ message: 'Please enter a valid email address' });
+      }
+
+      const existingEmailUser = await User.findOne({
+        email: normalizedEmail,
+        _id: { $ne: targetUser._id }
+      }).select('_id');
+
+      if (existingEmailUser) {
+        return res.status(400).json({ message: 'Email already in use by another account' });
+      }
+
+      updatePayload.email = normalizedEmail;
+      updatePayload.isSystemGeneratedEmail = false;
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      return res.status(400).json({ message: 'No valid fields provided for update' });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      id,
+      updatePayload,
+      { new: true, runValidators: true, select: '-password' }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Employer updated successfully',
+      data: updatedUser
+    });
+  } catch (error) {
+    next(error);
   }
 };
 
@@ -1004,6 +1093,72 @@ authentication.updateUserStatus = async (req, res, next) => {
       { new: true }
     );
 
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+
+    // Candidate and employer should see account approve/reject updates in in-app notifications.
+    if (['candidate', 'employer'].includes(user.role) && ['approved', 'rejected'].includes(status)) {
+      const statusLabel = status === 'approved' ? 'approved' : 'rejected';
+      const notificationData = notificationPresets.profileUpdate(
+        `Your account status has been ${statusLabel} by admin.`
+      );
+      const actionUrl =
+        user.role === 'employer'
+          ? '/employers-dashboard/dashboard'
+          : '/candidates-dashboard/notifications';
+
+      await createNotification(user._id, 'profile_update', {
+        ...notificationData,
+        actionUrl,
+        icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
+        color: status === 'approved' ? '#22c55e' : '#ef4444',
+      });
+    }
+
+    // HR-Admin / Superadmin should also receive related in-app notifications.
+    const actorName = req.user.name || req.user.email || 'Admin';
+    const actorRoleLabel = req.user.role === 'superadmin' ? 'Super Admin' : 'HR Admin';
+    const actionLabel = status === 'approved' ? 'approved' : 'rejected';
+
+    // Notify the acting admin about the completed action.
+    await createNotification(req.user.id, 'email_update', {
+      ...notificationPresets.emailUpdate(
+        'User Status Updated',
+        `${actorRoleLabel} ${actorName} ${actionLabel} ${user.name} (${user.role}).`
+      ),
+      actionUrl:
+        req.user.role === 'superadmin'
+          ? '/super-admin-dashboard/user-status'
+          : '/hr-admin-dashboard/user-status',
+      icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
+      color: status === 'approved' ? '#22c55e' : '#ef4444',
+    });
+
+    // Notify all superadmins when a HR-Admin performs the update.
+    if (req.user.role !== 'superadmin') {
+      const superadmins = await User.find({
+        role: 'superadmin',
+        isActive: true,
+      }).select('_id');
+
+      await Promise.all(
+        superadmins
+          .filter((admin) => admin?._id?.toString() !== req.user.id?.toString())
+          .map((admin) =>
+            createNotification(admin._id, 'email_update', {
+              ...notificationPresets.emailUpdate(
+                'User Status Changed',
+                `${actorRoleLabel} ${actorName} ${actionLabel} ${user.name} (${user.role}).`
+              ),
+              actionUrl: '/super-admin-dashboard/user-status',
+              icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
+              color: status === 'approved' ? '#22c55e' : '#ef4444',
+            })
+          )
+      );
+    }
+
     // Send status update email to user
     await sendUserStatusUpdateEmail({
       recipient: user.email,
@@ -1175,7 +1330,7 @@ authentication.googleLogin = async (req, res, next) => {
         const token = jwt.sign(
             { userId: user._id }, 
             process.env.JWT_SECRET, 
-            { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+            { expiresIn: process.env.JWT_EXPIRES_IN || '15d' }
         );
 
         // 5. Return success response to frontend

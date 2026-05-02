@@ -132,7 +132,7 @@ candidateResumeSchema.post('save', async function (doc) {
           recipient: alert.employer.email,
           candidateName: doc.personalInfo?.fullName || 'Unnamed Candidate',
           jobTitle: doc.personalInfo?.professionalTitle || 'Not Specified',
-          profileId: doc._id,
+          profileId: doc.profile,
           alert,
           matchScore,
         });

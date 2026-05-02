@@ -235,7 +235,7 @@ const sendResumeAlertEmail = async ({
             </ul>
           </div>
           <div style="text-align: center; margin-top: 20px;">
-            <a href="${process.env.FRONTEND_URL}/employer/candidates/${profileId}" 
+            <a href="${String(process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://coimbatorejobs.in').trim().replace(/\/+$/, '')}/candidates-single/${profileId}" 
                style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
               View Candidate Profile
             </a>

@@ -126,18 +126,18 @@ candidateRouter.get('/jobs/:id/similar', candidateController.getSimilarJobs);
 
 // Notification routes
 // Get all notifications
-candidateRouter.get('/notifications', authenticate, authorize(['candidate']), notificationController.getNotifications);
+candidateRouter.get('/notifications', authenticate, authorize(['candidate', 'employer', 'hr-admin', 'superadmin']), notificationController.getNotifications);
 
 // Get unread count
-candidateRouter.get('/notifications/unread/count', authenticate, authorize(['candidate']), notificationController.getUnreadCount);
+candidateRouter.get('/notifications/unread/count', authenticate, authorize(['candidate', 'employer', 'hr-admin', 'superadmin']), notificationController.getUnreadCount);
 
 // Mark notification as read
-candidateRouter.put('/notifications/:id/read', authenticate, authorize(['candidate']), notificationController.markAsRead);
+candidateRouter.put('/notifications/:id/read', authenticate, authorize(['candidate', 'employer', 'hr-admin', 'superadmin']), notificationController.markAsRead);
 
 // Mark all as read
-candidateRouter.put('/notifications/mark-all-read', authenticate, authorize(['candidate']), notificationController.markAllAsRead);
+candidateRouter.put('/notifications/mark-all-read', authenticate, authorize(['candidate', 'employer', 'hr-admin', 'superadmin']), notificationController.markAllAsRead);
 
 // Delete notification
-candidateRouter.delete('/notifications/:id', authenticate, authorize(['candidate']), notificationController.deleteNotification);
+candidateRouter.delete('/notifications/:id', authenticate, authorize(['candidate', 'employer', 'hr-admin', 'superadmin']), notificationController.deleteNotification);
 
 export default candidateRouter;

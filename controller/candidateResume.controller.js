@@ -9,6 +9,64 @@ import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
 
 const candidateResumeController = {};
 
+const resolveChromeExecutablePath = () => {
+    const envPath =
+        process.env.PUPPETEER_EXECUTABLE_PATH ||
+        process.env.CHROME_PATH ||
+        process.env.GOOGLE_CHROME_BIN;
+
+    const candidates = [
+        envPath,
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+    ].filter(Boolean);
+
+    for (const chromePath of candidates) {
+        try {
+            if (fs.existsSync(chromePath)) return chromePath;
+        } catch {
+            // ignore
+        }
+    }
+
+    return null;
+};
+
+const launchPdfBrowser = async () => {
+    const executablePath = resolveChromeExecutablePath();
+
+    const launchConfigs = [
+        {
+            headless: true,
+            executablePath: executablePath || undefined,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+            ],
+        },
+        {
+            headless: true,
+            executablePath: executablePath || undefined,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        },
+    ];
+
+    let lastError = null;
+    for (const config of launchConfigs) {
+        try {
+            return await puppeteer.launch(config);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError || new Error('Unable to launch browser for PDF generation');
+};
+
 /**
  * Creates a new resume for the authenticated candidate.
  * @param {Object} req - Request object with form data
@@ -345,17 +403,14 @@ candidateResumeController.generatePDF = async (req, res, next) => {
             throw new NotFoundError('Resume not found or not yours');
         }
 
-        // Launch Puppeteer (production-safe flags for container/root environments)
-        browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
+        // Launch Puppeteer with fallback configs to avoid "Target closed" crashes.
+        browser = await launchPdfBrowser();
         const page = await browser.newPage();
 
         // Generate HTML template
         const htmlContent = generateHTMLTemplate(resume);
 
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+        await page.setContent(htmlContent, { waitUntil: 'domcontentloaded', timeout: 45000 });
         const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
 
         // Set headers for PDF download
@@ -365,6 +420,21 @@ candidateResumeController.generatePDF = async (req, res, next) => {
 
         return res.send(pdfBuffer);
     } catch (error) {
+        const errorMsg = String(error?.message || '');
+        if (errorMsg.includes('Could not find Chrome')) {
+            return res.status(500).json({
+                success: false,
+                message:
+                    'PDF generation failed: Chrome browser is not available on server. Configure CHROME_PATH or install Chrome in runtime.',
+            });
+        }
+        if (errorMsg.includes('Target closed') || errorMsg.includes('Page.printToPDF')) {
+            return res.status(500).json({
+                success: false,
+                message:
+                    'PDF generation failed: browser process closed unexpectedly. Please retry once; if it continues, contact support.',
+            });
+        }
         next(error);
     } finally {
         if (browser) {

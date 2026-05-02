@@ -7,8 +7,9 @@ import Location from '../models/location.model.js';
 import Skill from '../models/skill.model.js';
 import Industry from '../models/industry.model.js';
 import FunctionalArea from '../models/functionalArea.model.js';
-import { sendSuperadminAlertEmail } from '../utils/mailer.js';
+import { sendSuperadminAlertEmail, sendEmployerJobPostedEmail } from '../utils/mailer.js';
 import { SUPERADMIN_EMAIL } from '../config/env.js';
+import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
 
@@ -252,13 +253,17 @@ jobsController.createJobPost = async (req, res, next) => {
     await newJobPost.save();
 
     const recipients = await getAdminAlertRecipients();
-    const actor = await User.findById(req.user.id).select('email role');
+    const actor = await User.findById(req.user.id).select('name email role');
     const actorLabel =
       actor?.email ||
       (actor?.role === 'superadmin' ? 'Super Admin' : actor?.role === 'hr-admin' ? 'HR Admin' : 'Employer');
 
     if (recipients.length) {
-      await Promise.all(
+      console.log(
+        `[JOB_POST_ADMIN_ALERT] Triggered for job="${newJobPost.title}" (${newJobPost._id}) | postedByRole=${userRole || 'employer'} | recipients=${recipients.join(', ')}`
+      );
+
+      const emailResults = await Promise.allSettled(
         recipients.map((recipient) =>
           sendSuperadminAlertEmail({
             superadminEmail: recipient,
@@ -270,6 +275,50 @@ jobsController.createJobPost = async (req, res, next) => {
             dashboardLink: `${process.env.FRONTEND_URL}/super-admin-dashboard/manage-jobs`,
           })
         )
+      );
+
+      emailResults.forEach((result, index) => {
+        const recipient = recipients[index];
+        if (result.status === 'fulfilled') {
+          console.log(`[JOB_POST_ADMIN_ALERT] Sent successfully -> ${recipient}`);
+        } else {
+          console.error(
+            `[JOB_POST_ADMIN_ALERT] Failed -> ${recipient}:`,
+            result.reason?.message || result.reason || 'Unknown error'
+          );
+        }
+      });
+    } else {
+      console.warn(
+        `[JOB_POST_ADMIN_ALERT] Skipped for job="${newJobPost.title}" (${newJobPost._id}) because no recipients were found`
+      );
+    }
+
+    if (userRole === 'employer' && actor?.email) {
+      console.log(
+        `[JOB_POST_EMPLOYER_CONFIRMATION] Triggered for job="${newJobPost.title}" (${newJobPost._id}) -> ${actor.email}`
+      );
+      await sendEmployerJobPostedEmail({
+        recipient: actor.email,
+        employerName: actor?.name || 'Employer',
+        jobTitle: newJobPost.title,
+        companyName: companyProfileDoc.companyName,
+        dashboardLink: `${process.env.FRONTEND_URL}/employers-dashboard/manage-jobs`,
+      });
+      await createNotification(actor._id, 'email_update', {
+        ...notificationPresets.emailUpdate(
+          'Job Posted Successfully',
+          `Your job "${newJobPost.title}" is posted and live now.`
+        ),
+        jobPost: newJobPost._id,
+        actionUrl: '/employers-dashboard/manage-jobs',
+      });
+      console.log(
+        `[JOB_POST_EMPLOYER_CONFIRMATION] Completed for job="${newJobPost.title}" (${newJobPost._id}) -> ${actor.email}`
+      );
+    } else if (userRole === 'employer') {
+      console.warn(
+        `[JOB_POST_EMPLOYER_CONFIRMATION] Skipped for job="${newJobPost.title}" (${newJobPost._id}) because employer email not found`
       );
     }
 

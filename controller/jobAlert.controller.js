@@ -2,14 +2,109 @@ import mongoose from 'mongoose';
 import JobAlert from '../models/jobAlert.model.js';
 import JobPost from '../models/jobs.model.js';
 import CandidateProfile from '../models/candidateProfile.model.js';
+import User from '../models/user.model.js';
+import { SUPERADMIN_EMAIL } from '../config/env.js';
 import { BadRequestError, NotFoundError } from '../utils/errors.js';
-import { sendJobAlertEmail } from '../utils/mailer.js';
+import {
+  sendJobAlertEmail,
+  sendJobAlertSetupConfirmationEmail,
+  sendSuperadminAlertEmail,
+} from '../utils/mailer.js';
 import EventEmitter from 'events';
 
 // EventEmitter to handle job alert events (e.g., sending notifications)
 const alertEmitter = new EventEmitter();
 
 const jobAlertController = {};
+
+const EXPERIENCE_ENUM = [
+  'Less than 1 year',
+  '1-3 years',
+  '3-5 years',
+  '5-10 years',
+  '10+ years',
+];
+
+const JOB_TYPE_ENUM = [
+  'Full-time',
+  'Part-time',
+  'Contract',
+  'Freelance',
+  'Internship',
+  'Temporary',
+];
+
+const normalizeExperienceValue = (value) => {
+  if (!value) return undefined;
+  const raw = String(value).trim();
+  const lower = raw.toLowerCase();
+
+  if (EXPERIENCE_ENUM.includes(raw)) return raw;
+  if (lower === 'fresher' || lower === 'freshers' || lower === 'fresh') return 'Less than 1 year';
+  if (lower.includes('less') || lower.includes('0-1') || lower.includes('0 year')) return 'Less than 1 year';
+  if (lower.includes('1-3')) return '1-3 years';
+  if (lower.includes('3-5')) return '3-5 years';
+  if (lower.includes('5-10')) return '5-10 years';
+  if (lower.includes('10+')) return '10+ years';
+
+  return undefined;
+};
+
+const normalizeJobTypeValue = (value) => {
+  if (!value) return undefined;
+  const raw = String(value).trim();
+  if (JOB_TYPE_ENUM.includes(raw)) return raw;
+
+  const lower = raw.toLowerCase().replace(/\s+/g, '');
+  const map = {
+    fulltime: 'Full-time',
+    'full-time': 'Full-time',
+    parttime: 'Part-time',
+    'part-time': 'Part-time',
+    contract: 'Contract',
+    freelance: 'Freelance',
+    freelancer: 'Freelance',
+    internship: 'Internship',
+    temporary: 'Temporary',
+  };
+  return map[lower];
+};
+
+const sanitizeAlertCriteria = (criteria = {}) => {
+  const next = { ...criteria };
+  const normalizedExperience = normalizeExperienceValue(next.experience);
+  const normalizedJobType = normalizeJobTypeValue(next.jobType);
+
+  if (normalizedExperience) next.experience = normalizedExperience;
+  else delete next.experience;
+
+  if (normalizedJobType) next.jobType = normalizedJobType;
+  else delete next.jobType;
+
+  return next;
+};
+
+const getAdminAlertRecipients = async () => {
+  const recipients = new Set();
+
+  if (SUPERADMIN_EMAIL) {
+    recipients.add(String(SUPERADMIN_EMAIL).trim().toLowerCase());
+  }
+
+  const hrAdmins = await User.find({
+    role: 'hr-admin',
+    isActive: true,
+    status: 'approved',
+  }).select('email');
+
+  hrAdmins.forEach((admin) => {
+    if (admin?.email) {
+      recipients.add(String(admin.email).trim().toLowerCase());
+    }
+  });
+
+  return Array.from(recipients);
+};
 
 // <-- ADDED MISSING HELPER FUNCTION
 const parseField = (val) => {
@@ -51,6 +146,10 @@ jobAlertController.createJobAlert = async (req, res, next) => {
       criteria.experience = criteria.experience || profile.experience;
     }
 
+    // Normalize values that can come in non-enum formats (e.g., "Fresher")
+    const safeCriteria = sanitizeAlertCriteria(criteria);
+    Object.assign(criteria, safeCriteria);
+
     // Validate Master Fields
     if (criteria.industry && !(await mongoose.model('Industry').findById(criteria.industry))) {
       throw new BadRequestError('Invalid Industry');
@@ -75,6 +174,35 @@ jobAlertController.createJobAlert = async (req, res, next) => {
     });
 
     await newAlert.save();
+
+    await sendJobAlertSetupConfirmationEmail({
+      recipient: req.user.email,
+      name: req.user.name,
+      roleLabel: criteria.roleLabel || criteria.title || criteria.keywords?.[0] || '',
+      locationLabel: criteria.location?.city || '',
+      industryLabel: criteria.industryLabel || '',
+    });
+
+    const adminRecipients = await getAdminAlertRecipients();
+    if (adminRecipients.length > 0) {
+      await Promise.allSettled(
+        adminRecipients.map((recipient) =>
+          sendSuperadminAlertEmail({
+            superadminEmail: recipient,
+            eventType: 'job_applied',
+            userEmail: req.user.email,
+            userRole: req.user.role,
+            message: `Job alert requested by ${req.user.name} | Role: ${
+              criteria.roleLabel || criteria.title || criteria.keywords?.[0] || 'Any'
+            }, Location: ${criteria.location?.city || 'Any'}, Industry: ${
+              criteria.industryLabel || 'Any'
+            }`,
+            actorEmail: req.user.email,
+            dashboardLink: `${process.env.FRONTEND_URL}/hr-admin-dashboard/dashboard`,
+          }),
+        ),
+      );
+    }
 
     return res.status(201).json({
       success: true,
@@ -108,6 +236,9 @@ jobAlertController.updateJobAlert = async (req, res, next) => {
 
     // Validate Master Fields if they are being updated
     if (criteria) {
+        const safeCriteria = sanitizeAlertCriteria(criteria);
+        Object.assign(criteria, safeCriteria);
+
         if (criteria.industry && criteria.industry !== alert.criteria.industry?.toString()) {
             if (!(await mongoose.model('Industry').findById(criteria.industry))) throw new BadRequestError('Invalid Industry');
         }

@@ -5,18 +5,27 @@ import JobPost from '../models/jobs.model.js';
 import JobApply from "../models/jobApply.model.js";
 import SavedJob from '../models/savedJob.model.js';
 import CandidateResume from '../models/candidateResume.model.js';
+import ResumeDownloadLog from '../models/resumeDownloadLog.model.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { sendCandidateProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail, sendJobApplicationNotificationEmail, sendCandidateApplicationConfirmationEmail } from '../utils/mailer.js';
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
 import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { s3 } from "../config/aws-s3.js";
 import fs from 'fs';
 import path from 'path';
 import natural from 'natural';  //library (for TF-IDF / cosine similarity)
 
 const candidateController = {};
+
+const getIstDayKey = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 
 // Helper to handle Array/JSON parsing from FormData consistently
 const parseField = (val) => {
@@ -28,6 +37,53 @@ const parseField = (val) => {
   } catch (e) {
     return [val];
   }
+};
+
+const buildResumeKeyCandidates = (resumeValue) => {
+  if (!resumeValue || typeof resumeValue !== "string") return [];
+
+  let key = resumeValue.trim();
+
+  if (key.startsWith("https://") && key.includes(".amazonaws.com/")) {
+    key = key.split(".amazonaws.com/")[1] || "";
+  }
+
+  if (!key) return [];
+
+  const normalized = key.replace(/^\/+/, "");
+  const candidates = new Set([key, normalized]);
+
+  // Legacy local path mapping -> likely S3 folders
+  if (normalized.startsWith("uploads/candidate/")) {
+    const fileName = normalized.split("uploads/candidate/")[1];
+    if (fileName) {
+      candidates.add(`uploads/candidate/${fileName}`);
+      candidates.add(`resumes/${fileName}`);
+      candidates.add(`candidate-cvs/${fileName}`);
+    }
+  }
+
+  return [...candidates].filter(Boolean);
+};
+
+const resolveExistingResumeKey = async (resumeValue) => {
+  const possibleKeys = buildResumeKeyCandidates(resumeValue);
+
+  for (const key of possibleKeys) {
+    try {
+      await s3.send(
+        new HeadObjectCommand({
+          Bucket: process.env.AWS_S3_BUCKET,
+          Key: key,
+        })
+      );
+      return key;
+    } catch (error) {
+      // try next candidate
+    }
+  }
+
+  return null;
 };
 
 const getAdminAlertRecipients = async () => {
@@ -351,6 +407,15 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       name: targetUser.name,
       status: newProfile.status,
       dashboardUrl: `${process.env.FRONTEND_URL}/candidate/dashboard`
+    });
+    await createNotification(candidateId, 'email_update', {
+      ...notificationPresets.emailUpdate(
+        'Candidate Profile Submitted',
+        `Your candidate profile is ${newProfile.status}.`
+      ),
+      actionUrl: '/candidates-dashboard/my-profile',
+      icon: newProfile.status === 'approved' ? 'la-check-circle' : 'la-clock-o',
+      color: newProfile.status === 'approved' ? '#22c55e' : '#f59e0b',
     });
 
     // WAIT 6 SECONDS (Mailtrap throttle workaround)
@@ -744,6 +809,15 @@ candidateController.approveCandidateProfile = async (req, res, next) => {
       rejectionReason: status === 'rejected' ? rejectionReason : null,
       dashboardUrl: `${process.env.FRONTEND_URL}/candidate-dashboard/dashboard`
     });
+    await createNotification(profile.candidate, 'email_update', {
+      ...notificationPresets.emailUpdate(
+        'Candidate Profile Status Update',
+        `Your candidate profile has been ${status}.`
+      ),
+      actionUrl: '/candidates-dashboard/my-profile',
+      icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
+      color: status === 'approved' ? '#22c55e' : '#ef4444',
+    });
 
     // WAIT 5 SECONDS (Mailtrap throttle workaround)
     await new Promise(resolve => setTimeout(resolve, 5000)); //remove when in production
@@ -960,10 +1034,14 @@ candidateController.applyToJob = async (req, res, next) => {
       // SAVE THE JOB POST 
       await jobPost.save();
 
-    // Send email to superadmins
+    // Send email to superadmin + hr-admin recipients
     const recipients = await getAdminAlertRecipients();
     if (recipients.length) {
-      await Promise.all(
+      console.log(
+        `[JOB_APPLY_ADMIN_ALERT] Triggered for application="${newApplication._id}" job="${jobPost.title}" | recipients=${recipients.join(', ')}`
+      );
+
+      const adminEmailResults = await Promise.allSettled(
         recipients.map((recipient) =>
           sendSuperadminAlertEmail({
             superadminEmail: recipient,
@@ -976,28 +1054,69 @@ candidateController.applyToJob = async (req, res, next) => {
           })
         )
       );
+
+      adminEmailResults.forEach((result, index) => {
+        const recipient = recipients[index];
+        if (result.status === 'fulfilled') {
+          console.log(`[JOB_APPLY_ADMIN_ALERT] Sent successfully -> ${recipient}`);
+        } else {
+          console.error(
+            `[JOB_APPLY_ADMIN_ALERT] Failed -> ${recipient}:`,
+            result.reason?.message || result.reason || 'Unknown error'
+          );
+        }
+      });
+    } else {
+      console.warn(
+        `[JOB_APPLY_ADMIN_ALERT] Skipped for application="${newApplication._id}" because no recipients found`
+      );
     }
 
-    // Send email to employer who posted the job
+    // Send email to the user who posted the job (postedBy). Fallback: employer owner.
     try {
-      const employer = await User.findById(jobPost.employer).select('email name');
-      if (employer && employer.email) {
+      const jobPoster = await User.findById(jobPost.postedBy || jobPost.employer).select('email name role');
+      if (jobPoster && jobPoster.email) {
+        console.log(
+          `[JOB_APPLY_POSTER_ALERT] Triggered for application="${newApplication._id}" -> ${jobPoster.email}`
+        );
         await sendJobApplicationNotificationEmail({
-          employerEmail: employer.email,
-          employerName: employer.name || 'Employer',
+          employerEmail: jobPoster.email,
+          employerName: jobPoster.name || 'Employer',
           candidateName: candidateProfile.fullName || candidateUser.name || 'A candidate',
           jobTitle: jobPost.title,
           companyName: jobPost.companyProfile?.companyName || 'Company',
           dashboardLink: `${process.env.FRONTEND_URL}/employer-dashboard/shortlisted-resumes`,
         });
+        console.log(
+          `[JOB_APPLY_POSTER_ALERT] Sent successfully -> ${jobPoster.email}`
+        );
+        await createNotification(jobPoster._id, 'email_update', {
+          ...notificationPresets.emailUpdate(
+            'New Job Application',
+            `${candidateProfile.fullName || candidateUser.name || 'A candidate'} applied for ${jobPost.title}`
+          ),
+          jobPost: jobPostId,
+          application: newApplication._id,
+          actionUrl: '/employers-dashboard/all-applicants',
+        });
+      } else {
+        console.warn(
+          `[JOB_APPLY_POSTER_ALERT] Skipped for application="${newApplication._id}" because poster email not found`
+        );
       }
     } catch (emailError) {
-      console.error('Failed to send employer notification:', emailError);
+      console.error(
+        `[JOB_APPLY_POSTER_ALERT] Failed for application="${newApplication._id}":`,
+        emailError?.message || emailError
+      );
       // Don't throw - let the application succeed even if email fails
     }
 
     // Send confirmation email to candidate
     try {
+      console.log(
+        `[JOB_APPLY_CANDIDATE_CONFIRMATION] Triggered for application="${newApplication._id}" -> ${candidateUser?.email || 'N/A'}`
+      );
       await sendCandidateApplicationConfirmationEmail({
         candidateEmail: candidateUser.email,
         candidateName: candidateProfile.fullName || candidateUser.name || 'Candidate',
@@ -1005,9 +1124,49 @@ candidateController.applyToJob = async (req, res, next) => {
         companyName: jobPost.companyProfile?.companyName || 'Company',
         jobId: jobPostId,
       });
+      console.log(
+        `[JOB_APPLY_CANDIDATE_CONFIRMATION] Sent successfully -> ${candidateUser?.email || 'N/A'}`
+      );
+      await createNotification(candidateId, 'email_update', {
+        ...notificationPresets.emailUpdate(
+          'Application Submitted Successfully',
+          `Position: ${jobPost.title} | Company: ${jobPost.companyProfile?.companyName || 'Company'}`
+        ),
+        jobPost: jobPostId,
+        application: newApplication._id,
+        actionUrl: '/candidates-dashboard/applied-jobs',
+        icon: 'la-check-circle',
+        color: '#22c55e',
+      });
+      console.log(
+        `[JOB_APPLY_CANDIDATE_CONFIRMATION] In-app notification created -> ${candidateUser?.email || 'N/A'}`
+      );
     } catch (emailError) {
-      console.error('Failed to send candidate confirmation email:', emailError);
+      console.error(
+        `[JOB_APPLY_CANDIDATE_CONFIRMATION] Failed for application="${newApplication._id}":`,
+        emailError?.message || emailError
+      );
       // Don't throw - let the application succeed even if email fails
+    }
+
+    // Ensure candidate gets a mini email-style notification even if email block fails later.
+    try {
+      await createNotification(candidateId, 'email_update', {
+        ...notificationPresets.emailUpdate(
+          'Application Submitted Successfully',
+          `Position: ${jobPost.title} | Company: ${jobPost.companyProfile?.companyName || 'Company'}`
+        ),
+        jobPost: jobPostId,
+        application: newApplication._id,
+        actionUrl: '/candidates-dashboard/applied-jobs',
+        icon: 'la-check-circle',
+        color: '#22c55e',
+      });
+    } catch (notificationError) {
+      console.error(
+        `[JOB_APPLY_CANDIDATE_CONFIRMATION] Fallback notification create failed for application="${newApplication._id}":`,
+        notificationError?.message || notificationError
+      );
     }
 
     // Create notification for candidate
@@ -1528,8 +1687,13 @@ candidateController.getResumeDownloadUrl = async (req, res, next) => {
       throw new BadRequestError("Resume not found");
     }
 
-    // extract key from URL if stored full URL
-    const key = profile.resume.split(".amazonaws.com/")[1];
+    const key = await resolveExistingResumeKey(profile.resume);
+    if (!key) {
+      return res.status(404).json({
+        success: false,
+        message: "Resume file not found in storage",
+      });
+    }
 
     const signedUrl = await getPrivateFileUrl(key);
 
@@ -1544,75 +1708,66 @@ candidateController.getResumeDownloadUrl = async (req, res, next) => {
 };
 
 // Get resume for HR admin (with signed URL if stored in S3)
-// candidateController.getResumeForHR = async (req, res, next) => {
-//   try {
-//     const { candidateId } = req.params;
-
-//     const profile = await CandidateProfile.findOne({ candidate: candidateId });
-
-//     if (!profile?.resume) {
-//       throw new BadRequestError("Resume not found");
-//     }
-
-//     const key = profile.resume.split(".amazonaws.com/")[1];
-//     const signedUrl = await getPrivateFileUrl(key);
-
-//     res.json({ success: true, url: signedUrl });
-//   } catch (error) {
-//     next(error);
-//   }
-// };
 candidateController.getResumeForHR = async (req, res, next) => {
   try {
     const { candidateId } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role;
+    let resolvedCandidateUserId = candidateId;
 
-    // hr-admin and superadmin can download any resume
-    if (!['hr-admin', 'superadmin'].includes(userRole)) {
-      // For employers: Check if candidate applied to any of their jobs
-      if (userRole === 'employer') {
-        // Get all jobs by this employer
-        const jobPosts = await JobPost.find({ employer: userId }).select('_id');
-        const jobIds = jobPosts.map(j => j._id);
-
-        // Check if the candidate has applied to any of these jobs
-        const application = await JobApply.findOne({
-          candidate: candidateId,
-          job: { $in: jobIds },
-          status: { $in: ['applied', 'reviewed', 'shortlisted', 'selected', 'rejected'] } // Consider all active statuses
-        });
-
-        if (!application) {
-          return res.status(403).json({
-            success: false,
-            message: "Access denied. This candidate has not applied to any of your jobs."
-          });
-        }
+    // Accept either candidate userId or candidate profileId from frontend.
+    if (userRole === 'employer') {
+      const profileCandidate = await CandidateProfile.findById(candidateId).select('candidate');
+      if (profileCandidate?.candidate) {
+        resolvedCandidateUserId = String(profileCandidate.candidate);
       }
     }
 
-    const profile = await CandidateProfile.findOne({ candidate: candidateId });
-
+    const profile = await CandidateProfile.findOne({ candidate: resolvedCandidateUserId });
     if (!profile?.resume) {
       return res.status(404).json({ success: false, message: "Resume not found" });
     }
 
-    let key = profile.resume.trim();
+    // Employer daily download limit: 20 resumes/day (IST)
+    if (userRole === 'employer') {
+      const dayKey = getIstDayKey();
+      const todayLog = await ResumeDownloadLog.findOne({
+        employer: userId,
+        dayKey,
+      }).select('downloadCount');
 
-    // Case 1: Full S3 URL (extract the path after bucket)
-    if (key.startsWith("https://") && key.includes(".amazonaws.com/")) {
-      const parts = key.split(".amazonaws.com/");
-      key = parts[1]; // take everything after the domain
+      const dailyDownloadCount = Number(todayLog?.downloadCount || 0);
+
+      if (dailyDownloadCount >= 20) {
+        return res.status(429).json({
+          success: false,
+          message: "Daily download limit reached (20/day). Please download next day.",
+        });
+      }
     }
 
-    // Case 2: Relative path or key already stored correctly → leave as is
+    const key = await resolveExistingResumeKey(profile.resume);
     if (!key) {
-      return res.status(400).json({ success: false, message: "Invalid resume key" });
+      return res.status(404).json({
+        success: false,
+        message: "Resume file not found in storage",
+      });
     }
 
-    // Generate signed URL
     const signedUrl = await getPrivateFileUrl(key);
+
+    if (userRole === 'employer') {
+      const dayKey = getIstDayKey();
+      await ResumeDownloadLog.updateOne(
+        { employer: userId, dayKey },
+        {
+          $inc: { downloadCount: 1 },
+          $set: { candidate: resolvedCandidateUserId, downloadedAt: new Date() },
+          $setOnInsert: { employer: userId, dayKey },
+        },
+        { upsert: true }
+      );
+    }
 
     res.json({ success: true, url: signedUrl });
   } catch (error) {
@@ -1645,3 +1800,4 @@ function getSimilarity(text1, text2) {
 }
 
 export default candidateController;
+

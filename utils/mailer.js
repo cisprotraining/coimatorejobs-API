@@ -130,6 +130,14 @@ const sendMail = async ({ to, subject, html, text = '', cc = [], from }) => {
   }
 };
 
+const resolveFrontendBaseUrl = () => {
+  const raw =
+    process.env.FRONTEND_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    'https://coimbatorejobs.in';
+  return String(raw).trim().replace(/\/+$/, '');
+};
+
 // Function to send job alert email
 const sendJobAlertEmail = async ({ recipient, jobTitle, companyName, jobId }) => {
   try {
@@ -169,6 +177,7 @@ const sendResumeAlertEmail = async ({
 }) => {
   try {
     if (!recipient) throw new Error('Recipient email is missing');
+    const frontendBaseUrl = resolveFrontendBaseUrl();
      await sendMail({
       to: recipient,
       subject: `New Resume Match: ${candidateName} for "${alert.title}"`,
@@ -210,7 +219,7 @@ const sendResumeAlertEmail = async ({
             </ul>
           </div>
           <div style="text-align: center; margin-top: 20px;">
-            <a href="${(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/candidates-single/${profileId}"
+            <a href="${frontendBaseUrl}/candidates-single/${profileId}"
                style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
               View Candidate Profile
             </a>
@@ -218,8 +227,8 @@ const sendResumeAlertEmail = async ({
           <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
             <p style="color: #64748b; font-size: 14px;">
               Youâ€™re receiving this email because you set up a resume alert on our platform.<br>
-              <a href="${(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/employers-dashboard/resume-alerts" style="color: #2563eb;">Manage this alert</a> |
-              <a href="${(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/employers-dashboard/dashboard" style="color: #2563eb;">Notification Settings</a>
+              <a href="${frontendBaseUrl}/employers-dashboard/resume-alerts" style="color: #2563eb;">Manage this alert</a> |
+              <a href="${frontendBaseUrl}/employers-dashboard/dashboard" style="color: #2563eb;">Notification Settings</a>
             </p>
           </div>
         </div>
@@ -952,5 +961,86 @@ const sendApplicationStatusUpdateEmail = async ({ candidateEmail, candidateName,
   }
 };
 
-export { sendJobAlertEmail, sendResumeAlertEmail, sendPasswordResetEmail, sendLoginOtpEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendCompanyProfileStatusEmail, sendCandidateProfileStatusEmail, sendJobApplicationNotificationEmail, sendCandidateApplicationConfirmationEmail, sendApplicationStatusUpdateEmail };
+const sendJobAlertSetupConfirmationEmail = async ({
+  recipient,
+  name,
+  roleLabel,
+  locationLabel,
+  industryLabel,
+}) => {
+  try {
+    if (!recipient) throw new Error('Recipient email is missing');
+    const selectedRows = [
+      roleLabel
+        ? `<p style="margin: 6px 0;"><strong>Role:</strong> ${roleLabel}</p>`
+        : "",
+      locationLabel
+        ? `<p style="margin: 6px 0;"><strong>Location:</strong> ${locationLabel}</p>`
+        : "",
+      industryLabel
+        ? `<p style="margin: 6px 0;"><strong>Industry:</strong> ${industryLabel}</p>`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("");
+
+    await sendMail({
+      to: recipient,
+      subject: 'Job Alert Created Successfully',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+          <h2 style="color: #2563eb;">Job Alert is Active</h2>
+          <p>Hello ${name || 'Candidate'},</p>
+          <p>Your job alert has been created. We will notify you instantly when matching jobs are posted.</p>
+          ${
+            selectedRows
+              ? `<div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin: 18px 0;">${selectedRows}</div>`
+              : ""
+          }
+          <p>Thanks,<br><strong>Coimbatore Jobs Team</strong></p>
+        </div>
+      `,
+    });
+  } catch (error) {
+    console.error(`Failed to send job alert setup email to ${recipient}:`, error);
+  }
+};
+
+// Send job post confirmation email to employer (only when employer posts directly)
+const sendEmployerJobPostedEmail = async ({ recipient, employerName, jobTitle, companyName, dashboardLink }) => {
+  try {
+    if (!recipient) throw new Error('Employer email is missing');
+    await sendMail({
+      from: `"Job Post Confirmation" <${defaultFromAddress}>`,
+      to: recipient,
+      subject: `Job Posted Successfully - ${jobTitle}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+          <h2 style="color: #22c55e;">Your Job Post is Live</h2>
+          <p>Dear ${employerName || 'Employer'},</p>
+          <p>Your new job has been posted successfully on Coimbatore Jobs.</p>
+          <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #22c55e;">
+            <p style="margin: 5px 0;"><strong>Job Title:</strong> ${jobTitle}</p>
+            <p style="margin: 5px 0;"><strong>Company:</strong> ${companyName}</p>
+            <p style="margin: 5px 0;"><strong>Posted On:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
+          </div>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${dashboardLink}"
+               style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              View Manage Jobs
+            </a>
+          </div>
+          <p style="color: #64748b; font-size: 12px; text-align: center;">
+            &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.
+          </p>
+        </div>
+      `
+    });
+    console.log(`Employer job-post confirmation sent to ${recipient}`);
+  } catch (error) {
+    console.error(`Failed to send employer job-post confirmation to ${recipient}:`, error);
+  }
+};
+
+export { sendJobAlertEmail, sendJobAlertSetupConfirmationEmail, sendResumeAlertEmail, sendPasswordResetEmail, sendLoginOtpEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendCompanyProfileStatusEmail, sendCandidateProfileStatusEmail, sendJobApplicationNotificationEmail, sendCandidateApplicationConfirmationEmail, sendApplicationStatusUpdateEmail, sendEmployerJobPostedEmail };
 

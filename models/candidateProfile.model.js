@@ -219,8 +219,6 @@ candidateProfileSchema.post('save', async function (doc) {
 });
 
 // Define indexes explicitly
-candidateProfileSchema.index({ candidate: 1 }, { unique: true });
-candidateProfileSchema.index({ email: 1 }, { unique: true });
 candidateProfileSchema.index({ jobTitle: 'text', description: 'text' });
 candidateProfileSchema.index({ 'dailyViews.date': 1 });
 

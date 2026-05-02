@@ -2,14 +2,14 @@ import mongoose from 'mongoose';
 
 const notificationSchema = new mongoose.Schema(
   {
-    candidate: {
+    user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
     },
     type: {
       type: String,
-      enum: ['application_submitted', 'application_reviewed', 'application_selected', 'application_rejected', 'job_alert', 'profile_update'],
+      enum: ['application_submitted', 'application_reviewed', 'application_selected', 'application_rejected', 'job_alert', 'profile_update', 'email_update'],
       required: true,
     },
     title: {
@@ -26,7 +26,7 @@ const notificationSchema = new mongoose.Schema(
     },
     application: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'JobApply',
+      ref: 'JobApplication',
     },
     isRead: {
       type: Boolean,
@@ -48,7 +48,9 @@ const notificationSchema = new mongoose.Schema(
 );
 
 // Index for faster queries
-notificationSchema.index({ candidate: 1, isRead: -1, createdAt: -1 });
+notificationSchema.index({ user: 1, isRead: -1, createdAt: -1 });
+// Auto-delete notifications after 30 days (MongoDB TTL monitor runs periodically).
+notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 * 24 * 30 });
 
 const Notification = mongoose.model('Notification', notificationSchema);
 

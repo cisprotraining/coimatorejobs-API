@@ -1,21 +1,33 @@
 import Notification from '../models/notification.model.js';
-import { NotFoundError, BadRequestError } from '../utils/errors.js';
+import '../models/jobApply.model.js';
+import '../models/jobs.model.js';
+import { NotFoundError } from '../utils/errors.js';
 
 const notificationController = {};
 
+const buildOwnerQuery = (userId) => ({
+  $or: [{ user: userId }, { candidate: userId }],
+});
+
+const getOwnerId = (notification) => notification?.user || notification?.candidate;
+
 /**
- * Get all notifications for a candidate
+ * Get all notifications for the logged-in user
  * @route GET /api/v1/candidate-dashboard/notifications
- * @access Private (Candidate only)
+ * @access Private
  */
 notificationController.getNotifications = async (req, res, next) => {
   try {
-    const candidateId = req.user.id;
+    const userId = req.user.id;
     const { limit = 10, page = 1, isRead } = req.query;
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const cutoffDate = new Date(Date.now() - THIRTY_DAYS_MS);
 
-    const query = { candidate: candidateId };
+    const query = {
+      ...buildOwnerQuery(userId),
+      createdAt: { $gte: cutoffDate },
+    };
 
-    // Filter by read status if provided
     if (isRead !== undefined) {
       query.isRead = isRead === 'true';
     }
@@ -24,19 +36,23 @@ notificationController.getNotifications = async (req, res, next) => {
       .populate('jobPost', 'title companyProfile')
       .populate('application')
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip((parseInt(page) - 1) * parseInt(limit));
+      .limit(parseInt(limit, 10))
+      .skip((parseInt(page, 10) - 1) * parseInt(limit, 10));
 
     const totalCount = await Notification.countDocuments(query);
-    const unreadCount = await Notification.countDocuments({ candidate: candidateId, isRead: false });
+    const unreadCount = await Notification.countDocuments({
+      ...buildOwnerQuery(userId),
+      isRead: false,
+      createdAt: { $gte: cutoffDate },
+    });
 
     return res.status(200).json({
       success: true,
       notifications,
       totalCount,
       unreadCount,
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: parseInt(page, 10),
+      limit: parseInt(limit, 10),
     });
   } catch (error) {
     next(error);
@@ -46,16 +62,17 @@ notificationController.getNotifications = async (req, res, next) => {
 /**
  * Mark a notification as read
  * @route PUT /api/v1/candidate-dashboard/notifications/:id/read
- * @access Private (Candidate only)
+ * @access Private
  */
 notificationController.markAsRead = async (req, res, next) => {
   try {
-    const candidateId = req.user.id;
+    const userId = req.user.id;
     const { id } = req.params;
 
     const notification = await Notification.findById(id);
+    const ownerId = getOwnerId(notification);
 
-    if (!notification || notification.candidate.toString() !== candidateId.toString()) {
+    if (!notification || ownerId?.toString() !== userId.toString()) {
       throw new NotFoundError('Notification not found');
     }
 
@@ -75,14 +92,14 @@ notificationController.markAsRead = async (req, res, next) => {
 /**
  * Mark all notifications as read
  * @route PUT /api/v1/candidate-dashboard/notifications/mark-all-read
- * @access Private (Candidate only)
+ * @access Private
  */
 notificationController.markAllAsRead = async (req, res, next) => {
   try {
-    const candidateId = req.user.id;
+    const userId = req.user.id;
 
     const result = await Notification.updateMany(
-      { candidate: candidateId, isRead: false },
+      { ...buildOwnerQuery(userId), isRead: false },
       { isRead: true }
     );
 
@@ -99,20 +116,26 @@ notificationController.markAllAsRead = async (req, res, next) => {
 /**
  * Delete a notification
  * @route DELETE /api/v1/candidate-dashboard/notifications/:id
- * @access Private (Candidate only)
+ * @access Private
  */
 notificationController.deleteNotification = async (req, res, next) => {
   try {
-    const candidateId = req.user.id;
+    const userId = req.user.id;
     const { id } = req.params;
 
-    const notification = await Notification.findById(id);
+    // Atomic owner-scoped delete to avoid race-condition 404s
+    // (e.g., duplicate delete requests from client).
+    const deletedNotification = await Notification.findOneAndDelete({
+      _id: id,
+      ...buildOwnerQuery(userId),
+    });
 
-    if (!notification || notification.candidate.toString() !== candidateId.toString()) {
-      throw new NotFoundError('Notification not found');
+    if (!deletedNotification) {
+      return res.status(200).json({
+        success: true,
+        message: 'Notification already deleted or not found',
+      });
     }
-
-    await Notification.deleteOne({ _id: id });
 
     return res.status(200).json({
       success: true,
@@ -126,15 +149,18 @@ notificationController.deleteNotification = async (req, res, next) => {
 /**
  * Get unread notification count
  * @route GET /api/v1/candidate-dashboard/notifications/unread/count
- * @access Private (Candidate only)
+ * @access Private
  */
 notificationController.getUnreadCount = async (req, res, next) => {
   try {
-    const candidateId = req.user.id;
+    const userId = req.user.id;
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    const cutoffDate = new Date(Date.now() - THIRTY_DAYS_MS);
 
     const unreadCount = await Notification.countDocuments({
-      candidate: candidateId,
+      ...buildOwnerQuery(userId),
       isRead: false,
+      createdAt: { $gte: cutoffDate },
     });
 
     return res.status(200).json({

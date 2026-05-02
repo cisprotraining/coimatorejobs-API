@@ -1,15 +1,15 @@
 import Notification from '../models/notification.model.js';
 
 /**
- * Create a notification for candidate
- * @param {string} candidateId - Candidate user ID
+ * Create a notification for any user (candidate/employer/admin)
+ * @param {string} userId - User ID
  * @param {string} type - Notification type
  * @param {object} data - Notification data
  */
-export const createNotification = async (candidateId, type, data) => {
+export const createNotification = async (userId, type, data) => {
   try {
     const notification = new Notification({
-      candidate: candidateId,
+      user: userId,
       type,
       title: data.title,
       description: data.description,
@@ -71,5 +71,12 @@ export const notificationPresets = {
     description: message,
     icon: 'la-user-check',
     color: '#2563eb',
+  }),
+
+  emailUpdate: (title, description) => ({
+    title: title || 'Email Update',
+    description: description || 'You received a new email update.',
+    icon: 'la-envelope',
+    color: '#1967d2',
   }),
 };

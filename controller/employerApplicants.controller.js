@@ -211,6 +211,7 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
       page = 1,
       limit = 10,
       search,
+      jobId,
       appliedDateSort = 'newest',
     } = req.query;
     const sortDirection = appliedDateSort === 'oldest' ? 1 : -1;
@@ -245,7 +246,20 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
       });
     }
 
+    const allowedJobIds = jobs.map((j) => j._id.toString());
+
     const matchQuery = { jobPost: { $in: jobs.map(j => j._id) } };
+
+    // Optional single job filter
+    if (jobId) {
+      if (!mongoose.Types.ObjectId.isValid(jobId)) {
+        return res.status(400).json({ success: false, message: 'Invalid jobId' });
+      }
+      if (!allowedJobIds.includes(jobId.toString())) {
+        return res.status(403).json({ success: false, message: 'Forbidden job access' });
+      }
+      matchQuery.jobPost = new mongoose.Types.ObjectId(jobId);
+    }
 
     if (status && status !== 'All') matchQuery.status = status;
 
@@ -359,12 +373,51 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
       page = 1,
       limit = 10,
       search,
+      jobId,
       appliedDateSort = 'newest',
     } = req.query;
     const sortDirection = appliedDateSort === 'oldest' ? 1 : -1;
 
-    // Keep this endpoint platform-wide for both HR Admin and Super Admin
-    const jobs = await JobPost.find({}).select('_id');
+    // Assigned scope:
+    // hr-admin    -> jobs posted by employers assigned to this hr-admin
+    // superadmin  -> jobs posted by employers assigned to any hr-admin
+    let assignedEmployerIds = [];
+
+    if (req.user.role === 'hr-admin') {
+      const currentHrAdmin = await User.findById(req.user.id).select('employerIds');
+      assignedEmployerIds = (currentHrAdmin?.employerIds || []).map((id) => id.toString());
+    } else if (req.user.role === 'superadmin') {
+      const hrAdmins = await User.find({ role: 'hr-admin', isActive: true }).select('employerIds');
+      assignedEmployerIds = [
+        ...new Set(
+          hrAdmins.flatMap((hr) => (hr.employerIds || []).map((id) => id.toString()))
+        ),
+      ];
+    }
+
+    if (!assignedEmployerIds.length) {
+      return res.status(200).json({
+        success: true,
+        applicants: [],
+        pagination: {
+          currentPage: Number(page),
+          totalPages: 0,
+          total: 0,
+          limit: Number(limit),
+        },
+        statusCounts: {
+          Total: 0,
+          Pending: 0,
+          Reviewed: 0,
+          Accepted: 0,
+          Rejected: 0,
+        },
+      });
+    }
+
+    const jobs = await JobPost.find({
+      employer: { $in: assignedEmployerIds.map((id) => new mongoose.Types.ObjectId(id)) }
+    }).select('_id');
 
     if (!jobs.length) {
       return res.status(200).json({
@@ -387,9 +440,21 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
     }
 
     // Build application match query
+    const allowedJobIds = jobs.map((j) => j._id.toString());
+
     const matchQuery = {
       jobPost: { $in: jobs.map(j => j._id) },
     };
+
+    if (jobId) {
+      if (!mongoose.Types.ObjectId.isValid(jobId)) {
+        return res.status(400).json({ success: false, message: 'Invalid jobId' });
+      }
+      if (!allowedJobIds.includes(jobId.toString())) {
+        return res.status(403).json({ success: false, message: 'Forbidden job access' });
+      }
+      matchQuery.jobPost = new mongoose.Types.ObjectId(jobId);
+    }
 
     if (status && status !== 'All') {
       matchQuery.status = status;

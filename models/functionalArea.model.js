@@ -35,13 +35,4 @@ const functionalAreaSchema = new mongoose.Schema({
 // Composite unique
 functionalAreaSchema.index({ name: 1, industry: 1 }, { unique: true });
 
-/**
- * real-world unique constraint
- * Same FA name allowed in different industries
- */
-functionalAreaSchema.index(
-  { name: 1, industry: 1 },
-  { unique: true }
-);
-
 export default mongoose.model('FunctionalArea', functionalAreaSchema);

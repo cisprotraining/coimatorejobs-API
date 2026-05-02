@@ -39,6 +39,7 @@ authRouter.put('/admin/users/status/:id', authenticate, authorize(['hr-admin', '
 
 // Create employer user (hr-admin and superadmin only)
 authRouter.post('/admin/users', authenticate, authorize(['hr-admin', 'superadmin']), authentication.createAdminUser);
+authRouter.put('/admin/users/:id', authenticate, authorize(['hr-admin', 'superadmin']), authentication.updateAdminUser);
 
 // Get assigned users for hr-admin (hr-admin and superadmin only)
 authRouter.get('/admin/users/assigned', authenticate, authorize(['hr-admin', 'superadmin']), authentication.getAssignedUsers);

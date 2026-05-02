@@ -17,7 +17,7 @@ const jobAlertSchema = new mongoose.Schema({
     industry: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Industry',
-      required: true,
+      required: false,
     },
     functionalAreas: [{
       type: mongoose.Schema.Types.ObjectId,
