@@ -3,6 +3,18 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
+import JobPost from "../models/jobs.model.js";
+import JobApplication from "../models/jobApply.model.js";
+import CompanyProfile from "../models/companyProfile.model.js";
+import CandidateProfile from "../models/candidateProfile.model.js";
+import CandidateResume from "../models/candidateResume.model.js";
+import CandidateCv from "../models/candidateCv.model.js";
+import JobAlert from "../models/jobAlert.model.js";
+import ResumeAlert from "../models/resumeAlert.model.js";
+import SavedJob from "../models/savedJob.model.js";
+import SavedCandidate from "../models/savedCandidate.model.js";
+import ResumeDownloadLog from "../models/resumeDownloadLog.model.js";
+import Notification from "../models/notification.model.js";
 import { JWT_SECRET, JWT_EXPIRES_IN, SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import crypto from 'crypto';
 import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendLoginOtpEmail } from '../utils/mailer.js';
@@ -98,8 +110,8 @@ authentication.signup = async (req, res, next) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Candidate self-signup must stay pending until HR/Superadmin approval.
-        const status = safeRole === 'candidate' ? 'pending' : 'approved';
+        // Candidate and employer self-signup must stay pending until HR/Superadmin approval.
+        const status = ['candidate', 'employer'].includes(safeRole) ? 'pending' : 'approved';
         
         // old approval logic (we can handle in frontend for now)
          // Approval logic
@@ -141,8 +153,8 @@ authentication.signup = async (req, res, next) => {
         // Send success response
         return res.status(201).json({
             success: true,
-            message: safeRole === 'candidate'
-              ? "Candidate registered successfully. Your account is pending approval."
+            message: ['candidate', 'employer'].includes(safeRole)
+              ? `${safeRole === 'employer' ? 'Employer' : 'Candidate'} registered successfully. Your account is pending approval.`
               : "User created successfully",
             user: {
                 token,
@@ -1213,12 +1225,17 @@ authentication.signout = (req, res) => {
  * @access Private
  */
 authentication.deleteUserProfile = async (req, res, next) => {
+  const session = await mongoose.startSession();
   try {
+    session.startTransaction();
+
     const loggedInUser = req.user;
     const targetUserId = req.params.id;
 
-    const targetUser = await User.findById(targetUserId);
+    const targetUser = await User.findById(targetUserId).session(session);
     if (!targetUser) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(404).json({ message: 'User not found' });
     }
 
@@ -1231,6 +1248,8 @@ authentication.deleteUserProfile = async (req, res, next) => {
 
     // Candidates & employers can delete ONLY themselves
     if (!isSelfDelete && !isAdmin) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(403).json({
         message: 'You are not allowed to delete this profile'
       });
@@ -1241,6 +1260,8 @@ authentication.deleteUserProfile = async (req, res, next) => {
       loggedInUser.role === 'hr-admin' &&
       !['candidate', 'employer'].includes(targetUser.role)
     ) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(403).json({
         message: 'HR-Admin cannot delete admin accounts'
       });
@@ -1252,8 +1273,86 @@ authentication.deleteUserProfile = async (req, res, next) => {
       role: targetUser.role
     };
 
+    const jobPosts = await JobPost.find({
+      $or: [{ employer: targetUserId }, { postedBy: targetUserId }],
+    })
+      .select('_id')
+      .session(session);
+    const jobIds = jobPosts.map((job) => job._id);
+
+    const candidateProfiles = await CandidateProfile.find({ candidate: targetUserId })
+      .select('_id')
+      .session(session);
+    const candidateProfileIds = candidateProfiles.map((profile) => profile._id);
+
+    const applicationFilterByUser =
+      targetUser.role === 'candidate'
+        ? { candidate: targetUserId }
+        : { jobPost: { $in: jobIds } };
+    const applications = await JobApplication.find(applicationFilterByUser)
+      .select('_id')
+      .session(session);
+    const applicationIds = applications.map((application) => application._id);
+
+    const commonDeleteOps = [
+      SavedCandidate.deleteMany({
+        $or: [{ employer: targetUserId }, { candidate: targetUserId }],
+      }).session(session),
+      ResumeDownloadLog.deleteMany({
+        $or: [{ employer: targetUserId }, { candidate: targetUserId }],
+      }).session(session),
+      Notification.deleteMany({
+        $or: [
+          { user: targetUserId },
+          { application: { $in: applicationIds } },
+          { jobPost: { $in: jobIds } },
+        ],
+      }).session(session),
+      User.updateMany(
+        {},
+        {
+          $pull: {
+            employerIds: targetUserId,
+            candidateIds: targetUserId,
+            hrAdminIds: targetUserId,
+          },
+        }
+      ).session(session),
+    ];
+
+    const candidateDeleteOps = [
+      CandidateResume.deleteMany({
+        $or: [{ candidate: targetUserId }, { profile: { $in: candidateProfileIds } }],
+      }).session(session),
+      CandidateCv.deleteMany({ candidate: targetUserId }).session(session),
+      CandidateProfile.deleteMany({ candidate: targetUserId }).session(session),
+      JobAlert.deleteMany({ candidate: targetUserId }).session(session),
+      SavedJob.deleteMany({ candidate: targetUserId }).session(session),
+      JobApplication.deleteMany({ candidate: targetUserId }).session(session),
+    ];
+
+    const employerDeleteOps = [
+      ResumeAlert.deleteMany({ employer: targetUserId }).session(session),
+      CompanyProfile.deleteMany({ employer: targetUserId }).session(session),
+      SavedCandidate.deleteMany({ employer: targetUserId }).session(session),
+      JobApplication.deleteMany({ jobPost: { $in: jobIds } }).session(session),
+      SavedJob.deleteMany({ jobPost: { $in: jobIds } }).session(session),
+      JobPost.deleteMany({ _id: { $in: jobIds } }).session(session),
+    ];
+
+    if (targetUser.role === 'candidate') {
+      await Promise.all([...commonDeleteOps, ...candidateDeleteOps]);
+    } else if (targetUser.role === 'employer') {
+      await Promise.all([...commonDeleteOps, ...employerDeleteOps]);
+    } else {
+      await Promise.all(commonDeleteOps);
+    }
+
     // Hard delete user so the same email can re-register
-    await User.deleteOne({ _id: targetUserId });
+    await User.deleteOne({ _id: targetUserId }).session(session);
+
+    await session.commitTransaction();
+    session.endSession();
 
     // Send deletion confirmation email to user
     await sendProfileDeletionEmail({
@@ -1276,6 +1375,8 @@ authentication.deleteUserProfile = async (req, res, next) => {
     });
 
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     next(error);
   }
 };

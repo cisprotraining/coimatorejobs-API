@@ -20,6 +20,22 @@ const parseField = (val) => {
 // Helper: Sanitize criteria to prevent type crashes (like .some is not a function)
 const sanitizeCriteria = (criteria) => {
   if (!criteria) return criteria;
+
+  // Normalize optional ObjectId fields: empty strings should be treated as unset
+  if (typeof criteria.role === 'string' && criteria.role.trim() === '') {
+    delete criteria.role;
+  }
+
+  // Keep only valid ObjectId-like strings in multi-select taxonomy fields
+  if (criteria.functionalAreas) {
+    const parsedFunctionalAreas = parseField(criteria.functionalAreas);
+    criteria.functionalAreas = parsedFunctionalAreas.filter((id) => mongoose.Types.ObjectId.isValid(id));
+  }
+
+  if (criteria.skills) {
+    const parsedSkills = parseField(criteria.skills);
+    criteria.skills = parsedSkills.filter((id) => mongoose.Types.ObjectId.isValid(id));
+  }
   
   // Guarantee location.city is always an array
   if (criteria.location) {
@@ -117,7 +133,7 @@ resumeAlertController.updateResumeAlert = async (req, res, next) => {
             if (!(await mongoose.model('Industry').findById(criteria.industry))) throw new BadRequestError('Invalid Industry');
         }
         if (criteria.functionalAreas) {
-            criteria.functionalAreas = parseField(criteria.functionalAreas);
+            criteria.functionalAreas = parseField(criteria.functionalAreas).filter((id) => mongoose.Types.ObjectId.isValid(id));
         }
         if (criteria.role && criteria.role !== alert.criteria.role?.toString()) {
             if (!(await mongoose.model('Role').findById(criteria.role))) throw new BadRequestError('Invalid Role');

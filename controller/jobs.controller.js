@@ -359,18 +359,25 @@ jobsController.getJobPosts = async (req, res, next) => {
       query.employer = userId;
     }
 
-    if (userRole === 'hr-admin') {
+    if (userRole === 'hr-admin' || userRole === 'superadmin') {
       if (scope === 'assigned') {
-        const assignedEmployerIds = Array.isArray(req.user.employerIds)
-          ? req.user.employerIds
-          : [];
-        if (assignedEmployerIds.length === 0) {
-          query._id = null;
-        } else {
-          query.employer = { $in: assignedEmployerIds };
-        }
+        // Assigned scope for HR-Admin / Superadmin:
+        // 1) Jobs posted by employers created by this admin
+        // 2) Jobs posted directly by this admin
+        const createdEmployers = await User.find({
+          role: 'employer',
+          createdBy: userId,
+        }).select('_id');
+        const createdEmployerIds = createdEmployers.map((u) => u._id);
+
+        query = {
+          $or: [
+            { employer: { $in: createdEmployerIds } },
+            { postedBy: userId },
+          ],
+        };
       } else {
-        // `all` scope = platform-wide for HR Admin - NO EXPIRY FILTER
+        // `all` scope = platform-wide for HR Admin / Superadmin
         query = {};
       }
     }
