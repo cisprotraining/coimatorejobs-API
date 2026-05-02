@@ -31,28 +31,44 @@ const resolveChromeExecutablePath = () => {
         }
     }
 
+    // Fallback to Puppeteer's managed browser path (downloaded during install)
+    try {
+        const managedPath =
+            typeof puppeteer.executablePath === 'function'
+                ? puppeteer.executablePath()
+                : null;
+        if (managedPath && fs.existsSync(managedPath)) {
+            return managedPath;
+        }
+    } catch {
+        // ignore
+    }
+
     return null;
 };
 
 const launchPdfBrowser = async () => {
     const executablePath = resolveChromeExecutablePath();
+    const commonArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+    ];
+
+    const baseConfig = {
+        headless: true,
+        args: commonArgs,
+    };
+
+    if (executablePath) {
+        baseConfig.executablePath = executablePath;
+    }
 
     const launchConfigs = [
-        {
-            headless: true,
-            executablePath: executablePath || undefined,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-            ],
-        },
-        {
-            headless: true,
-            executablePath: executablePath || undefined,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        },
+        baseConfig,
+        { ...baseConfig, headless: 'new' },
+        { ...baseConfig, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
     ];
 
     let lastError = null;

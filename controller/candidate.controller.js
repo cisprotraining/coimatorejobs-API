@@ -1085,7 +1085,7 @@ candidateController.applyToJob = async (req, res, next) => {
           candidateName: candidateProfile.fullName || candidateUser.name || 'A candidate',
           jobTitle: jobPost.title,
           companyName: jobPost.companyProfile?.companyName || 'Company',
-          dashboardLink: `${process.env.FRONTEND_URL}/employer-dashboard/shortlisted-resumes`,
+          dashboardLink: `${process.env.FRONTEND_URL}/employers-dashboard/shortlisted-resumes`,
         });
         console.log(
           `[JOB_APPLY_POSTER_ALERT] Sent successfully -> ${jobPoster.email}`
@@ -1716,15 +1716,23 @@ candidateController.getResumeForHR = async (req, res, next) => {
     let resolvedCandidateUserId = candidateId;
 
     // Accept either candidate userId or candidate profileId from frontend.
-    if (userRole === 'employer') {
-      const profileCandidate = await CandidateProfile.findById(candidateId).select('candidate');
-      if (profileCandidate?.candidate) {
-        resolvedCandidateUserId = String(profileCandidate.candidate);
-      }
+    const profileCandidate = await CandidateProfile.findById(candidateId).select('candidate');
+    if (profileCandidate?.candidate) {
+      resolvedCandidateUserId = String(profileCandidate.candidate);
     }
 
-    const profile = await CandidateProfile.findOne({ candidate: resolvedCandidateUserId });
-    if (!profile?.resume) {
+    const profile = await CandidateProfile.findOne({ candidate: resolvedCandidateUserId }).select('resume');
+    let resumeValue = profile?.resume || '';
+
+    // Fallback: if profile resume is empty, try latest application resume for this candidate.
+    if (!resumeValue) {
+      const latestApplication = await JobApply.findOne({ candidate: resolvedCandidateUserId })
+        .select('resume createdAt')
+        .sort({ createdAt: -1 });
+      resumeValue = latestApplication?.resume || '';
+    }
+
+    if (!resumeValue) {
       return res.status(404).json({ success: false, message: "Resume not found" });
     }
 
@@ -1746,7 +1754,7 @@ candidateController.getResumeForHR = async (req, res, next) => {
       }
     }
 
-    const key = await resolveExistingResumeKey(profile.resume);
+    const key = await resolveExistingResumeKey(resumeValue);
     if (!key) {
       return res.status(404).json({
         success: false,

@@ -361,18 +361,40 @@ jobsController.getJobPosts = async (req, res, next) => {
 
     if (userRole === 'hr-admin' || userRole === 'superadmin') {
       if (scope === 'assigned') {
-        // Assigned scope for HR-Admin / Superadmin:
-        // 1) Jobs posted by employers created by this admin
-        // 2) Jobs posted directly by this admin
+        // Assigned scope:
+        // hr-admin    -> employers assigned to this hr-admin (plus admin-created employer fallback)
+        // superadmin  -> employers assigned to any hr-admin (plus superadmin-created employer fallback)
+        // both        -> include jobs posted directly by current admin
+        let assignedEmployerIds = [];
+
+        if (userRole === 'hr-admin') {
+          const currentHrAdmin = await User.findById(userId).select('employerIds');
+          assignedEmployerIds = (currentHrAdmin?.employerIds || []).map((id) => id.toString());
+        } else if (userRole === 'superadmin') {
+          const hrAdmins = await User.find({ role: 'hr-admin', isActive: true }).select('employerIds');
+          assignedEmployerIds = [
+            ...new Set(
+              hrAdmins.flatMap((hr) => (hr.employerIds || []).map((id) => id.toString()))
+            ),
+          ];
+        }
+
         const createdEmployers = await User.find({
           role: 'employer',
           createdBy: userId,
+          isDeleted: { $ne: true },
         }).select('_id');
-        const createdEmployerIds = createdEmployers.map((u) => u._id);
+        const createdEmployerIds = createdEmployers.map((u) => u._id.toString());
+
+        const effectiveEmployerIds = [
+          ...new Set([...assignedEmployerIds, ...createdEmployerIds]),
+        ]
+          .filter((id) => mongoose.Types.ObjectId.isValid(id))
+          .map((id) => new mongoose.Types.ObjectId(id));
 
         query = {
           $or: [
-            { employer: { $in: createdEmployerIds } },
+            { employer: { $in: effectiveEmployerIds } },
             { postedBy: userId },
           ],
         };
