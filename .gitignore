@@ -8,3 +8,4 @@ node_modules
 
 **/future-update.txt
 **/test.txt
+.cache/

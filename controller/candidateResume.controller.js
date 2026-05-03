@@ -9,6 +9,32 @@ import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
 
 const candidateResumeController = {};
 
+const findChromeBinaryInDir = (rootDir, depth = 0) => {
+    if (!rootDir || depth > 5) return null;
+
+    let entries = [];
+    try {
+        entries = fs.readdirSync(rootDir, { withFileTypes: true });
+    } catch {
+        return null;
+    }
+
+    for (const entry of entries) {
+        const fullPath = path.join(rootDir, entry.name);
+
+        if (entry.isFile() && (entry.name === 'chrome' || entry.name === 'chrome.exe')) {
+            return fullPath;
+        }
+
+        if (entry.isDirectory()) {
+            const found = findChromeBinaryInDir(fullPath, depth + 1);
+            if (found) return found;
+        }
+    }
+
+    return null;
+};
+
 const resolveChromeExecutablePath = () => {
     const envPath =
         process.env.PUPPETEER_EXECUTABLE_PATH ||
@@ -21,6 +47,9 @@ const resolveChromeExecutablePath = () => {
         '/usr/bin/google-chrome',
         '/usr/bin/chromium-browser',
         '/usr/bin/chromium',
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files\\Chromium\\Application\\chrome.exe',
     ].filter(Boolean);
 
     for (const chromePath of candidates) {
@@ -29,6 +58,17 @@ const resolveChromeExecutablePath = () => {
         } catch {
             // ignore
         }
+    }
+
+    const cacheCandidates = [
+        path.join(process.cwd(), '.cache', 'puppeteer'),
+        path.join(process.env.HOME || '', '.cache', 'puppeteer'),
+        path.join(process.env.USERPROFILE || '', '.cache', 'puppeteer'),
+    ].filter(Boolean);
+
+    for (const cacheDir of cacheCandidates) {
+        const discoveredPath = findChromeBinaryInDir(cacheDir);
+        if (discoveredPath) return discoveredPath;
     }
 
     // Fallback to Puppeteer's managed browser path (downloaded during install)
@@ -322,9 +362,6 @@ candidateResumeController.listResumes = async (req, res, next) => {
     try {
         const candidateId = req.user.id;
 
-        // ✅ Debugging: check what resumes exist in DB for this candidate
-        const allResumes = await CandidateResume.find({ candidate: candidateId });
-        console.log("All resumes for candidate:", allResumes);
 
 
 
@@ -334,10 +371,6 @@ candidateResumeController.listResumes = async (req, res, next) => {
         return res.status(200).json({
             success: true,
             resumes,
-            debugCount: {
-                total: allResumes.length,
-                active: resumes.length
-            }
         });
     } catch (error) {
         next(error);
