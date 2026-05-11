@@ -1,5 +1,28 @@
 import mongoose from 'mongoose';
 
+const ALLOWED_TEAM_SIZES = [
+  '0 - 50',
+  '50 - 100',
+  '100 - 150',
+  '200 - 250',
+  '300 - 350',
+  '500 - 1000',
+  'Above 1000',
+];
+
+const isValidTeamSize = (value) => {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  if (ALLOWED_TEAM_SIZES.includes(normalized)) return true;
+
+  const match = normalized.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (!match) return false;
+
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  return Number.isFinite(start) && Number.isFinite(end) && start <= end;
+};
+
 const companyProfileSchema = new mongoose.Schema({
   employer: {
     type: mongoose.Schema.Types.ObjectId,
@@ -59,7 +82,10 @@ const companyProfileSchema = new mongoose.Schema({
   teamSize: {
     type: String,
     required: [true, 'Team size is required'],
-    enum: ['1 - 10', '10 - 50', '50 - 100', '100 - 150', '200 - 250', '300 - 350', '500 - 1000', '1000+'],
+    validate: {
+      validator: isValidTeamSize,
+      message: 'Team size must be one of the allowed values or a valid numeric range (e.g. 120 - 240)',
+    },
   },
   // categories: {
   //   type: [String],   // Array of strings for categories (ex: ['Tech', 'Finance'])
