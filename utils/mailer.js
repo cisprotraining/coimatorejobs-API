@@ -59,9 +59,9 @@ if (isProd) {
 // Verify connection on startup
 transporter.verify((error) => {
   if (error) {
-    console.error("âŒ Email transporter failed to connect:", error);
+    console.error("Email transporter failed to connect:", error);
   } else {
-    console.log(`âœ… Email transporter connected successfully (${isProd ? 'AWS SES' : 'Google SMTP'})`);
+    console.log(`Email transporter connected successfully (${isProd ? 'AWS SES' : 'Google SMTP'})`);
   }
 }); 
 
@@ -122,7 +122,7 @@ const sendMail = async ({ to, subject, html, text = '', cc = [], from }) => {
       html,
     });
 
-    console.log(`Email sent successfully â†’ ${to} | MessageId: ${info.messageId}`);
+    console.log(`Email sent successfully’ ${to} | MessageId: ${info.messageId}`);
     return info;
   } catch (error) {
     console.error("Email sending failed:", error);
@@ -183,7 +183,7 @@ const sendResumeAlertEmail = async ({
       subject: `New Resume Match: ${candidateName} for "${alert.title}"`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #2563eb;">ðŸŽ¯ New Candidate Match!</h2>
+          <h2 style="color: #2563eb;">New Candidate Match!</h2>
           <p>We found a new candidate who closely matches your alert <strong>"${alert.title}"</strong>.</p>
           <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <p><strong>Candidate:</strong> ${candidateName}</p>
@@ -236,7 +236,7 @@ const sendResumeAlertEmail = async ({
       cc: [process.env.MAIL_SUPPORT] // Provision for other mails (e.g., support@)
     });
     console.log(
-      `ðŸ“§ Resume alert sent to ${recipient} for candidate ${candidateName} (${matchScore?.toFixed(1) || 'N/A'}%)`
+      `Resume alert sent to ${recipient} for candidate ${candidateName} (${matchScore?.toFixed(1) || 'N/A'}%)`
     );
     // Update alert stats in DB
     await ResumeAlert.findByIdAndUpdate(alert._id, {
@@ -335,7 +335,7 @@ const sendWelcomeEmail = async ({ recipient, name }) => {
           <p>Thank you for registering with <strong>Coimbatore Jobs</strong>. Your account has been successfully created.</p>
          
           <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Whatâ€™s Next?</strong></p>
+            <p><strong>What's Next?</strong></p>
             <ul style="list-style-type: disc; padding-left: 20px;">
               <li>Complete your profile to get better job matches</li>
               <li>Browse and apply to jobs in Coimbatore</li>
@@ -356,7 +356,7 @@ const sendWelcomeEmail = async ({ recipient, name }) => {
          
           <p style="color: #64748b; font-size: 12px; text-align: center;">
             &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.<br />
-            This is an automated message â€” please do not reply.
+            This is an automated message - please do not reply.
           </p>
         </div>
       `,
@@ -441,8 +441,8 @@ const sendSuperadminAlertEmail = async ({
         <hr style="margin: 30px 0; border: none; border-top: 1px solid #e2e8f0;" />
         
         <p style="color: #64748b; font-size: 12px; text-align: center;">
-          Â© ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.<br>
-          This is a system-generated notification â€” please do not reply.
+          © ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.<br>
+          This is a system-generated notification - please do not reply.
         </p>
       </div>
     `;

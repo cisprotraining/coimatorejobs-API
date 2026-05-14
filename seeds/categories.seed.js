@@ -640,12 +640,13 @@ const industrySpecificRoles = [
   { name: 'Beauty Advisor', functionalAreaName: 'Skincare & Cosmetics', isGlobal: false },
   { name: 'Cosmetics Sales Executive', functionalAreaName: 'Skincare & Cosmetics', isGlobal: false },
 
-   // Education & Training
-  { name: 'Teacher', functionalAreaName: 'Education & Training', isGlobal: false },
-  { name: 'Lecturer', functionalAreaName: 'Education & Training',  isGlobal: false },
-  { name: 'Trainer', functionalAreaName: 'Education & Training', isGlobal: false },
+   // Education & Training (A-Z)
+  { name: 'Academic Counselor', functionalAreaName: 'Education & Training', isGlobal: false }, // NEW
   { name: 'Content Developer', functionalAreaName: 'Education & Training', isGlobal: false },
-  { name: 'Academic Counselor', functionalAreaName: 'Education & Training',  isGlobal: false }, // ← NEW
+  { name: 'Faculty', functionalAreaName: 'Education & Training', isGlobal: true },
+  { name: 'Lecturer', functionalAreaName: 'Education & Training',  isGlobal: false },
+  { name: 'Teacher', functionalAreaName: 'Education & Training', isGlobal: true },
+  { name: 'Trainer', functionalAreaName: 'Education & Training', isGlobal: true },
 ];
 
 // Combine all roles

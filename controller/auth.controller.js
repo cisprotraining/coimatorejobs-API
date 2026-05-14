@@ -100,7 +100,7 @@ authentication.signup = async (req, res, next) => {
             if (hasActiveAccount) {
                 await session.abortTransaction();
                 session.endSession();
-                return res.status(400).json({ message: "User already exists" });
+                return res.status(400).json({ message: "User already exists, Please Login" });
             }
 
             await User.deleteMany({ email: normalizedEmail }).session(session);
@@ -356,42 +356,98 @@ authentication.createAdminUser = async (req, res, next) => {
 };
 
 /**
- * Update employer account (name/email) by hr-admin or superadmin.
- * Only assigned employers are editable.
+ * Update admin-manageable account by hr-admin/superadmin.
+ * - hr-admin: can edit only assigned employers/candidates
+ * - superadmin: can edit assigned employers/candidates and any hr-admin
  */
 authentication.updateAdminUser = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, email } = req.body;
 
-    const editor = await User.findById(req.user.id).select('role employerIds');
+    const editor = await User.findById(req.user.id).select('role employerIds candidateIds');
     if (!editor || !['hr-admin', 'superadmin'].includes(editor.role)) {
-      return res.status(403).json({ message: 'Not allowed to edit employer accounts' });
+      return res.status(403).json({ message: 'Not allowed to edit accounts' });
     }
 
     const targetUser = await User.findById(id);
-    if (!targetUser || targetUser.role !== 'employer') {
-      return res.status(404).json({ message: 'Employer not found' });
+    if (!targetUser || !['employer', 'candidate', 'hr-admin'].includes(targetUser.role)) {
+      return res.status(404).json({ message: 'User not found' });
     }
 
-    let isAssignedEmployer = false;
+    if (editor.role === 'hr-admin' && !['employer', 'candidate'].includes(targetUser.role)) {
+      return res.status(403).json({
+        message: 'HR Admin can edit only employer and candidate accounts'
+      });
+    }
+
+    // Superadmin can edit HR-admin accounts directly.
+    if (editor.role === 'superadmin' && targetUser.role === 'hr-admin') {
+      const updatePayload = {};
+
+      if (typeof name === 'string' && name.trim()) {
+        updatePayload.name = name.trim();
+      }
+
+      if (typeof email === 'string' && email.trim()) {
+        const normalizedEmail = normalizeEmail(email);
+
+        if (!isValidEmailAddress(normalizedEmail)) {
+          return res.status(400).json({ message: 'Please enter a valid email address' });
+        }
+
+        const existingEmailUser = await User.findOne({
+          email: normalizedEmail,
+          _id: { $ne: targetUser._id }
+        }).select('_id');
+
+        if (existingEmailUser) {
+          return res.status(400).json({ message: 'Email already in use by another account' });
+        }
+
+        updatePayload.email = normalizedEmail;
+      }
+
+      if (Object.keys(updatePayload).length === 0) {
+        return res.status(400).json({ message: 'No valid fields provided for update' });
+      }
+
+      const updatedUser = await User.findByIdAndUpdate(
+        id,
+        updatePayload,
+        { new: true, runValidators: true, select: '-password' }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'HR Admin updated successfully',
+        data: updatedUser
+      });
+    }
+
+    let isAssignedUser = false;
 
     if (editor.role === 'hr-admin') {
-      isAssignedEmployer = (editor.employerIds || []).some(
+      const assignedEmployer = (editor.employerIds || []).some(
         (empId) => empId.toString() === id.toString()
       );
+      const assignedCandidate = (editor.candidateIds || []).some(
+        (candidateId) => candidateId.toString() === id.toString()
+      );
+      isAssignedUser = assignedEmployer || assignedCandidate;
     } else if (editor.role === 'superadmin') {
+      const assignedField = targetUser.role === 'candidate' ? 'candidateIds' : 'employerIds';
       const assignedHrAdmin = await User.findOne({
         role: 'hr-admin',
         isActive: true,
-        employerIds: targetUser._id
+        [assignedField]: targetUser._id
       }).select('_id');
-      isAssignedEmployer = !!assignedHrAdmin;
+      isAssignedUser = !!assignedHrAdmin;
     }
 
-    if (!isAssignedEmployer) {
+    if (!isAssignedUser) {
       return res.status(403).json({
-        message: 'You can edit only assigned employers'
+        message: `You can edit only assigned ${targetUser.role === 'candidate' ? 'candidates' : 'employers'}`
       });
     }
 
@@ -433,7 +489,7 @@ authentication.updateAdminUser = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Employer updated successfully',
+      message: `${targetUser.role === 'candidate' ? 'Candidate' : 'Employer'} updated successfully`,
       data: updatedUser
     });
   } catch (error) {
@@ -593,7 +649,7 @@ authentication.signin = async (req, res, next) => {
         // Verify password
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            return res.status(400).json({ message: "Invalid Password" });
+            return res.status(400).json({ message: "Invalid email or password" });
         }
 
         // Prevent OTP send/login when user attempts with wrong role tab.

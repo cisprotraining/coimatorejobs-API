@@ -1,7 +1,6 @@
 import mongoose from 'mongoose';
 import JobAlert from '../models/jobAlert.model.js';
 import JobPost from '../models/jobs.model.js';
-import CandidateProfile from '../models/candidateProfile.model.js';
 import User from '../models/user.model.js';
 import { SUPERADMIN_EMAIL } from '../config/env.js';
 import { BadRequestError, NotFoundError } from '../utils/errors.js';
@@ -75,6 +74,21 @@ const sanitizeAlertCriteria = (criteria = {}) => {
   const normalizedExperience = normalizeExperienceValue(next.experience);
   const normalizedJobType = normalizeJobTypeValue(next.jobType);
 
+  // Remove empty taxonomy ids to avoid ObjectId cast errors
+  if (next.industry === '' || next.industry === null) delete next.industry;
+  if (next.role === '' || next.role === null) delete next.role;
+
+  // Normalize location payload (avoid empty shells)
+  if (next.location && typeof next.location === 'object') {
+    const city = String(next.location.city || '').trim();
+    const country = String(next.location.country || '').trim();
+    if (city || country) {
+      next.location = { ...(city ? { city } : {}), ...(country ? { country } : {}) };
+    } else {
+      delete next.location;
+    }
+  }
+
   if (normalizedExperience) next.experience = normalizedExperience;
   else delete next.experience;
 
@@ -134,16 +148,6 @@ jobAlertController.createJobAlert = async (req, res, next) => {
     // Ensure at least one criterion is provided
     if (!criteria || Object.keys(criteria).length === 0) {
       throw new BadRequestError('At least one criterion is required');
-    }
-
-    // Optionally pre-fill criteria from candidate's profile if fields are missing
-    const profile = await CandidateProfile.findOne({ candidate: candidateId });
-    if (profile) {
-      criteria.industry = criteria.industry || profile.industry;
-      criteria.functionalAreas = (criteria.functionalAreas?.length > 0) ? criteria.functionalAreas : profile.functionalAreas;
-      criteria.role = criteria.role || profile.role;
-      criteria.location = criteria.location || profile.location;
-      criteria.experience = criteria.experience || profile.experience;
     }
 
     // Normalize values that can come in non-enum formats (e.g., "Fresher")

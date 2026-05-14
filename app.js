@@ -23,6 +23,7 @@ import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
 
 import CandidateCv from './models/candidateCv.model.js';
+import { syncSuperadminFromEnv } from './utils/syncSuperadmin.js';
 
 // Get __dirname for ES6 modules
 const __filename = fileURLToPath(import.meta.url);
@@ -174,6 +175,7 @@ app.listen(PORT, async() => {
   console.log(`Server is running on port http://localhost:${PORT}`);
 
   await connectToDatabase();
+  await syncSuperadminFromEnv();
 
 });
  

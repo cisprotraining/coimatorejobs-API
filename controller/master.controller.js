@@ -104,6 +104,7 @@ getFunctionalAreas: async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(functionalAreaId)) {
           return res.status(400).json({ success: false, message: 'Invalid functionalAreaId' });
         }
+
         andConditions.push({ functionalArea: functionalAreaId });
       }
 
@@ -148,7 +149,7 @@ getFunctionalAreas: async (req, res) => {
             select: 'name slug',
           },
         })
-        .sort({ priority: -1, isTrending: -1, searchVolume: -1, name: 1 }) // SEO: trending/popular first
+        .sort({ name: 1 }) // Keep dropdown roles in consistent A-Z order
         .limit(100)
         .lean();
 

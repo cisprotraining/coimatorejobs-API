@@ -3,8 +3,44 @@ import CandidateCv from '../models/candidateCv.model.js';
 import { BadRequestError, NotFoundError } from '../utils/errors.js';
 import path from 'path';
 import fs from 'fs';
+import { HeadObjectCommand } from "@aws-sdk/client-s3";
+import { s3 } from "../config/aws-s3.js";
+import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
 
 const candidateCvController = {};
+
+const buildCvKeyCandidates = (fileValue) => {
+  if (!fileValue || typeof fileValue !== "string") return [];
+
+  let key = fileValue.trim();
+  if (key.startsWith("https://") && key.includes(".amazonaws.com/")) {
+    key = key.split(".amazonaws.com/")[1] || "";
+  }
+
+  if (!key) return [];
+
+  const normalized = key.replace(/^\/+/, "");
+  const possible = new Set([key, normalized]);
+  return [...possible].filter(Boolean);
+};
+
+const resolveExistingCvKey = async (fileValue) => {
+  const candidates = buildCvKeyCandidates(fileValue);
+  for (const key of candidates) {
+    try {
+      await s3.send(
+        new HeadObjectCommand({
+          Bucket: process.env.AWS_S3_BUCKET,
+          Key: key,
+        })
+      );
+      return key;
+    } catch (_) {
+      // try next candidate
+    }
+  }
+  return null;
+};
 
 /**
  * Uploads a raw CV file (PDF/DOC/DOCX) for the authenticated candidate.
@@ -24,8 +60,7 @@ candidateCvController.uploadCv = async (req, res, next) => {
 
     const newCv = new CandidateCv({
       candidate: candidateId,
-      // file: `/uploads/candidate/${req.file.filename}`, //old
-      file: req.file.location, // S3 URL
+      file: req.file.location || req.file.key, // S3 URL (or key fallback)
       originalName: req.file.originalname,
     });
 
@@ -64,9 +99,21 @@ candidateCvController.listCvs = async (req, res, next) => {
       .select('-__v')
       .sort({ uploadedAt: -1 });
 
+    const cvsWithUrls = await Promise.all(
+      cvs.map(async (cv) => {
+        const plain = cv.toObject();
+        const key = await resolveExistingCvKey(plain.file);
+        if (!key) {
+          return { ...plain, signedUrl: plain.file || "" };
+        }
+        const signedUrl = await getPrivateFileUrl(key);
+        return { ...plain, signedUrl };
+      })
+    );
+
     return res.status(200).json({
       success: true,
-      cvs,
+      cvs: cvsWithUrls,
     });
   } catch (error) {
     next(error);
