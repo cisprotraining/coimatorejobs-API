@@ -1,4 +1,5 @@
 import { config } from 'dotenv';
+import fs from 'fs';
 
 // config(options?:{ path: `.env.${process.env.NODE_ENV || 'development'}.local` });
 
@@ -6,7 +7,7 @@ import { config } from 'dotenv';
 const envFile = process.env.NODE_ENV === 'production' ? '.env.production.local' : '.env.development.local';
 
 // Load that file into process.env:
-const results = config({ path:envFile});
+const results = fs.existsSync(envFile) ? config({ path: envFile }) : { error: null };
 
 // console.log(`Using environment file: ${envFile}`);
 

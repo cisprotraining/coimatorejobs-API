@@ -131,7 +131,6 @@ getFunctionalAreas: async (req, res) => {
 
       const baseFilter = { $and: andConditions };
 
-      // Include global roles (SEO: always show common ones unless disabled)
       let finalFilter = baseFilter;
       if (includeGlobal !== 'false') {
         finalFilter = {
@@ -139,7 +138,7 @@ getFunctionalAreas: async (req, res) => {
         };
       }
 
-      const data = await Role.find(finalFilter)
+      const rawData = await Role.find(finalFilter)
         .select('name slug priority isGlobal searchVolume isTrending keywords alternativeNames functionalArea')
         .populate({
           path: 'functionalArea',
@@ -152,6 +151,20 @@ getFunctionalAreas: async (req, res) => {
         .sort({ name: 1 }) // Keep dropdown roles in consistent A-Z order
         .limit(100)
         .lean();
+
+      // Defensive dedupe for legacy DB duplicates (same role name in same functional area)
+      const dedupedMap = new Map();
+      for (const role of rawData) {
+        const faId =
+          role.functionalArea && typeof role.functionalArea === 'object'
+            ? String(role.functionalArea._id || '')
+            : String(role.functionalArea || '');
+        const key = `${String(role.name || '').trim().toLowerCase()}__${faId}`;
+        if (!dedupedMap.has(key)) {
+          dedupedMap.set(key, role);
+        }
+      }
+      const data = Array.from(dedupedMap.values());
 
       res.json({ success: true, data });
     } catch (error) {

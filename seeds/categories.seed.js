@@ -1069,9 +1069,11 @@ async function seed() {
                 {
                     $set: {
                         name: ind.name,
-                        slug,
                         keywords: ind.keywords || [],
                         isActive: true,
+                    },
+                    $setOnInsert: {
+                        slug,
                     },
                 },
                 { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -1089,11 +1091,13 @@ async function seed() {
                 {
                     $set: {
                         name: fa.name,
-                        slug: generateSlug(fa.name),
                         industry: null,
                         isGlobal: true,
                         keywords: fa.keywords || [],
                         isActive: true,
+                    },
+                    $setOnInsert: {
+                        slug: generateSlug(fa.name),
                     },
                 },
                 { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -1110,11 +1114,13 @@ async function seed() {
                 {
                     $set: {
                         name: fa.name,
-                        slug: generateSlug(fa.name),
                         industry: industryId,
                         isGlobal: false,
                         keywords: fa.keywords || [],
                         isActive: true,
+                    },
+                    $setOnInsert: {
+                        slug: generateSlug(fa.name),
                     },
                 },
                 { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -1149,12 +1155,14 @@ async function seed() {
                 {
                     $set: {
                         name: role.name,
-                        slug,
                         functionalArea: faInfo.id,
                         isGlobal,
                         keywords: role.keywords || [],
                         alternativeNames: role.alternativeNames || [],
                         isActive: true,
+                    },
+                    $setOnInsert: {
+                        slug,
                     },
                 },
                 { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -1162,6 +1170,54 @@ async function seed() {
 
             if (isGlobal) roleCounts.common++;
             else roleCounts.industrySpecific++;
+        }
+
+        // Ensure these 3 roles are available in every functional area.
+        const universalRoles = ['Teacher', 'Trainer', 'Faculty'];
+        for (const faName of Object.keys(functionalAreasMap)) {
+            const faInfo = functionalAreasMap[faName];
+            for (const roleName of universalRoles) {
+                await Role.findOneAndUpdate(
+                    { name: roleName, functionalArea: faInfo.id },
+                    {
+                        $set: {
+                            name: roleName,
+                            functionalArea: faInfo.id,
+                            isGlobal: true,
+                            keywords: [`${roleName.toLowerCase()} jobs`, `${roleName} vacancies`, `${roleName} careers`, `${roleName} openings`],
+                            alternativeNames: [],
+                            isActive: true,
+                        },
+                        $setOnInsert: {
+                            slug: generateSlug(roleName),
+                        },
+                    },
+                    { upsert: true, new: true, setDefaultsOnInsert: true }
+                );
+            }
+        }
+
+        // Remove typo role if it exists in DB.
+        await Role.deleteMany({ name: 'Tainer' });
+
+        // Cleanup legacy duplicates by (name + functionalArea), keep oldest document.
+        const activeRoles = await Role.find({ isActive: true })
+            .select('_id name functionalArea createdAt')
+            .sort({ createdAt: 1 })
+            .lean();
+        const seenRoleKeys = new Set();
+        const duplicateRoleIds = [];
+        for (const role of activeRoles) {
+            const key = `${String(role.name || '').trim().toLowerCase()}__${String(role.functionalArea)}`;
+            if (seenRoleKeys.has(key)) {
+                duplicateRoleIds.push(role._id);
+            } else {
+                seenRoleKeys.add(key);
+            }
+        }
+        if (duplicateRoleIds.length > 0) {
+            await Role.deleteMany({ _id: { $in: duplicateRoleIds } });
+            console.log(`Removed ${duplicateRoleIds.length} duplicate role documents`);
         }
         console.log(`Seeded ${dedupedRoles.length} roles (${roleCounts.common} common, ${roleCounts.industrySpecific} industry-specific)`);
 
@@ -1174,10 +1230,12 @@ async function seed() {
                 {
                     $set: {
                         name: loc.name,
-                        slug,
                         state: loc.state || '',
                         keywords: loc.keywords || [],
                         isActive: true,
+                    },
+                    $setOnInsert: {
+                        slug,
                     },
                 },
                 { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -1194,10 +1252,12 @@ async function seed() {
                 {
                     $set: {
                         name: skill.name,
-                        slug,
                         category: skill.category || '',
                         keywords: skill.keywords || [],
                         isActive: true,
+                    },
+                    $setOnInsert: {
+                        slug,
                     },
                 },
                 { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -1205,24 +1265,29 @@ async function seed() {
         }
         console.log(`Seeded ${skillsData.length} skills`);
 
-        // 6. Verification Report
-        console.log('\nVerification Report:');
-        for (const industryName in industriesMap) {
-            const industryId = industriesMap[industryName];
+        // 6. Verification Report (optional; disabled by default in production to avoid deploy timeout)
+        const shouldVerify =
+            process.env.SEED_VERIFY === 'true' || process.argv.includes('--verify');
 
-            const functionalAreasCount = await FunctionalArea.countDocuments({
-                $or: [{ industry: industryId }, { isGlobal: true }],
-            });
+        if (shouldVerify) {
+            console.log('\nVerification Report:');
+            for (const industryName in industriesMap) {
+                const industryId = industriesMap[industryName];
 
-            const rolesCount = await Role.countDocuments({
-                functionalArea: {
-                    $in: await FunctionalArea.find({
-                        $or: [{ industry: industryId }, { isGlobal: true }],
-                    }).distinct('_id'),
-                },
-            });
+                const functionalAreasCount = await FunctionalArea.countDocuments({
+                    $or: [{ industry: industryId }, { isGlobal: true }],
+                });
 
-            console.log(`   ${industryName}: ${functionalAreasCount} functional areas, ${rolesCount} roles`);
+                const rolesCount = await Role.countDocuments({
+                    functionalArea: {
+                        $in: await FunctionalArea.find({
+                            $or: [{ industry: industryId }, { isGlobal: true }],
+                        }).distinct('_id'),
+                    },
+                });
+
+                console.log(`   ${industryName}: ${functionalAreasCount} functional areas, ${rolesCount} roles`);
+            }
         }
 
         console.log('\nEnhanced seeding complete successfully!');
