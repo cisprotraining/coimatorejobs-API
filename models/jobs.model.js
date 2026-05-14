@@ -51,7 +51,7 @@ const jobPostSchema = new mongoose.Schema({
   offeredSalary: {
     type: String,
     required: [true, 'Offered salary is required'],
-    // enum: ['< ₹5 LPA', '₹5-10 LPA', '₹10-15 LPA', '₹15-20 LPA', '₹20-30 LPA', '₹30+ LPA', 'Negotiable'],
+    // enum: ['< ?5 LPA', '?5-10 LPA', '?10-15 LPA', '?15-20 LPA', '?20-30 LPA', '?30+ LPA', 'Negotiable'],
   },
   careerLevel: {
     type: String,
@@ -382,41 +382,39 @@ jobPostSchema.post('save', async function (doc) {
 
 // Post-save hook to suggest new roles based on job postings
 jobPostSchema.post('save', async function (doc) {
-  // Because:
-  // Job title ≠ role always
-  // “Senior CNC Operator – Night Shift” breaks this
-  // const existingRole = await Role.findOne({
-  //   name: new RegExp(`^${doc.title}$`, 'i')
-  // });
-
-  const normalized = doc.title
-    .toLowerCase()
-    .replace(/\b(senior|junior|night|shift|male|female)\b/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-    // const normalized = normalizedTitle(doc.title);
+  try {
+    const normalized = doc.title
+      .toLowerCase()
+      .replace(/\b(senior|junior|night|shift|male|female)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
 
     const existingRole = await Role.findOne({
       name: new RegExp(`^${normalized}$`, 'i')
     });
 
-  if (existingRole) return;
+    if (existingRole) return;
 
-  const suggestion = await RoleSuggestion.findOneAndUpdate(
-    { normalizedTitle: normalized },
-    {
-      $inc: { count: 1 },
-      lastSeen: new Date()
-    },
-    { upsert: true, new: true }
-  );
+    const suggestion = await RoleSuggestion.findOneAndUpdate(
+      { normalizedTitle: normalized },
+      {
+        $setOnInsert: {
+          title: doc.title,
+          normalizedTitle: normalized,
+        },
+        $inc: { count: 1 },
+        $set: { lastSeen: new Date() }
+      },
+      { upsert: true, new: true }
+    );
 
-  if (suggestion.count === 20) {
-    console.log(`🔥 Role "${doc.title}" reached 20 postings — suggest admin review`);
+    if (suggestion?.count === 20) {
+      console.log(`Role "${doc.title}" reached 20 postings - suggest admin review`);
+    }
+  } catch (err) {
+    console.error('Role suggestion hook failed:', err?.message || err);
   }
 });
-
 /**
  * Determines if a job post matches the alert criteria.
  * @param {Object} job - The job post document
@@ -458,9 +456,9 @@ function matchJobToAlert(job, criteria) {
   }
 
   if (criteria.salaryRange && job.offeredSalary !== 'Negotiable') {
-    // Improved parse: handle ₹ and ranges like '₹5-10 LPA'
+    // Improved parse: handle ? and ranges like '?5-10 LPA'
     let minSalary = 0;
-    const match = job.offeredSalary.match(/₹(\d+)(?:-(\d+))?/);
+    const match = job.offeredSalary.match(/(\d+)(?:-(\d+))?/);
     if (match) minSalary = parseInt(match[1]) * 100000; // LPA to absolute
     if (minSalary < criteria.salaryRange.min || (criteria.salaryRange.max && minSalary > criteria.salaryRange.max)) {
       return false;
@@ -499,3 +497,4 @@ jobPostSchema.index({ "uniqueViewers.viewer": 1 });
 const JobPost = mongoose.model('JobPost', jobPostSchema);
 
 export default JobPost;
+

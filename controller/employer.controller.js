@@ -1123,6 +1123,15 @@ employerController.getAssignedCompanyProfiles = async (req, res, next) => {
 
     // SUPERADMIN → sees all
     // POPULATE industry here as well
+    if (loggedInUser.role === 'superadmin') {
+      const adminUsers = await User.find({
+        role: { $in: ['superadmin', 'hr-admin'] }
+      }).select('_id');
+
+      const adminIds = adminUsers.map((user) => user._id);
+      query = { createdBy: { $in: adminIds } };
+    }
+
     const profiles = await CompanyProfile.find(query)
       .populate('industry', 'name') // <-- ADD THIS LINE
       .select('-__v')

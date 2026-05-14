@@ -1655,12 +1655,21 @@ candidateController.getAssignedCandidateProfiles = async (req, res, next) => {
       query = {
         $or: [
           { createdBy: loggedInUser._id },
-          { user: { $in: loggedInUser.candidateIds || [] } }
+          { candidate: { $in: loggedInUser.candidateIds || [] } }
         ]
       };
     }
 
     // SUPERADMIN → all
+    if (loggedInUser.role === 'superadmin') {
+      const adminUsers = await User.find({
+        role: { $in: ['superadmin', 'hr-admin'] }
+      }).select('_id');
+
+      const adminIds = adminUsers.map((user) => user._id);
+      query = { createdBy: { $in: adminIds } };
+    }
+
     const profiles = await CandidateProfile.find(query)
       .select('-__v')
       .sort({ createdAt: -1 });
