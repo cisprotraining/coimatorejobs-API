@@ -255,14 +255,21 @@ authentication.createAdminUser = async (req, res, next) => {
     // Determine creatorId (for assignment)
     let creatorId = creator.id;
 
-   // Auto approved because admin creates
+    const isSuperadminAssignedUser =
+      creator.role === 'superadmin' && ['employer', 'candidate'].includes(role);
+    const resolvedStatus = isSuperadminAssignedUser ? 'pending' : 'approved';
+    const resolvedAssignmentSource = isSuperadminAssignedUser ? 'superadmin-assigned' : creator.role;
+
+   // Admin-created users: HR admin creates as approved, Superadmin-assigned users remain pending.
     const [user] = await User.create([{
       name,
       email: finalEmail,
       password: hashedPassword,
       role,
-      status: 'approved',
+      status: resolvedStatus,
       createdBy: creatorId,
+      assignedHrAdmin: isSuperadminAssignedUser ? assignedHrAdminId : null,
+      assignmentSource: resolvedAssignmentSource,
       isSystemGeneratedEmail,
       loginId
     }], { session });
@@ -337,7 +344,9 @@ authentication.createAdminUser = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: `${role} created & assigned successfully`,
+      message: isSuperadminAssignedUser
+        ? `${role} account assigned to HR Admin and marked pending for HR approval`
+        : `${role} created & assigned successfully`,
       data: {
         _id: user._id,
         name: user.name,
@@ -1044,6 +1053,10 @@ authentication.adminResetUserPassword = async (req, res, next) => {
 authentication.getUsersByRole = async (req, res, next) => {
   try {
     const { roles, page = 1, limit = 20, status, search } = req.query;
+    const loggedInUser = await User.findById(req.user.id).select('role employerIds candidateIds');
+    if (!loggedInUser) {
+      return res.status(401).json({ message: 'User not found' });
+    }
 
     // Default roles
     let roleFilter = ['candidate', 'employer'];
@@ -1104,14 +1117,25 @@ authentication.getUsersByRole = async (req, res, next) => {
      * HR-ADMIN RULE:
      * Show only users assigned to this HR-admin
      */
-    // if (loggedInUser.role === 'hr-admin') {
-    //   query.createdBy = loggedInUser.id; 
-    // }
+    if (loggedInUser.role === 'hr-admin') {
+      const assignedIds = [
+        ...(loggedInUser.employerIds || []),
+        ...(loggedInUser.candidateIds || []),
+      ].map((id) => id.toString());
+      query._id = { $in: [...new Set(assignedIds)] };
+    }
 
-    /**
-     * SUPERADMIN:
-     * No restriction
-     */
+    // For pending users that are explicitly assigned by superadmin,
+    // only the assigned HR admin should action them (hide from superadmin user-status list).
+    if (loggedInUser.role === 'superadmin' && normalizedStatus === 'pending') {
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { assignmentSource: { $ne: 'superadmin-assigned' } },
+          { assignmentSource: { $exists: false } },
+        ],
+      });
+    }
 
     const pageNumber = Math.max(1, parseInt(page, 10) || 1);
     const limitNumber = Math.max(1, parseInt(limit, 10) || 20);
@@ -1155,15 +1179,34 @@ authentication.updateUserStatus = async (req, res, next) => {
       throw new Error('Invalid status');
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true }
-    );
-
-    if (!user) {
+    const targetUser = await User.findById(req.params.id);
+    if (!targetUser) {
       throw new NotFoundError('User not found');
     }
+
+    // If a candidate/employer was assigned by superadmin to a specific HR admin,
+    // only that assigned HR admin can approve/reject.
+    if (
+      targetUser.assignmentSource === 'superadmin-assigned' &&
+      ['candidate', 'employer'].includes(targetUser.role)
+    ) {
+      if (req.user.role !== 'hr-admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Only the assigned HR Admin can approve this user'
+        });
+      }
+      if (!targetUser.assignedHrAdmin || targetUser.assignedHrAdmin.toString() !== req.user.id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'This user is assigned to another HR Admin'
+        });
+      }
+    }
+
+    targetUser.status = status;
+    const user = await targetUser.save();
+
 
     // Candidate and employer should see account approve/reject updates in in-app notifications.
     if (['candidate', 'employer'].includes(user.role) && ['approved', 'rejected'].includes(status)) {

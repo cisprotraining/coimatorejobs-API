@@ -73,6 +73,16 @@ const userSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
+    assignedHrAdmin: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    assignmentSource: {
+        type: String,
+        enum: ['self-signup', 'hr-admin', 'superadmin', 'superadmin-assigned', 'system'],
+        default: 'self-signup'
+    },
     isActive: { type: Boolean, default: true },
      // password reset
     resetPasswordToken: {

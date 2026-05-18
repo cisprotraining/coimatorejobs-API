@@ -197,7 +197,7 @@ getFunctionalAreas: async (req, res) => {
     try {
       const q = req.query.q?.trim() || '';
       const page = parseInt(req.query.page) || 1;
-      const limit = Math.min(parseInt(req.query.limit) || 20, 50); // Cap at 50
+      const limit = Math.min(parseInt(req.query.limit) || 200, 1000); // Cap at 1000
       const skip = (page - 1) * limit;
 
       const filter = { isActive: true };

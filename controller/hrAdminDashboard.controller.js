@@ -211,7 +211,13 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
       {
         $unwind: {
           path: '$companyProfile',
-          preserveNullAndEmptyArrays: true,
+          preserveNullAndEmptyArrays: false,
+        },
+      },
+      {
+        $match: {
+          'companyProfile._id': { $exists: true, $ne: null },
+          'companyProfile.companyName': { $exists: true, $ne: '' },
         },
       },
       {
@@ -238,6 +244,8 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
           lastLoginAt: 1,
           companyProfileId: '$companyProfile._id',
           companyName: '$companyProfile.companyName',
+          companyEmail: '$companyProfile.email',
+          companyLogo: '$companyProfile.logo',
           companyStatus: '$companyProfile.status',
 
         // Job post IDs (NEW)
@@ -302,7 +310,31 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
     ]);
 
     // Get total count for pagination
-    const total = await User.countDocuments(employerUserMatch);
+    const totalResult = await User.aggregate([
+      { $match: employerUserMatch },
+      {
+        $lookup: {
+          from: 'companyprofiles',
+          localField: '_id',
+          foreignField: 'employer',
+          as: 'companyProfile',
+        },
+      },
+      {
+        $unwind: {
+          path: '$companyProfile',
+          preserveNullAndEmptyArrays: false,
+        },
+      },
+      {
+        $match: {
+          'companyProfile._id': { $exists: true, $ne: null },
+          'companyProfile.companyName': { $exists: true, $ne: '' },
+        },
+      },
+      { $count: 'total' },
+    ]);
+    const total = totalResult[0]?.total || 0;
 
     return res.status(200).json({
       success: true,
@@ -326,7 +358,8 @@ hrAdminDashboardController.getAssignedEmployers = async (req, res, next) => {
  */
 hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
     try {
-        const { period = 'monthly', limit = 10, months = 6 } = req.query;
+        const { period = 'monthly', months = 6 } = req.query;
+        const topLimit = 8;
 
         // Calculate start date based on months parameter
         const startDate = new Date();
@@ -394,7 +427,6 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
                 }
             },
             { $sort: { applicantCount: -1 } },
-            { $limit: parseInt(limit) },
         ]);
 
         // Now enrich jobs with application data
@@ -466,6 +498,14 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
                 timeToFill
             };
         });
+
+        const rankedTopJobs = enrichedTopJobs
+            .sort((a, b) => {
+                if (b.totalApplications !== a.totalApplications) return b.totalApplications - a.totalApplications;
+                if (b.recentApplications !== a.recentApplications) return b.recentApplications - a.recentApplications;
+                return new Date(b.createdAt) - new Date(a.createdAt);
+            })
+            .slice(0, topLimit);
 
         // Get job status distribution
         const allJobs = await JobPost.find({ ...jobMatch, createdAt: { $gte: startDate } }).lean();
@@ -564,7 +604,7 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
             : 0;
 
         // Calculate average acceptance rate from enriched jobs
-        const validAcceptanceRates = enrichedTopJobs
+        const validAcceptanceRates = rankedTopJobs
             .filter(job => job.totalApplications > 0)
             .map(job => job.acceptanceRate);
         
@@ -576,7 +616,7 @@ hrAdminDashboardController.getJobPerformance = async (req, res, next) => {
             success: true,
             period,
             months: parseInt(months),
-            topJobs: enrichedTopJobs,
+            topJobs: rankedTopJobs,
             jobStatusDistribution: formattedStatusDistribution,
             jobTypeDistribution: formattedTypeDistribution,
             metrics: {
