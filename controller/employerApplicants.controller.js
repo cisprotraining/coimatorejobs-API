@@ -166,6 +166,7 @@ employerApplicantsController.getApplicantsByJob = async (req, res, next) => {
     const formattedApplicants = applicants.map((app) => ({
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || "N/A",
+      email: app.candidate?.email || "N/A",
       designation: app.candidateProfile?.jobTitle || "N/A",
       location: app.candidateProfile?.location?.city || "N/A",
       expectedSalary: app.candidateProfile?.expectedSalary || "N/A",
@@ -328,6 +329,7 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
     const formattedApplicants = applicants.map(app => ({
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
+      email: app.candidate?.email || 'N/A',
       candidateProfileId: app.candidateProfile?._id || '',
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location || {},
@@ -535,6 +537,7 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
     const formattedApplicants = applicants.map(app => ({
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
+      email: app.candidate?.email || 'N/A',
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location?.city || 'N/A',
       expectedSalary: app.candidateProfile?.expectedSalary || 'N/A',
@@ -894,14 +897,64 @@ employerApplicantsController.unshortlistApplicant = async (req, res, next) => {
 employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
   try {
     const user = req.user;
-    const { jobId, status, dateRange, page = 1, limit = 10, search } = req.query;
+    const {
+      jobId,
+      status,
+      dateRange,
+      page = 1,
+      limit = 10,
+      search,
+      appliedDateSort = 'newest',
+      scope = 'all',
+    } = req.query;
+    const sortDirection = appliedDateSort === 'oldest' ? 1 : -1;
 
     let query = { shortlisted: true };
 
     // --------------------------------------------------
     // Job ownership handling (Employer / HR-Admin / Superadmin)
     // --------------------------------------------------
-    if (jobId) {
+    if (scope === 'assigned' && ['superadmin', 'hr-admin'].includes(user.role)) {
+      let assignedEmployerIds = [];
+
+      if (user.role === 'hr-admin') {
+        const currentHrAdmin = await User.findById(user.id).select('employerIds');
+        assignedEmployerIds = (currentHrAdmin?.employerIds || []).map((id) => id.toString());
+      } else if (user.role === 'superadmin') {
+        const hrAdmins = await User.find({ role: 'hr-admin', isActive: true }).select('employerIds');
+        assignedEmployerIds = [
+          ...new Set(
+            hrAdmins.flatMap((hr) => (hr.employerIds || []).map((id) => id.toString()))
+          ),
+        ];
+      }
+
+      if (!assignedEmployerIds.length) {
+        return res.status(200).json({
+          success: true,
+          applicants: [],
+          pagination: {
+            currentPage: Number(page),
+            totalPages: 0,
+            total: 0,
+            limit: Number(limit),
+          },
+          statusCounts: {
+            Total: 0,
+            Pending: 0,
+            Reviewed: 0,
+            Accepted: 0,
+            Rejected: 0,
+          },
+        });
+      }
+
+      const assignedJobs = await JobPost.find({
+        employer: { $in: assignedEmployerIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      }).select('_id');
+
+      query.jobPost = { $in: assignedJobs.map((job) => job._id) };
+    } else if (jobId) {
       const jobPost = await JobPost.findById(jobId);
 
       if (!jobPost) {
@@ -925,6 +978,22 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
       query.jobPost = { $in: jobs.map(j => j._id) };
     }
 
+    if (jobId && scope === 'assigned' && ['superadmin', 'hr-admin'].includes(user.role)) {
+      if (!mongoose.Types.ObjectId.isValid(jobId)) {
+        return res.status(400).json({ success: false, message: 'Invalid jobId' });
+      }
+
+      const assignedJobIds = Array.isArray(query.jobPost?.$in)
+        ? query.jobPost.$in.map((id) => id.toString())
+        : [];
+
+      if (!assignedJobIds.includes(jobId.toString())) {
+        return res.status(403).json({ success: false, message: 'Forbidden job access' });
+      }
+
+      query.jobPost = new mongoose.Types.ObjectId(jobId);
+    }
+
     // --------------------------------------------------
     // Filters
     // --------------------------------------------------
@@ -942,6 +1011,25 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
       query.createdAt = { $gte: cutoffDate };
     }
 
+    if (search && String(search).trim()) {
+      const regex = new RegExp(String(search).trim(), 'i');
+      const [matchedUsers, matchedProfiles, matchedJobs] = await Promise.all([
+        User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id').lean(),
+        CandidateProfile.find({ $or: [{ fullName: regex }, { jobTitle: regex }] }).select('_id').lean(),
+        JobPost.find({ title: regex }).select('_id').lean(),
+      ]);
+
+      const candidateIds = matchedUsers.map((item) => item._id);
+      const candidateProfileIds = matchedProfiles.map((item) => item._id);
+      const jobIds = matchedJobs.map((item) => item._id);
+
+      query.$or = [
+        { candidate: { $in: candidateIds } },
+        { candidateProfile: { $in: candidateProfileIds } },
+        { jobPost: { $in: jobIds } },
+      ];
+    }
+
     // --------------------------------------------------
     // Pagination count
     // --------------------------------------------------
@@ -954,7 +1042,7 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
       .populate('candidate', 'name email phone profilePhoto')
       .populate('candidateProfile', '_id fullName jobTitle phone location profilePhoto resume expectedSalary categories')
       .populate('jobPost', 'title')
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: sortDirection })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
 
@@ -980,6 +1068,7 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
     const formattedApplicants = applicants.map(app => ({
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
+      email: app.candidate?.email || 'N/A',
       candidateProfileId: app.candidateProfile?._id || null,
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location?.city || {},

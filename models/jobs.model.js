@@ -87,7 +87,7 @@ const jobPostSchema = new mongoose.Schema({
   role: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Role',
-    required: [true, 'Role is required'],
+    default: null,
   },
   skills: {
     type: [mongoose.Schema.Types.ObjectId],

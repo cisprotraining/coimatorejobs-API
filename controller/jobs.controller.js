@@ -111,7 +111,7 @@ jobsController.createJobPost = async (req, res, next) => {
     const requiredFields = [
       'title', 'description', 'contactEmail', 'jobType',
       'offeredSalary', 'careerLevel', 'experience', 'qualification',
-      'applicationDeadline', 'positions', 'location', 'role', 'functionalAreas'
+      'applicationDeadline', 'positions', 'location', 'functionalAreas'
     ];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     if (missingFields.length > 0) {
@@ -155,9 +155,11 @@ jobsController.createJobPost = async (req, res, next) => {
       throw new BadRequestError('Invalid or missing industry');
     }
 
-    // Validate role
-    if (!mongoose.Types.ObjectId.isValid(role) || !(await Role.findById(role))) {
-      throw new BadRequestError('Invalid or missing role');
+    // Validate role only when a taxonomy role is provided.
+    if (role !== undefined && role !== null && String(role).trim() !== '') {
+      if (!mongoose.Types.ObjectId.isValid(role) || !(await Role.findById(role))) {
+        throw new BadRequestError('Invalid role');
+      }
     }
 
     // Validate skills
@@ -217,7 +219,7 @@ jobsController.createJobPost = async (req, res, next) => {
       gender: gender || 'No Preference',
       functionalAreas,
       industry,
-      role,
+      role: role && String(role).trim() !== '' ? role : null,
       skills,
       qualification,
       applicationDeadline,
@@ -733,11 +735,16 @@ jobsController.updateJobPost = async (req, res, next) => {
       updateData.functionalAreas = req.body.functionalAreas;
     }
 
-    if (req.body.role) {
-      if (!mongoose.Types.ObjectId.isValid(req.body.role) || !(await Role.findById(req.body.role))) {
-        throw new BadRequestError('Invalid role');
+    if (Object.prototype.hasOwnProperty.call(req.body, 'role')) {
+      const nextRole = req.body.role;
+      if (nextRole === '' || nextRole === null) {
+        updateData.role = null;
+      } else {
+        if (!mongoose.Types.ObjectId.isValid(nextRole) || !(await Role.findById(nextRole))) {
+          throw new BadRequestError('Invalid role');
+        }
+        updateData.role = nextRole;
       }
-      updateData.role = req.body.role;
     }
 
     if (req.body.skills) {

@@ -314,7 +314,7 @@ candidateController.createCandidateProfile = async (req, res, next) => {
     }
     
     // Validate required fields
-    const requiredFields = ['fullName', 'jobTitle', 'phone', 'email', 'educationLevels', 'languages', 'description', 'jobType', 'age', 'gender', 'location'];
+    const requiredFields = ['fullName', 'jobTitle', 'phone', 'email', 'educationLevels', 'languages', 'description', 'jobType', 'age', 'gender', 'dateOfBirth', 'location'];
     const missingFields = requiredFields.filter(field => !profileData[field] || (field === 'location' && (!profileData[field].city || !profileData[field].completeAddress)));
     if (missingFields.length > 0) {
       throw new BadRequestError(`Missing or incomplete required fields: ${missingFields.join(', ')}`);
@@ -351,6 +351,7 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       currentSalary: profileData.currentSalary,
       expectedSalary: profileData.expectedSalary,
       experience: profileData.experience,
+      dateOfBirth: profileData.dateOfBirth,
       age: profileData.age,
       gender: profileData.gender,
       // educationLevels: Array.isArray(profileData.educationLevels) ? profileData.educationLevels : [],
@@ -478,8 +479,8 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
     // let profileData = req.body;
     let profileData = req.body.data ? JSON.parse(req.body.data) : req.body;
 
-    const { 
-      fullName, jobTitle, phone, email, website, currentSalary, expectedSalary, experience, age, gender, educationLevels, languages, categories, allowInSearch, description, jobType, socialMedia, location
+    const {
+      fullName, jobTitle, phone, email, website, currentSalary, expectedSalary, experience, dateOfBirth, age, gender, educationLevels, languages, categories, allowInSearch, description, jobType, socialMedia, location
     } = profileData;
 
     // Find the profile by ID
@@ -562,6 +563,7 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
     profile.currentSalary = currentSalary || profile.currentSalary;
     profile.expectedSalary = expectedSalary || profile.expectedSalary;
     profile.experience = experience || profile.experience;
+    profile.dateOfBirth = dateOfBirth || profile.dateOfBirth;
     profile.age = age || profile.age;
     profile.gender = gender || profile.gender;
     profile.jobType = jobType || profile.jobType;

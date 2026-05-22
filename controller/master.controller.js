@@ -283,11 +283,15 @@ getSkillCategories: async (req, res) => {
         filter.name = { $regex: q, $options: 'i' };
       }
 
-      const data = await Location.find(filter)
+      const locationQuery = Location.find(filter)
         .select('name slug state keywords')
-        .limit(20)
-        .sort({ name: 1 })
-        .lean();
+        .sort({ name: 1 });
+
+      if (q) {
+        locationQuery.limit(50);
+      }
+
+      const data = await locationQuery.lean();
 
       res.json({ success: true, data });
     } catch (error) {
