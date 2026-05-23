@@ -314,7 +314,7 @@ candidateController.createCandidateProfile = async (req, res, next) => {
     }
     
     // Validate required fields
-    const requiredFields = ['fullName', 'jobTitle', 'phone', 'email', 'educationLevels', 'languages', 'description', 'jobType', 'age', 'gender', 'dateOfBirth', 'location'];
+    const requiredFields = ['fullName', 'jobTitle', 'phone', 'email', 'educationLevels', 'languages', 'description', 'jobType', 'age', 'gender', 'location'];
     const missingFields = requiredFields.filter(field => !profileData[field] || (field === 'location' && (!profileData[field].city || !profileData[field].completeAddress)));
     if (missingFields.length > 0) {
       throw new BadRequestError(`Missing or incomplete required fields: ${missingFields.join(', ')}`);
