@@ -15,6 +15,164 @@ import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js
 
 const jobsController = {};
 
+const toSafeString = (value) => String(value ?? '').trim();
+const slugifyValue = (value) =>
+  toSafeString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const createUniqueSlug = async (Model, baseValue) => {
+  const base = slugifyValue(baseValue) || `custom-${Date.now()}`;
+  let candidate = base;
+  let index = 1;
+  while (await Model.exists({ slug: candidate })) {
+    candidate = `${base}-${index}`;
+    index += 1;
+  }
+  return candidate;
+};
+
+const resolveIndustryId = async (industryValue) => {
+  const normalized = toSafeString(industryValue);
+  if (!normalized) throw new BadRequestError('Invalid or missing industry');
+
+  if (mongoose.Types.ObjectId.isValid(normalized)) {
+    const found = await Industry.findById(normalized).select('_id');
+    if (found) return found._id;
+  }
+
+  const regex = new RegExp(`^${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  const existing = await Industry.findOne({ name: regex }).select('_id');
+  if (existing) return existing._id;
+
+  const slug = await createUniqueSlug(Industry, normalized);
+  const created = await Industry.create({ name: normalized, slug, isActive: true });
+  return created._id;
+};
+
+const resolveFunctionalAreaIds = async (functionalAreasInput, industryId) => {
+  if (!Array.isArray(functionalAreasInput) || functionalAreasInput.length === 0) {
+    throw new BadRequestError('functionalAreas required (array)');
+  }
+
+  const ids = [];
+  for (const area of functionalAreasInput) {
+    const value = toSafeString(area);
+    if (!value) continue;
+
+    if (mongoose.Types.ObjectId.isValid(value)) {
+      const found = await FunctionalArea.findById(value).select('_id');
+      if (found) {
+        ids.push(found._id);
+        continue;
+      }
+    }
+
+    const regex = new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    let existing = await FunctionalArea.findOne({ name: regex, industry: industryId }).select('_id');
+    if (!existing) {
+      existing = await FunctionalArea.findOne({ name: regex, isGlobal: true }).select('_id');
+    }
+    if (!existing) {
+      // Fallback: name is globally unique in DB (name_1 unique index),
+      // so reuse any existing same-name functional area regardless of industry.
+      existing = await FunctionalArea.findOne({ name: regex }).select('_id');
+    }
+
+    if (existing) {
+      ids.push(existing._id);
+      continue;
+    }
+
+    try {
+      const slug = await createUniqueSlug(FunctionalArea, value);
+      const created = await FunctionalArea.create({
+        name: value,
+        slug,
+        industry: industryId,
+        isGlobal: false,
+        isActive: true,
+      });
+      ids.push(created._id);
+    } catch (error) {
+      // Handle race/parallel requests creating same functional area name.
+      if (error?.code === 11000) {
+        const duplicate = await FunctionalArea.findOne({ name: regex }).select('_id');
+        if (duplicate) {
+          ids.push(duplicate._id);
+          continue;
+        }
+      }
+      throw error;
+    }
+  }
+
+  const uniqueIds = Array.from(new Set(ids.map((id) => String(id))));
+  if (!uniqueIds.length) {
+    throw new BadRequestError('functionalAreas required (array)');
+  }
+  return uniqueIds;
+};
+
+const resolveRoleId = async (roleValue, functionalAreaIds) => {
+  const normalized = toSafeString(roleValue);
+  if (!normalized) return null;
+
+  if (mongoose.Types.ObjectId.isValid(normalized)) {
+    const found = await Role.findById(normalized).select('_id');
+    if (found) return found._id;
+  }
+
+  const primaryFaId = functionalAreaIds?.[0];
+  if (!primaryFaId) return null;
+
+  const regex = new RegExp(`^${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  const existing = await Role.findOne({ name: regex, functionalArea: primaryFaId }).select('_id');
+  if (existing) return existing._id;
+
+  const slug = await createUniqueSlug(Role, normalized);
+  const created = await Role.create({
+    name: normalized,
+    slug,
+    functionalArea: primaryFaId,
+    isGlobal: false,
+    isActive: true,
+  });
+  return created._id;
+};
+
+const resolveSkillIds = async (skillsInput = []) => {
+  if (!Array.isArray(skillsInput) || skillsInput.length === 0) return [];
+  const ids = [];
+
+  for (const skill of skillsInput) {
+    const value = toSafeString(skill);
+    if (!value) continue;
+
+    if (mongoose.Types.ObjectId.isValid(value)) {
+      const found = await Skill.findById(value).select('_id');
+      if (found) {
+        ids.push(found._id);
+        continue;
+      }
+    }
+
+    const regex = new RegExp(`^${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    const existing = await Skill.findOne({ name: regex }).select('_id');
+    if (existing) {
+      ids.push(existing._id);
+      continue;
+    }
+
+    const slug = await createUniqueSlug(Skill, value);
+    const created = await Skill.create({ name: value, slug, isActive: true });
+    ids.push(created._id);
+  }
+
+  return Array.from(new Set(ids.map((id) => String(id))));
+};
+
 const getAdminAlertRecipients = async () => {
   const recipients = new Set();
 
@@ -142,32 +300,10 @@ jobsController.createJobPost = async (req, res, next) => {
     //   throw new BadRequestError('At least one specialism is required');
     // }
 
-    // Validate functionalAreas (array of IDs)
-    if (!Array.isArray(functionalAreas) || functionalAreas.length === 0) throw new BadRequestError('functionalAreas required (array)');
-    for (const id of functionalAreas) {
-      if (!mongoose.Types.ObjectId.isValid(id) || !(await FunctionalArea.findById(id))) {
-        throw new BadRequestError(`Invalid/missing functional area: ${id}`);
-      }
-    }
-
-    // Validate industry
-    if (!mongoose.Types.ObjectId.isValid(industry) || !(await Industry.findById(industry))) {
-      throw new BadRequestError('Invalid or missing industry');
-    }
-
-    // Validate role only when a taxonomy role is provided.
-    if (role !== undefined && role !== null && String(role).trim() !== '') {
-      if (!mongoose.Types.ObjectId.isValid(role) || !(await Role.findById(role))) {
-        throw new BadRequestError('Invalid role');
-      }
-    }
-
-    // Validate skills
-    for (const id of skills) {
-      if (!mongoose.Types.ObjectId.isValid(id) || !(await Skill.findById(id))) {
-        throw new BadRequestError(`Invalid/missing skill: ${id}`);
-      }
-    }
+    const resolvedIndustryId = await resolveIndustryId(industry);
+    const resolvedFunctionalAreaIds = await resolveFunctionalAreaIds(functionalAreas, resolvedIndustryId);
+    const resolvedRoleId = await resolveRoleId(role, resolvedFunctionalAreaIds);
+    const resolvedSkillIds = await resolveSkillIds(skills);
 
    if (!positions || !positions.total || Number(positions.total) < 1) {
       throw new BadRequestError('Positions must be at least 1');
@@ -217,10 +353,10 @@ jobsController.createJobPost = async (req, res, next) => {
       careerLevel,
       experience,
       gender: gender || 'No Preference',
-      functionalAreas,
-      industry,
-      role: role && String(role).trim() !== '' ? role : null,
-      skills,
+      functionalAreas: resolvedFunctionalAreaIds,
+      industry: resolvedIndustryId,
+      role: resolvedRoleId,
+      skills: resolvedSkillIds,
       qualification,
       applicationDeadline,
       maxApplicants: maxApplicants ? Number(maxApplicants) : null,
@@ -236,21 +372,6 @@ jobsController.createJobPost = async (req, res, next) => {
       remoteWork: remoteWork || 'On-site', // Default to On-site
       status: 'Published', // Default to Published
     });
-
-    // Validate functional areas
-    if (!Array.isArray(functionalAreas) || functionalAreas.length === 0) {
-      throw new BadRequestError('At least one functional area is required');
-    }
-
-    for (const faId of functionalAreas) {
-      if (!mongoose.Types.ObjectId.isValid(faId)) {
-        throw new BadRequestError(`Invalid functional area ID: ${faId}`);
-      }
-      if (!(await FunctionalArea.findById(faId))) {
-        throw new NotFoundError('Functional area not found');
-      }
-    }
-
 
     await newJobPost.save();
 

@@ -80,7 +80,7 @@ const candidateProfileSchema = new mongoose.Schema({
   languages: {
     type: [String],
     required: [true, 'Languages are required'],
-    enum: ['English', 'Hindi', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Bengali', 'Marathi', 'Gujarati', 'Punjabi', 'Other'],
+    // Custom language entries are allowed from dashboard forms.
     // default: [],
   },
   // categories: {

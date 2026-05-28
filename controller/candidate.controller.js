@@ -6,6 +6,10 @@ import JobApply from "../models/jobApply.model.js";
 import SavedJob from '../models/savedJob.model.js';
 import CandidateResume from '../models/candidateResume.model.js';
 import ResumeDownloadLog from '../models/resumeDownloadLog.model.js';
+import Industry from '../models/industry.model.js';
+import FunctionalArea from '../models/functionalArea.model.js';
+import Role from '../models/role.model.js';
+import Skill from '../models/skill.model.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { sendCandidateProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail, sendJobApplicationNotificationEmail, sendCandidateApplicationConfirmationEmail } from '../utils/mailer.js';
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
@@ -37,6 +41,143 @@ const parseField = (val) => {
   } catch (e) {
     return [val];
   }
+};
+
+const toSafeString = (value) => String(value ?? '').trim();
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const slugifyValue = (value) =>
+  toSafeString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const createUniqueSlug = async (Model, baseValue) => {
+  const base = slugifyValue(baseValue) || `custom-${Date.now()}`;
+  let candidate = base;
+  let idx = 1;
+  while (await Model.exists({ slug: candidate })) {
+    candidate = `${base}-${idx}`;
+    idx += 1;
+  }
+  return candidate;
+};
+
+const resolveIndustryId = async (industryValue) => {
+  const value = toSafeString(industryValue);
+  if (!value) return null;
+
+  if (mongoose.Types.ObjectId.isValid(value)) {
+    const found = await Industry.findById(value).select('_id');
+    if (found) return found._id;
+  }
+
+  const existing = await Industry.findOne({ name: new RegExp(`^${escapeRegex(value)}$`, 'i') }).select('_id');
+  if (existing) return existing._id;
+
+  const slug = await createUniqueSlug(Industry, value);
+  const created = await Industry.create({ name: value, slug, isActive: true });
+  return created._id;
+};
+
+const resolveFunctionalAreaIds = async (functionalAreasInput, industryId = null) => {
+  const list = parseField(functionalAreasInput).map((v) => toSafeString(v)).filter(Boolean);
+  if (!list.length) return [];
+
+  const ids = [];
+  for (const value of list) {
+    if (mongoose.Types.ObjectId.isValid(value)) {
+      const found = await FunctionalArea.findById(value).select('_id');
+      if (found) {
+        ids.push(found._id);
+        continue;
+      }
+    }
+
+    const regex = new RegExp(`^${escapeRegex(value)}$`, 'i');
+    let existing = null;
+    if (industryId) {
+      existing = await FunctionalArea.findOne({ name: regex, industry: industryId }).select('_id');
+    }
+    if (!existing) {
+      existing = await FunctionalArea.findOne({ name: regex, isGlobal: true }).select('_id');
+    }
+    if (!existing) {
+      existing = await FunctionalArea.findOne({ name: regex }).select('_id');
+    }
+    if (existing) {
+      ids.push(existing._id);
+      continue;
+    }
+
+    const slug = await createUniqueSlug(FunctionalArea, value);
+    const created = await FunctionalArea.create({
+      name: value,
+      slug,
+      industry: industryId || null,
+      isGlobal: false,
+      isActive: true,
+    });
+    ids.push(created._id);
+  }
+
+  return Array.from(new Set(ids.map((id) => String(id))));
+};
+
+const resolveRoleId = async (roleValue, functionalAreaIds = []) => {
+  const value = toSafeString(roleValue);
+  if (!value) return null;
+
+  if (mongoose.Types.ObjectId.isValid(value)) {
+    const found = await Role.findById(value).select('_id');
+    if (found) return found._id;
+  }
+
+  const primaryFaId = functionalAreaIds?.[0];
+  if (!primaryFaId) return null;
+
+  const existing = await Role.findOne({
+    name: new RegExp(`^${escapeRegex(value)}$`, 'i'),
+    functionalArea: primaryFaId,
+  }).select('_id');
+  if (existing) return existing._id;
+
+  const slug = await createUniqueSlug(Role, value);
+  const created = await Role.create({
+    name: value,
+    slug,
+    functionalArea: primaryFaId,
+    isGlobal: false,
+    isActive: true,
+  });
+  return created._id;
+};
+
+const resolveSkillIds = async (skillsInput) => {
+  const list = parseField(skillsInput).map((v) => toSafeString(v)).filter(Boolean);
+  if (!list.length) return [];
+
+  const ids = [];
+  for (const value of list) {
+    if (mongoose.Types.ObjectId.isValid(value)) {
+      const found = await Skill.findById(value).select('_id');
+      if (found) {
+        ids.push(found._id);
+        continue;
+      }
+    }
+
+    const existing = await Skill.findOne({ name: new RegExp(`^${escapeRegex(value)}$`, 'i') }).select('_id');
+    if (existing) {
+      ids.push(existing._id);
+      continue;
+    }
+
+    const slug = await createUniqueSlug(Skill, value);
+    const created = await Skill.create({ name: value, slug, isActive: true });
+    ids.push(created._id);
+  }
+
+  return Array.from(new Set(ids.map((id) => String(id))));
 };
 
 const buildResumeKeyCandidates = (resumeValue) => {
@@ -292,20 +433,10 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       );
     }
 
-    if (industry && mongoose.Types.ObjectId.isValid(industry)) {
-      const industryExists = await mongoose.model('Industry').findById(industry);
-      if (!industryExists) throw new BadRequestError('Invalid Industry');
-    }
-    if (targetRoleId && mongoose.Types.ObjectId.isValid(targetRoleId)) {
-      const roleExists = await mongoose.model('Role').findById(targetRoleId);
-      if (!roleExists) throw new BadRequestError('Invalid Role');
-    }
-    const faIds = parseField(profileData.functionalAreas);
-
-    if (faIds.length > 0) {
-      const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
-      if (faCount !== faIds.length) throw new BadRequestError('One or more Functional Areas are invalid');
-    }
+    const resolvedIndustryId = await resolveIndustryId(industry);
+    const resolvedFunctionalAreaIds = await resolveFunctionalAreaIds(functionalAreas, resolvedIndustryId);
+    const resolvedRoleId = await resolveRoleId(targetRoleId, resolvedFunctionalAreaIds);
+    const resolvedSkillIds = await resolveSkillIds(profileData.skills);
     
     // 5. Prevent Duplicates
     const existingProfile = await CandidateProfile.findOne({ candidate: candidateId });
@@ -339,9 +470,9 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       approvedBy: isAdminCreator ? loggedInUserId : null,
       approvedAt: isAdminCreator ? new Date() : null,
 
-      industry: profileData.industry || null,
-      role: profileData.role || null,
-      functionalAreas: parseField(profileData.functionalAreas || []),
+      industry: resolvedIndustryId,
+      role: resolvedRoleId,
+      functionalAreas: resolvedFunctionalAreaIds,
 
       fullName: profileData.fullName,
       jobTitle: profileData.jobTitle,
@@ -360,7 +491,7 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       educationLevels: parseField(profileData.educationLevels),
       languages: parseField(profileData.languages),
       categories: parseField(profileData.categories),
-      skills: parseField(profileData.skills),
+      skills: resolvedSkillIds,
       allowInSearch: profileData.allowInSearch !== undefined ? profileData.allowInSearch : true,
       description: profileData.description,
       jobType: profileData.jobType,
@@ -533,25 +664,26 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
     }
 
 
-    if (profileData.industry) {
-      if (!(await mongoose.model('Industry').findById(profileData.industry))) throw new BadRequestError('Invalid Industry');
-      profile.industry = profileData.industry;
+    let nextIndustryId = profile.industry || null;
+    if (Object.prototype.hasOwnProperty.call(profileData, 'industry')) {
+      nextIndustryId = await resolveIndustryId(profileData.industry);
+      profile.industry = nextIndustryId;
     }
 
-    if (profileData.role) {
-      if (!(await mongoose.model('Role').findById(profileData.role))) throw new BadRequestError('Invalid Role');
-      profile.role = profileData.role;
+    let nextFunctionalAreaIds = Array.isArray(profile.functionalAreas)
+      ? profile.functionalAreas.map((id) => String(id))
+      : [];
+    if (Object.prototype.hasOwnProperty.call(profileData, 'functionalAreas')) {
+      nextFunctionalAreaIds = await resolveFunctionalAreaIds(profileData.functionalAreas, nextIndustryId);
+      profile.functionalAreas = nextFunctionalAreaIds;
     }
 
-    if (profileData.functionalAreas) {
-      const faIds = parseField(profileData.functionalAreas);
-      const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
-      if (faCount !== faIds.length) throw new BadRequestError('Invalid Functional Areas');
-      profile.functionalAreas = faIds;
+    if (Object.prototype.hasOwnProperty.call(profileData, 'role')) {
+      profile.role = await resolveRoleId(profileData.role, nextFunctionalAreaIds);
     }
 
-    if (profileData.skills) {
-      profile.skills = parseField(profileData.skills);
+    if (Object.prototype.hasOwnProperty.call(profileData, 'skills')) {
+      profile.skills = await resolveSkillIds(profileData.skills);
     }
 
     // Update fields if provided

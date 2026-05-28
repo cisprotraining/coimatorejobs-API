@@ -28,6 +28,8 @@ import { OAuth2Client } from 'google-auth-library';
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const LOGIN_OTP_EXPIRY_MINUTES = 10;
 const LOGIN_OTP_MAX_ATTEMPTS = 5;
+const DEFAULT_PUBLIC_EMPLOYER_EMAIL = 'hello@coimbatorejobs.in';
+const INTERNAL_EMPLOYER_EMAIL_REGEX = /^employer_.*_@internal\.coimbatorejobs\.in$/i;
 
 // Authentication controller object
 const authentication = {};
@@ -55,6 +57,18 @@ const resolveLoginOtpRecipient = (user) => {
   }
 
   return null;
+};
+
+const getPublicEmployerEmail = (user) => {
+  const email = (user?.email || '').trim().toLowerCase();
+  if (
+    user?.isSystemGeneratedEmail ||
+    email.endsWith('@internal.coimbatorejobs.in') ||
+    INTERNAL_EMPLOYER_EMAIL_REGEX.test(email)
+  ) {
+    return DEFAULT_PUBLIC_EMPLOYER_EMAIL;
+  }
+  return email || DEFAULT_PUBLIC_EMPLOYER_EMAIL;
 };
 
 /**
@@ -218,15 +232,13 @@ authentication.createAdminUser = async (req, res, next) => {
       });
     }
 
-    /** new requirement for keeping confendicial employers emails */
-    // Generate internal email if not provided
+    // Email is optional for admin-created users. If not provided, keep it empty
+    // and rely on unique loginId for account identification.
     let finalEmail = normalizeEmail(email);
 
     let isSystemGeneratedEmail = false;
 
     if (!finalEmail) {
-      const randomSuffix = Math.floor(Math.random() * 100000);
-      finalEmail = `${role}_${Date.now()}_${randomSuffix}@internal.coimbatorejobs.in`;
       isSystemGeneratedEmail = true;
     }
 
@@ -239,11 +251,13 @@ authentication.createAdminUser = async (req, res, next) => {
     }
 
     // Check uniqueness
-    const existing = await User.findOne({ email: finalEmail }).session(session);
-    if (existing) {
-      return res.status(400).json({
-        message: 'User already exists with this email'
-      });
+    if (!isSystemGeneratedEmail) {
+      const existing = await User.findOne({ email: finalEmail }).session(session);
+      if (existing) {
+        return res.status(400).json({
+          message: 'User already exists with this email'
+        });
+      }
     }
 
     // Hash password
@@ -261,9 +275,8 @@ authentication.createAdminUser = async (req, res, next) => {
     const resolvedAssignmentSource = isSuperadminAssignedUser ? 'superadmin-assigned' : creator.role;
 
    // Admin-created users: HR admin creates as approved, Superadmin-assigned users remain pending.
-    const [user] = await User.create([{
+    const createPayload = {
       name,
-      email: finalEmail,
       password: hashedPassword,
       role,
       status: resolvedStatus,
@@ -272,7 +285,12 @@ authentication.createAdminUser = async (req, res, next) => {
       assignmentSource: resolvedAssignmentSource,
       isSystemGeneratedEmail,
       loginId
-    }], { session });
+    };
+    if (!isSystemGeneratedEmail) {
+      createPayload.email = finalEmail;
+    }
+
+    const [user] = await User.create([createPayload], { session });
 
     // AUTO ASSIGN EMPLOYER TO HR-ADMIN
    if (creator.role === 'hr-admin') {
@@ -351,7 +369,7 @@ authentication.createAdminUser = async (req, res, next) => {
         _id: user._id,
         name: user.name,
         role: user.role,
-        email: user.isSystemGeneratedEmail ? null : user.email,
+        email: getPublicEmployerEmail(user),
         loginId: user.loginId,
         isSystemGeneratedEmail: user.isSystemGeneratedEmail
       }
@@ -582,11 +600,19 @@ authentication.getAssignedUsers = async (req, res, next) => {
     // SUPERADMIN → sees all
     const users = await User.find(query, { password: 0 })
       .sort({ createdAt: -1 });
+
+    const sanitizedUsers = users.map((userDoc) => {
+      const userObj = userDoc.toObject();
+      if (userObj.role === 'employer') {
+        userObj.email = getPublicEmployerEmail(userObj);
+      }
+      return userObj;
+    });
  
     res.status(200).json({
       success: true,
-      count: users.length,
-      data: users
+      count: sanitizedUsers.length,
+      data: sanitizedUsers
     });
  
   } catch (error) {
