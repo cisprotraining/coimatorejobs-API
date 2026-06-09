@@ -98,6 +98,10 @@ employerRouter.delete('/applicants/delete/:applicationId', authenticate, authori
 // View applicant details
 employerRouter.get('/applicants/get/:applicationId', authenticate, authorizeEmployerLike(), employerApplicantsController.viewApplicant);
 
+// Resume download quota summary and controlled resume downloads
+employerRouter.get('/resume-downloads/usage', authenticate, authorizeEmployerLike(), employerApplicantsController.getResumeDownloadUsage);
+employerRouter.get('/applicants/:applicationId/resume', authenticate, authorizeEmployerLike(), employerApplicantsController.downloadApplicantResume);
+
 // Bulk update applicant statuses
 employerRouter.put('/applicants/bulk-status', authenticate, authorizeEmployerLike(), employerApplicantsController.bulkUpdateStatus);
 

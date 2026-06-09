@@ -1,8 +1,4 @@
-// utils/candidatefileupload.js
-import multer from "multer";
-import multerS3 from "multer-s3";
-import { v4 as uuidv4 } from "uuid";
-import { s3 } from "../config/aws-s3.js";
+import { createFieldsUploadMiddleware, createSingleUploadMiddleware } from "./uploadPipeline.js";
 
 const allowedTypes = [
   "image/jpeg",
@@ -10,47 +6,50 @@ const allowedTypes = [
   "image/png",
   "image/gif",
   "image/webp",
+  "image/avif",
+  "image/heic",
+  "image/heif",
+  "image/tiff",
+  "image/bmp",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 
-const fileFilter = (req, file, cb) => {
-  if (allowedTypes.includes(file.mimetype)) return cb(null, true);
-  cb(new Error("Invalid file type"), false);
-};
-
-const storage = multerS3({
-  s3,
-  bucket: process.env.AWS_S3_BUCKET,
-  contentType: multerS3.AUTO_CONTENT_TYPE,
-  key: (req, file, cb) => {
-    let folder = "others";
-    if (file.fieldname === "profilePhoto") folder = "profile-images";
-    if (file.fieldname === "resume") folder = "resumes";
-    if (file.fieldname === "portfolio") folder = "candidate-cvs";
-    if (file.fieldname === "cv") folder = "candidate-cvs";
-
-    // Sanitize filename (remove special chars)
-    const safeOriginalName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-
-    const filename = `${folder}/${uuidv4()}-${safeOriginalName}`;
-    console.log(`Uploading to S3: ${filename}`);  // Log for debug
-    cb(null, filename);
-    file.key = filename; // Attach the key to the file object for later use in the route handler
+export const candidateUpload = createFieldsUploadMiddleware({
+  allowedTypes,
+  maxFileSize: 5 * 1024 * 1024,
+  fields: [
+    { name: "profilePhoto", maxCount: 1 },
+    { name: "resume", maxCount: 1 },
+    { name: "portfolio", maxCount: 1 },
+  ],
+  fieldConfig: {
+    profilePhoto: {
+      type: "image",
+      folder: "profile-images",
+      imageOptions: {
+        maxWidth: 1600,
+        maxHeight: 1600,
+      },
+    },
+    resume: {
+      type: "raw",
+      folder: "resumes",
+    },
+    portfolio: {
+      type: "raw",
+      folder: "candidate-cvs",
+    },
   },
 });
 
-const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 },
+export const cvUpload = createSingleUploadMiddleware({
+  fieldName: "cv",
+  allowedTypes,
+  maxFileSize: 5 * 1024 * 1024,
+  fieldConfig: {
+    type: "raw",
+    folder: "candidate-cvs",
+  },
 });
-
-export const candidateUpload = upload.fields([
-  { name: "profilePhoto", maxCount: 1 },
-  { name: "resume", maxCount: 1 },
-  { name: "portfolio", maxCount: 1 },
-]);
-
-export const cvUpload = upload.single("cv");

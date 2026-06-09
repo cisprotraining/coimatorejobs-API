@@ -3,12 +3,169 @@ import Application from '../models/jobApply.model.js';
 import JobPost from '../models/jobs.model.js';
 import CandidateProfile from '../models/candidateProfile.model.js';
 import User from '../models/user.model.js';
+import EmployerResumeDownloadLog from '../models/employerResumeDownloadLog.model.js';
+import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { canManageJob, buildJobQueryForUser } from '../utils/roleHelper.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors.js';
 import { sendApplicationStatusUpdateEmail } from '../utils/mailer.js';
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
+import { getPrivateFileUrl } from '../utils/s3SignedUrl.js';
+import { s3 } from "../config/aws-s3.js";
 
 const employerApplicantsController = {};
+
+const MONTHLY_RESUME_LIMIT = 5;
+
+const getIstMonthKey = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+  }).format(new Date());
+
+const getIstMonthLabel = () =>
+  new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
+
+const buildResumeKeyCandidates = (resumeValue) => {
+  if (!resumeValue || typeof resumeValue !== "string") return [];
+
+  let key = resumeValue.trim();
+
+  if (key.startsWith("https://") && key.includes(".amazonaws.com/")) {
+    key = key.split(".amazonaws.com/")[1] || "";
+  }
+
+  if (!key) return [];
+
+  const normalized = key.replace(/^\/+/, "");
+  const candidates = new Set([key, normalized]);
+
+  if (normalized.startsWith("uploads/candidate/")) {
+    const fileName = normalized.split("uploads/candidate/")[1];
+    if (fileName) {
+      candidates.add(`uploads/candidate/${fileName}`);
+      candidates.add(`resumes/${fileName}`);
+      candidates.add(`candidate-cvs/${fileName}`);
+    }
+  }
+
+  return [...candidates].filter(Boolean);
+};
+
+const resolveExistingResumeKey = async (resumeValue) => {
+  const possibleKeys = buildResumeKeyCandidates(resumeValue);
+
+  for (const key of possibleKeys) {
+    try {
+      await s3.send(
+        new HeadObjectCommand({
+          Bucket: process.env.AWS_S3_BUCKET,
+          Key: key,
+        })
+      );
+      return key;
+    } catch (error) {
+      // try next candidate key
+    }
+  }
+
+  return null;
+};
+
+const resolveApplicationResumeValue = async (application) => {
+  if (!application) return "";
+
+  const candidateProfileResume = application.candidateProfile?.resume || "";
+  const applicationResume = application.resume || "";
+
+  if (candidateProfileResume) return candidateProfileResume;
+  if (applicationResume) return applicationResume;
+
+  const latestApplication = await Application.findOne({ candidate: application.candidate?._id || application.candidate })
+    .select('resume createdAt')
+    .sort({ createdAt: -1 });
+
+  return latestApplication?.resume || "";
+};
+
+const buildResumeQuotaResponse = async ({ user, jobId = null }) => {
+  const monthKey = getIstMonthKey();
+
+  const jobQuery = buildJobQueryForUser(user);
+  const jobs = await JobPost.find(jobQuery)
+    .select("_id title status applicantCount createdAt")
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const jobIds = jobs.map((job) => job._id);
+
+  const usageAgg = jobIds.length
+    ? await EmployerResumeDownloadLog.aggregate([
+        {
+          $match: {
+            employer: user.id,
+            monthKey,
+            jobPost: { $in: jobIds },
+          },
+        },
+        {
+          $group: {
+            _id: "$jobPost",
+            downloadsUsed: { $sum: 1 },
+            lastDownloadedAt: { $max: "$downloadedAt" },
+          },
+        },
+      ])
+    : [];
+
+  const usageMap = new Map(
+    usageAgg.map((item) => [
+      String(item._id),
+      {
+        downloadsUsed: Number(item.downloadsUsed || 0),
+        lastDownloadedAt: item.lastDownloadedAt || null,
+      },
+    ])
+  );
+
+  const jobsWithUsage = jobs.map((job) => {
+    const usage = usageMap.get(String(job._id)) || { downloadsUsed: 0, lastDownloadedAt: null };
+    const downloadsRemaining = Math.max(MONTHLY_RESUME_LIMIT - usage.downloadsUsed, 0);
+
+    return {
+      jobId: job._id,
+      title: job.title,
+      status: job.status,
+      applicantCount: job.applicantCount || 0,
+      downloadsUsed: usage.downloadsUsed,
+      downloadsRemaining,
+      limit: MONTHLY_RESUME_LIMIT,
+      monthKey,
+      monthLabel: getIstMonthLabel(),
+      lastDownloadedAt: usage.lastDownloadedAt,
+      isSelected: jobId ? String(job._id) === String(jobId) : false,
+    };
+  });
+
+  const selectedJob = jobsWithUsage.find((job) => job.isSelected) || jobsWithUsage[0] || null;
+  const totalDownloadsUsed = jobsWithUsage.reduce((sum, job) => sum + job.downloadsUsed, 0);
+
+  return {
+    limitPerJob: MONTHLY_RESUME_LIMIT,
+    monthKey,
+    monthLabel: getIstMonthLabel(),
+    selectedJob,
+    jobs: jobsWithUsage,
+    summary: {
+      totalJobs: jobsWithUsage.length,
+      totalDownloadsUsed,
+    },
+  };
+};
 
 /**
  * Get all applicants for a specific job with filters.
@@ -330,6 +487,7 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
       email: app.candidate?.email || 'N/A',
+      jobPostId: app.jobPost?._id || null,
       candidateProfileId: app.candidateProfile?._id || '',
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location || {},
@@ -538,6 +696,7 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
       email: app.candidate?.email || 'N/A',
+      jobPostId: app.jobPost?._id || null,
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location?.city || 'N/A',
       expectedSalary: app.candidateProfile?.expectedSalary || 'N/A',
@@ -741,6 +900,128 @@ employerApplicantsController.viewApplicant = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       application,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get monthly resume download usage for all jobs accessible to the employer.
+ */
+employerApplicantsController.getResumeDownloadUsage = async (req, res, next) => {
+  try {
+    const { jobId } = req.query;
+    const quota = await buildResumeQuotaResponse({
+      user: req.user,
+      jobId: jobId || null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      ...quota,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Download an applicant resume with monthly per-job quota enforcement.
+ */
+employerApplicantsController.downloadApplicantResume = async (req, res, next) => {
+  try {
+    const { applicationId } = req.params;
+    const user = req.user;
+    const monthKey = getIstMonthKey();
+
+    const application = await Application.findById(applicationId)
+      .populate('candidate', 'name email phone profilePhoto')
+      .populate('candidateProfile', 'fullName jobTitle phone location profilePhoto resume expectedSalary categories')
+      .populate({
+        path: 'jobPost',
+        select: 'title employer status applicantCount',
+      })
+      .select('-__v');
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found',
+      });
+    }
+
+    if (!application.jobPost) {
+      return res.status(400).json({
+        success: false,
+        message: 'Job post not associated with this application',
+      });
+    }
+
+    if (!canManageJob(application.jobPost, user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Permission denied',
+      });
+    }
+
+    const resumeValue = await resolveApplicationResumeValue(application);
+    if (!resumeValue) {
+      return res.status(404).json({
+        success: false,
+        message: 'Resume not found',
+      });
+    }
+
+    const currentUsage = await EmployerResumeDownloadLog.countDocuments({
+      employer: user.id,
+      jobPost: application.jobPost._id,
+      monthKey,
+    });
+
+    const quota = await buildResumeQuotaResponse({
+      user,
+      jobId: String(application.jobPost._id),
+    });
+
+    if (currentUsage >= MONTHLY_RESUME_LIMIT) {
+      return res.status(429).json({
+        success: false,
+        code: 'DOWNLOAD_LIMIT_REACHED',
+        message: `Monthly download limit reached for "${application.jobPost.title}". You can download only ${MONTHLY_RESUME_LIMIT} resumes per job post each month.`,
+        downloadQuota: quota,
+      });
+    }
+
+    const key = await resolveExistingResumeKey(resumeValue);
+    if (!key) {
+      return res.status(404).json({
+        success: false,
+        message: 'Resume file not found in storage',
+      });
+    }
+
+    const signedUrl = await getPrivateFileUrl(key);
+
+    await EmployerResumeDownloadLog.create({
+      employer: user.id,
+      jobPost: application.jobPost._id,
+      candidate: application.candidate?._id || application.candidate,
+      application: application._id,
+      monthKey,
+      downloadedAt: new Date(),
+    });
+
+    const nextQuota = await buildResumeQuotaResponse({
+      user,
+      jobId: String(application.jobPost._id),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Resume download started',
+      url: signedUrl,
+      downloadQuota: nextQuota,
     });
   } catch (error) {
     next(error);
@@ -1069,6 +1350,7 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
       email: app.candidate?.email || 'N/A',
+      jobPostId: app.jobPost?._id || null,
       candidateProfileId: app.candidateProfile?._id || null,
       designation: app.candidateProfile?.jobTitle || 'N/A',
       location: app.candidateProfile?.location?.city || {},

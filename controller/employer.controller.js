@@ -48,6 +48,92 @@ const resolveCompanyEmailForEmployer = ({ employerUser, requestedEmail }) => {
   return DEFAULT_COMPANY_EMAIL;
 };
 
+const toSafeString = (value) => String(value ?? '').trim();
+
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const slugifyValue = (value) =>
+  toSafeString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const createUniqueSlug = async (Model, baseValue) => {
+  const base = slugifyValue(baseValue) || `custom-${Date.now()}`;
+  let candidate = base;
+  let index = 1;
+
+  while (await Model.exists({ slug: candidate })) {
+    candidate = `${base}-${index}`;
+    index += 1;
+  }
+
+  return candidate;
+};
+
+const resolveIndustryId = async (industryValue) => {
+  const normalized = toSafeString(industryValue);
+  if (!normalized) return null;
+
+  if (mongoose.Types.ObjectId.isValid(normalized)) {
+    const found = await Industry.findById(normalized).select('_id');
+    if (found) return found._id;
+  }
+
+  const regex = new RegExp(`^${escapeRegex(normalized)}$`, 'i');
+  const existing = await Industry.findOne({ name: regex }).select('_id');
+  if (existing) return existing._id;
+
+  const slug = await createUniqueSlug(Industry, normalized);
+  const created = await Industry.create({ name: normalized, slug, isActive: true });
+  return created._id;
+};
+
+const resolveFunctionalAreaIds = async (functionalAreasInput, industryId = null) => {
+  const values = parseField(functionalAreasInput).map((value) => toSafeString(value)).filter(Boolean);
+  if (!values.length) return [];
+
+  const ids = [];
+  for (const value of values) {
+    if (mongoose.Types.ObjectId.isValid(value)) {
+      const found = await FunctionalArea.findById(value).select('_id');
+      if (found) {
+        ids.push(found._id);
+        continue;
+      }
+    }
+
+    const regex = new RegExp(`^${escapeRegex(value)}$`, 'i');
+    let existing = null;
+
+    if (industryId) {
+      existing = await FunctionalArea.findOne({ name: regex, industry: industryId }).select('_id');
+    }
+    if (!existing) {
+      existing = await FunctionalArea.findOne({ name: regex, isGlobal: true }).select('_id');
+    }
+    if (!existing) {
+      existing = await FunctionalArea.findOne({ name: regex }).select('_id');
+    }
+    if (existing) {
+      ids.push(existing._id);
+      continue;
+    }
+
+    const slug = await createUniqueSlug(FunctionalArea, value);
+    const created = await FunctionalArea.create({
+      name: value,
+      slug,
+      industry: industryId || null,
+      isGlobal: false,
+      isActive: true,
+    });
+    ids.push(created._id);
+  }
+
+  return Array.from(new Set(ids.map((id) => String(id))));
+};
+
 
 /**
  * Retrieves all company profiles (accessible to admins and superadmins)
@@ -178,16 +264,10 @@ employerController.createCompanyProfile = async (req, res, next) => {
       );
     }
 
-    // console.log("esggsg", employerUser);
+    const industryId = await resolveIndustryId(industry);
+    if (!industryId) throw new BadRequestError('Invalid Industry');
 
-    if (industry && !(await mongoose.model('Industry').findById(industry))) throw new BadRequestError('Invalid Industry');
-
-    const faIds = parseField(functionalAreas);
-
-    if (faIds.length > 0) {
-      const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
-      if (faCount !== faIds.length) throw new BadRequestError('One or more Functional Areas are invalid');
-    }
+    const faIds = await resolveFunctionalAreaIds(functionalAreas, industryId);
     
     // Prevent duplicate company for same employer (business rule)
     const existingProfile = await CompanyProfile.findOne({ employer: employerId });
@@ -246,8 +326,8 @@ employerController.createCompanyProfile = async (req, res, next) => {
       approvedBy: isAdminCreator ? loggedInUserId : null,
       approvedAt: isAdminCreator ? new Date() : null,
 
-      industry: profileData.industry,
-      functionalAreas: parseField(profileData.functionalAreas),
+      industry: industryId,
+      functionalAreas: faIds,
 
       companyName,
       email: resolvedCompanyEmail,
@@ -262,7 +342,6 @@ employerController.createCompanyProfile = async (req, res, next) => {
       description,
       socialMedia: typeof socialMedia === 'string' ? JSON.parse(socialMedia) : (socialMedia || {}),
       location: typeof location === 'string' ? JSON.parse(location) : (location || {}),
-      industry,
       companyType,
       culture: typeof culture === 'string' ? JSON.parse(culture) : (culture || []),
       revenue,
@@ -531,15 +610,17 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     //   }
     // });
 
+    const resolvedIndustryId = updateData.industry
+      ? await resolveIndustryId(updateData.industry)
+      : (profile.industry?._id || profile.industry || null);
+
     if (updateData.industry) {
-      const industryExists = await mongoose.model('Industry').findById(updateData.industry);
-      if (!industryExists) throw new BadRequestError('Invalid Industry');
+      if (!resolvedIndustryId) throw new BadRequestError('Invalid Industry');
+      updateData.industry = resolvedIndustryId;
     }
 
     if (updateData.functionalAreas) {
-      const faIds = parseField(updateData.functionalAreas);
-      const faCount = await mongoose.model('FunctionalArea').countDocuments({ _id: { $in: faIds } });
-      if (faCount !== faIds.length) throw new BadRequestError('Invalid Functional Areas');
+      const faIds = await resolveFunctionalAreaIds(updateData.functionalAreas, resolvedIndustryId);
       updateData.functionalAreas = faIds;
     }
 
