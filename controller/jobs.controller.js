@@ -7,6 +7,7 @@ import Location from '../models/location.model.js';
 import Skill from '../models/skill.model.js';
 import Industry from '../models/industry.model.js';
 import FunctionalArea from '../models/functionalArea.model.js';
+import EmployerResumeDownloadLog from '../models/employerResumeDownloadLog.model.js';
 import { sendSuperadminAlertEmail, sendEmployerJobPostedEmail } from '../utils/mailer.js';
 import { SUPERADMIN_EMAIL } from '../config/env.js';
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
@@ -14,6 +15,13 @@ import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.
 import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
 
 const jobsController = {};
+const MONTHLY_RESUME_LIMIT = 5;
+const getIstMonthKey = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+  }).format(new Date());
 
 const toSafeString = (value) => String(value ?? '').trim();
 const slugifyValue = (value) =>
@@ -566,9 +574,46 @@ jobsController.getJobPosts = async (req, res, next) => {
         })
       : jobPosts;
 
+    const monthKey = getIstMonthKey();
+    const filteredJobIds = filteredJobPosts.map((job) => job._id);
+    const downloadUsageAgg = filteredJobIds.length
+      ? await EmployerResumeDownloadLog.aggregate([
+          {
+            $match: {
+              monthKey,
+              jobPost: { $in: filteredJobIds },
+            },
+          },
+          {
+            $group: {
+              _id: '$jobPost',
+              downloadsUsed: { $sum: 1 },
+            },
+          },
+        ])
+      : [];
+
+    const downloadUsageMap = new Map(
+      downloadUsageAgg.map((item) => [String(item._id), Number(item.downloadsUsed || 0)])
+    );
+
+    const jobPostsWithDownloadUsage = filteredJobPosts.map((job) => {
+      const downloadsUsed = downloadUsageMap.get(String(job._id)) || 0;
+
+      return {
+        ...job.toObject(),
+        resumeDownloadUsage: {
+          used: downloadsUsed,
+          limit: MONTHLY_RESUME_LIMIT,
+          label: `${downloadsUsed}/${MONTHLY_RESUME_LIMIT}`,
+          isLimitReached: downloadsUsed >= MONTHLY_RESUME_LIMIT,
+        },
+      };
+    });
+
     return res.status(200).json({
       success: true,
-      jobPosts: filteredJobPosts,
+      jobPosts: jobPostsWithDownloadUsage,
     });
   } catch (error) {
     next(error);

@@ -48,6 +48,19 @@ const resolveCompanyEmailForEmployer = ({ employerUser, requestedEmail }) => {
   return DEFAULT_COMPANY_EMAIL;
 };
 
+const normalizeEstablishedSince = (value) => {
+  if (value === null || value === undefined) return value;
+
+  const rawValue = String(value).trim();
+  if (!rawValue) return rawValue;
+
+  if (/^\d{4}$/.test(rawValue)) {
+    return `${rawValue}-01-01`;
+  }
+
+  return rawValue;
+};
+
 const toSafeString = (value) => String(value ?? '').trim();
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -284,6 +297,7 @@ employerController.createCompanyProfile = async (req, res, next) => {
       socialMedia, location, companyType, companyGSTIN, panNo, culture, 
       revenue, founders, branches, isHiring
     } = profileData;
+    const normalizedEstablishedSince = normalizeEstablishedSince(establishedSince);
     const requestedCompanyEmail = normalizeEmail(email || "");
     const resolvedCompanyEmail = resolveCompanyEmailForEmployer({
       employerUser,
@@ -335,7 +349,7 @@ employerController.createCompanyProfile = async (req, res, next) => {
       companyGSTIN: normalizedCompanyGSTIN,
       panNo: normalizedPanNo,
       website,
-      establishedSince,
+      establishedSince: normalizedEstablishedSince,
       teamSize,
       categories: Array.isArray(categories) ? categories : [categories],
       allowInSearch: allowInSearch !== undefined ? allowInSearch : true,
@@ -642,6 +656,9 @@ employerController.updateCompanyProfile = async (req, res, next) => {
       requestedEmail: requestedUpdateEmail,
     });
     updateData.email = resolvedCompanyEmail;
+    if (Object.prototype.hasOwnProperty.call(updateData, 'establishedSince')) {
+      updateData.establishedSince = normalizeEstablishedSince(updateData.establishedSince);
+    }
 
     //  Handle categories array
     // if (updateData.categories) {

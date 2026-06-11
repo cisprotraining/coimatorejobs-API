@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Application from '../models/jobApply.model.js';
 import JobPost from '../models/jobs.model.js';
 import CandidateProfile from '../models/candidateProfile.model.js';
+import CompanyProfile from '../models/companyProfile.model.js';
 import User from '../models/user.model.js';
 import EmployerResumeDownloadLog from '../models/employerResumeDownloadLog.model.js';
 import { HeadObjectCommand } from "@aws-sdk/client-s3";
@@ -164,6 +165,53 @@ const buildResumeQuotaResponse = async ({ user, jobId = null }) => {
       totalJobs: jobsWithUsage.length,
       totalDownloadsUsed,
     },
+  };
+};
+
+const buildApplicantCompanyNameMaps = async (applicants = []) => {
+  const companyProfileIds = [
+    ...new Set(
+      applicants
+        .map((app) => app.jobPost?.companyProfile)
+        .filter(Boolean)
+        .map((id) => String(id))
+    ),
+  ];
+
+  const employerIds = [
+    ...new Set(
+      applicants
+        .map((app) => app.jobPost?.employer)
+        .filter(Boolean)
+        .map((id) => String(id))
+    ),
+  ];
+
+  const [companyProfiles, employers] = await Promise.all([
+    companyProfileIds.length
+      ? CompanyProfile.find({ _id: { $in: companyProfileIds } })
+          .select('_id employer companyName')
+          .lean()
+      : [],
+    employerIds.length
+      ? User.find({ _id: { $in: employerIds } })
+          .select('_id name')
+          .lean()
+      : [],
+  ]);
+
+  return {
+    companyProfileMap: new Map(
+      companyProfiles.map((profile) => [String(profile._id), profile.companyName])
+    ),
+    employerCompanyMap: new Map(
+      companyProfiles
+        .filter((profile) => profile.employer)
+        .map((profile) => [String(profile.employer), profile.companyName])
+    ),
+    employerNameMap: new Map(
+      employers.map((employer) => [String(employer._id), employer.name])
+    ),
   };
 };
 
@@ -439,6 +487,10 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
       { $unwind: { path: '$candidateProfile', preserveNullAndEmptyArrays: true } },
       { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'jobPost' } },
       { $unwind: { path: '$jobPost', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'companyprofiles', localField: 'jobPost.companyProfile', foreignField: '_id', as: 'companyProfile' } },
+      { $unwind: { path: '$companyProfile', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'users', localField: 'jobPost.employer', foreignField: '_id', as: 'employerUser' } },
+      { $unwind: { path: '$employerUser', preserveNullAndEmptyArrays: true } },
     ];
 
     if (search) {
@@ -483,6 +535,9 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
       Rejected: result.statusCounts.find(s => s._id === 'Rejected')?.count || 0,
     };
 
+    const { companyProfileMap, employerCompanyMap, employerNameMap } =
+      await buildApplicantCompanyNameMaps(applicants);
+
     const formattedApplicants = applicants.map(app => ({
       id: app.candidate?._id,
       name: app.candidateProfile?.fullName || app.candidate?.name || 'N/A',
@@ -501,6 +556,11 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
       applicationId: app._id,
       jobTitle: app.jobPost?.title || 'N/A',
       employerId: app.jobPost?.employer,
+      companyName:
+        companyProfileMap.get(String(app.jobPost?.companyProfile || '')) ||
+        employerCompanyMap.get(String(app.jobPost?.employer || '')) ||
+        employerNameMap.get(String(app.jobPost?.employer || '')) ||
+        'N/A',
     }));
 
     return res.status(200).json({
@@ -644,6 +704,10 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
 
       { $lookup: { from: 'jobposts', localField: 'jobPost', foreignField: '_id', as: 'jobPost' } },
       { $unwind: { path: '$jobPost', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'companyprofiles', localField: 'jobPost.companyProfile', foreignField: '_id', as: 'companyProfile' } },
+      { $unwind: { path: '$companyProfile', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'users', localField: 'jobPost.employer', foreignField: '_id', as: 'employerUser' } },
+      { $unwind: { path: '$employerUser', preserveNullAndEmptyArrays: true } },
     ];
 
     // Search
@@ -691,6 +755,9 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
       Rejected: result.statusCounts.find(s => s._id === 'Rejected')?.count || 0,
     };
 
+    const { companyProfileMap, employerCompanyMap, employerNameMap } =
+      await buildApplicantCompanyNameMaps(applicants);
+
     //  Format response
     const formattedApplicants = applicants.map(app => ({
       id: app.candidate?._id,
@@ -710,6 +777,11 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
       jobTitle: app.jobPost?.title || 'N/A',
       candidateProfileId: app.candidateProfile?._id || null,
       employerId: app.jobPost?.employer,
+      companyName:
+        companyProfileMap.get(String(app.jobPost?.companyProfile || '')) ||
+        employerCompanyMap.get(String(app.jobPost?.employer || '')) ||
+        employerNameMap.get(String(app.jobPost?.employer || '')) ||
+        'N/A',
     }));
 
     return res.status(200).json({
