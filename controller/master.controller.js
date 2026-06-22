@@ -4,6 +4,144 @@ import FunctionalArea from '../models/functionalArea.model.js';
 import Role from '../models/role.model.js';
 import Skill from '../models/skill.model.js';
 import Location from '../models/location.model.js';
+import JobPost from '../models/jobs.model.js';
+import User from '../models/user.model.js';
+import { commonRoles, industrySpecificRoles } from '../seeds/categories.seed.js';
+import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors.js';
+
+const toSafeString = (value) => String(value ?? '').trim();
+const slugifyValue = (value) =>
+  toSafeString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const createUniqueSlug = async (Model, baseValue) => {
+  const base = slugifyValue(baseValue) || `custom-${Date.now()}`;
+  let candidate = base;
+  let index = 1;
+  while (await Model.exists({ slug: candidate })) {
+    candidate = `${base}-${index}`;
+    index += 1;
+  }
+  return candidate;
+};
+
+const seededRoleNameSet = new Set(
+  [...commonRoles, ...industrySpecificRoles]
+    .map((role) => String(role?.name || '').trim().toLowerCase())
+    .filter(Boolean)
+);
+
+const resolveIndustryId = async (industryValue) => {
+  const normalized = toSafeString(industryValue);
+  if (!normalized) throw new BadRequestError('Industry is required');
+
+  if (mongoose.Types.ObjectId.isValid(normalized)) {
+    const found = await Industry.findById(normalized).select('_id');
+    if (found) return found._id;
+  }
+
+  const regex = new RegExp(`^${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  const existing = await Industry.findOne({ name: regex }).select('_id');
+  if (existing) return existing._id;
+
+  const slug = await createUniqueSlug(Industry, normalized);
+  const created = await Industry.create({ name: normalized, slug, isActive: true });
+  return created._id;
+};
+
+const resolveFunctionalAreaId = async (functionalAreaValue, industryId) => {
+  const normalized = toSafeString(functionalAreaValue);
+  if (!normalized) throw new BadRequestError('Functional area is required');
+
+  if (mongoose.Types.ObjectId.isValid(normalized)) {
+    const found = await FunctionalArea.findById(normalized).select('_id');
+    if (found) return found._id;
+  }
+
+  const regex = new RegExp(`^${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  let existing = await FunctionalArea.findOne({ name: regex, industry: industryId }).select('_id');
+  if (!existing) {
+    existing = await FunctionalArea.findOne({ name: regex, isGlobal: true }).select('_id');
+  }
+  if (!existing) {
+    existing = await FunctionalArea.findOne({ name: regex }).select('_id');
+  }
+  if (existing) return existing._id;
+
+  const slug = await createUniqueSlug(FunctionalArea, normalized);
+  const created = await FunctionalArea.create({
+    name: normalized,
+    slug,
+    industry: industryId,
+    isGlobal: false,
+    isActive: true,
+  });
+  return created._id;
+};
+
+const resolveRoleDocument = async (roleValue, functionalAreaId, actorId) => {
+  const normalized = toSafeString(roleValue);
+  if (!normalized) throw new BadRequestError('Role is required');
+
+  if (mongoose.Types.ObjectId.isValid(normalized)) {
+    const found = await Role.findById(normalized);
+    if (found) return found;
+  }
+
+  const regex = new RegExp(`^${normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  const existing = await Role.findOne({ name: regex, functionalArea: functionalAreaId })
+    .sort({ isActive: -1, createdAt: 1 });
+  if (existing) {
+    if (!existing.isActive) {
+      existing.isActive = true;
+      existing.isCustom = true;
+      if (!existing.createdBy && actorId) {
+        existing.createdBy = actorId;
+      }
+      await existing.save();
+    }
+    return existing;
+  }
+
+  const slug = await createUniqueSlug(Role, normalized);
+  return Role.create({
+    name: normalized,
+    slug,
+    functionalArea: functionalAreaId,
+    isGlobal: false,
+    isActive: true,
+    isCustom: true,
+    createdBy: actorId,
+  });
+};
+
+const getDefaultCustomRoleFunctionalAreaId = async () => {
+  const preferredNames = ['Operations', 'Administration', 'Human Resources'];
+
+  for (const name of preferredNames) {
+    const functionalArea = await FunctionalArea.findOne({
+      name,
+      isActive: true,
+      isGlobal: true,
+    }).select('_id');
+
+    if (functionalArea?._id) {
+      return functionalArea._id;
+    }
+  }
+
+  const fallbackFunctionalArea = await FunctionalArea.findOne({
+    isActive: true,
+  }).sort({ isGlobal: -1, name: 1 }).select('_id');
+
+  if (!fallbackFunctionalArea?._id) {
+    throw new NotFoundError('No functional area found to create custom role');
+  }
+
+  return fallbackFunctionalArea._id;
+};
 
 const masterController = {
   /**
@@ -95,7 +233,14 @@ getFunctionalAreas: async (req, res) => {
    */
   getRoles: async (req, res) => {
     try {
-      const { functionalAreaId, industryId, search, includeGlobal = 'true' } = req.query;
+      const {
+        functionalAreaId,
+        industryId,
+        search,
+        includeGlobal = 'true',
+        seedOnly = 'false',
+        uniqueByName = 'false',
+      } = req.query;
 
       const andConditions = [{ isActive: true }];
 
@@ -154,7 +299,7 @@ getFunctionalAreas: async (req, res) => {
       // Keep role dropdown complete in dashboard forms.
       // Hard 100-limit was truncating A-Z list around "Faculty".
       const rawData = await Role.find(finalFilter)
-        .select('name slug priority isGlobal searchVolume isTrending keywords alternativeNames functionalArea')
+        .select('name slug priority isGlobal isCustom createdBy defaultCollarCategory searchVolume isTrending keywords alternativeNames functionalArea')
         .populate({
           path: 'functionalArea',
           select: 'name industry',
@@ -181,12 +326,194 @@ getFunctionalAreas: async (req, res) => {
           dedupedMap.set(key, role);
         }
       }
-      const data = Array.from(dedupedMap.values());
+      let data = Array.from(dedupedMap.values());
+      if (seedOnly === 'true') {
+        data = data.filter((role) =>
+          role?.isCustom === true ||
+          seededRoleNameSet.has(String(role?.name || '').trim().toLowerCase())
+        );
+      }
+      const roleIds = data
+        .map((role) => role?._id)
+        .filter((id) => mongoose.Types.ObjectId.isValid(id));
 
-      res.json({ success: true, data });
+      let collarByRoleId = new Map();
+      if (roleIds.length) {
+        const latestRoleCollars = await JobPost.aggregate([
+          {
+            $match: {
+              role: { $in: roleIds },
+              collarCategory: { $exists: true, $ne: null, $ne: '' },
+            },
+          },
+          { $sort: { updatedAt: -1, createdAt: -1 } },
+          {
+            $group: {
+              _id: '$role',
+              collarCategory: { $first: '$collarCategory' },
+            },
+          },
+        ]);
+
+        collarByRoleId = new Map(
+          latestRoleCollars.map((item) => [String(item._id), item.collarCategory])
+        );
+      }
+
+      const enrichedData = data.map((role) => ({
+          ...role,
+          collarCategory: role.defaultCollarCategory || collarByRoleId.get(String(role._id)) || '',
+      }));
+
+      let responseData = enrichedData;
+      if (uniqueByName === 'true') {
+        const groupedByName = new Map();
+
+        for (const role of enrichedData) {
+          const roleNameKey = String(role?.name || '').trim().toLowerCase();
+          const existing = groupedByName.get(roleNameKey);
+
+          if (!existing) {
+            groupedByName.set(roleNameKey, {
+              ...role,
+              roleIds: [role._id],
+            });
+            continue;
+          }
+
+          existing.roleIds.push(role._id);
+          if (!existing.collarCategory && role.collarCategory) {
+            existing.collarCategory = role.collarCategory;
+            existing.defaultCollarCategory = role.defaultCollarCategory;
+          }
+        }
+
+        responseData = Array.from(groupedByName.values()).sort((a, b) =>
+          String(a.name || '').localeCompare(String(b.name || ''))
+        );
+      }
+
+      res.json({
+        success: true,
+        data: responseData,
+      });
     } catch (error) {
       console.error('Roles fetch error:', error);
       res.status(500).json({ success: false, message: 'Failed to fetch roles' });
+    }
+  },
+
+  getUsedRoles: async (req, res, next) => {
+    try {
+      const { role: userRole, id: userId } = req.user;
+      const scope = String(req.query.scope || 'assigned').trim().toLowerCase();
+      const now = new Date();
+      let query = {};
+
+      if (userRole === 'employer') {
+        query = { employer: userId };
+      }
+
+      if (userRole === 'hr-admin' || userRole === 'superadmin') {
+        if (scope === 'assigned') {
+          let assignedEmployerIds = [];
+
+          if (userRole === 'hr-admin') {
+            const currentHrAdmin = await User.findById(userId).select('employerIds');
+            assignedEmployerIds = (currentHrAdmin?.employerIds || []).map((id) => id.toString());
+          } else {
+            const hrAdmins = await User.find({ role: 'hr-admin', isActive: true }).select('employerIds');
+            assignedEmployerIds = [
+              ...new Set(
+                hrAdmins.flatMap((hr) => (hr.employerIds || []).map((id) => id.toString()))
+              ),
+            ];
+          }
+
+          const createdEmployers = await User.find({
+            role: 'employer',
+            createdBy: userId,
+            isDeleted: { $ne: true },
+          }).select('_id');
+          const createdEmployerIds = createdEmployers.map((user) => user._id.toString());
+
+          const effectiveEmployerIds = [
+            ...new Set([...assignedEmployerIds, ...createdEmployerIds]),
+          ]
+            .filter((id) => mongoose.Types.ObjectId.isValid(id))
+            .map((id) => new mongoose.Types.ObjectId(id));
+
+          query = {
+            $or: [
+              { employer: { $in: effectiveEmployerIds } },
+              { postedBy: userId },
+            ],
+          };
+        } else {
+          query = {};
+        }
+      }
+
+      if (userRole !== 'hr-admin' && userRole !== 'superadmin' && userRole !== 'employer') {
+        query.applicationDeadline = { $gte: now };
+      }
+
+      const usedRoleIds = await JobPost.distinct('role', {
+        ...query,
+        role: { $ne: null },
+      });
+
+      const activeRoleIds = usedRoleIds.filter((id) => mongoose.Types.ObjectId.isValid(id));
+      if (!activeRoleIds.length) {
+        return res.json({ success: true, data: [] });
+      }
+
+      const roles = await Role.find({
+        _id: { $in: activeRoleIds },
+        isActive: true,
+      })
+        .select('name isCustom createdBy defaultCollarCategory functionalArea')
+        .populate({
+          path: 'functionalArea',
+          select: 'name industry',
+          populate: {
+            path: 'industry',
+            select: 'name',
+          },
+        })
+        .sort({ name: 1 })
+        .lean();
+
+      const latestRoleCollars = await JobPost.aggregate([
+        {
+          $match: {
+            role: { $in: roles.map((role) => role._id) },
+            collarCategory: { $exists: true, $ne: null, $ne: '' },
+          },
+        },
+        { $sort: { updatedAt: -1, createdAt: -1 } },
+        {
+          $group: {
+            _id: '$role',
+            collarCategory: { $first: '$collarCategory' },
+          },
+        },
+      ]);
+
+      const collarByRoleId = new Map(
+        latestRoleCollars.map((item) => [String(item._id), item.collarCategory])
+      );
+
+      return res.json({
+        success: true,
+        data: roles.map((role) => ({
+          ...role,
+          collarCategory:
+            role.defaultCollarCategory || collarByRoleId.get(String(role._id)) || '',
+        })),
+      });
+    } catch (error) {
+      next(error);
     }
   },
 
@@ -296,6 +623,210 @@ getSkillCategories: async (req, res) => {
       res.json({ success: true, data });
     } catch (error) {
       res.status(500).json({ success: false, message: 'Failed to fetch locations', error: error.message });
+    }
+  },
+
+  deleteCustomRole: async (req, res, next) => {
+    try {
+      const roleId = String(req.params.id || '').trim();
+      const groupByName = req.query?.groupByName === 'true';
+      if (!mongoose.Types.ObjectId.isValid(roleId)) {
+        throw new BadRequestError('Invalid role id');
+      }
+
+      const role = await Role.findById(roleId).select('name isCustom createdBy');
+      if (!role) {
+        throw new NotFoundError('Role not found');
+      }
+
+      if (!role.isCustom) {
+        throw new BadRequestError('Only custom roles can be deleted');
+      }
+
+      if (!role.createdBy || String(role.createdBy) !== String(req.user.id)) {
+        throw new ForbiddenError('You can delete only roles created by you');
+      }
+
+      const deleteFilter = groupByName
+        ? {
+            name: role.name,
+            isCustom: true,
+            createdBy: req.user.id,
+            isActive: true,
+          }
+        : { _id: role._id };
+
+      const deleteResult = await Role.updateMany(
+        deleteFilter,
+        {
+          $set: {
+            isActive: false,
+          },
+        },
+      );
+
+      return res.json({
+        success: true,
+        message: `Custom role "${role.name}" removed from the dropdown successfully`,
+        deletedCount: Number(deleteResult?.modifiedCount || 0),
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  createCustomRole: async (req, res, next) => {
+    try {
+      const roleName = toSafeString(req.body?.name);
+      if (!roleName) {
+        throw new BadRequestError('Role name is required');
+      }
+
+      const regex = new RegExp(`^${roleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+
+      const existingCustomRole = await Role.findOne({
+        name: regex,
+        isCustom: true,
+        createdBy: req.user.id,
+        isActive: true,
+      })
+        .populate({
+          path: 'functionalArea',
+          select: 'name industry',
+          populate: {
+            path: 'industry',
+            select: 'name slug',
+          },
+        });
+
+      if (existingCustomRole) {
+        return res.status(200).json({
+          success: true,
+          message: 'Custom role already exists',
+          role: existingCustomRole,
+        });
+      }
+
+      const functionalAreaId = await getDefaultCustomRoleFunctionalAreaId();
+      const createdRole = await resolveRoleDocument(roleName, functionalAreaId, req.user.id);
+      const populatedRole = await Role.findById(createdRole._id)
+        .populate({
+          path: 'functionalArea',
+          select: 'name industry',
+          populate: {
+            path: 'industry',
+            select: 'name slug',
+          },
+        });
+
+      return res.status(201).json({
+        success: true,
+        message: `Custom role "${createdRole.name}" created successfully`,
+        role: populatedRole,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  updateRoleCollarCategory: async (req, res, next) => {
+    try {
+      const roleId = String(req.params.id || '').trim();
+      const collarCategory = String(req.body?.collarCategory || '').trim();
+      const syncExistingJobs = req.body?.syncExistingJobs === true;
+
+      if (!mongoose.Types.ObjectId.isValid(roleId)) {
+        throw new BadRequestError('Invalid role id');
+      }
+
+      if (!collarCategory) {
+        throw new BadRequestError('Collar category is required');
+      }
+
+      const role = await Role.findById(roleId).select('name isActive');
+      if (!role || !role.isActive) {
+        throw new NotFoundError('Role not found');
+      }
+
+      const siblingRoles = await Role.find({
+        name: role.name,
+        isActive: true,
+      }).select('_id');
+      const siblingRoleIds = siblingRoles.map((item) => item._id);
+
+      await Role.updateMany(
+        { _id: { $in: siblingRoleIds } },
+        { $set: { defaultCollarCategory: collarCategory } }
+      );
+
+      let updatedJobsCount = 0;
+      if (syncExistingJobs) {
+        const updateResult = await JobPost.updateMany(
+          { role: { $in: siblingRoleIds } },
+          { $set: { collarCategory } }
+        );
+        updatedJobsCount = Number(updateResult?.modifiedCount || 0);
+      }
+
+      return res.json({
+        success: true,
+        message: `Collar category updated for "${role.name}"`,
+        role: {
+          _id: role._id,
+          defaultCollarCategory: collarCategory,
+          updatedRoleCount: siblingRoleIds.length,
+        },
+        updatedJobsCount,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  saveRoleCollarConfig: async (req, res, next) => {
+    try {
+      const industryId = await resolveIndustryId(req.body?.industry);
+      const functionalAreaId = await resolveFunctionalAreaId(
+        req.body?.functionalArea,
+        industryId,
+      );
+      const role = await resolveRoleDocument(
+        req.body?.role,
+        functionalAreaId,
+        req.user.id,
+      );
+
+      const collarCategory = String(req.body?.collarCategory || '').trim();
+      const syncExistingJobs = req.body?.syncExistingJobs === true;
+
+      if (!collarCategory) {
+        throw new BadRequestError('Collar category is required');
+      }
+
+      role.defaultCollarCategory = collarCategory;
+      await role.save();
+
+      let updatedJobsCount = 0;
+      if (syncExistingJobs) {
+        const updateResult = await JobPost.updateMany(
+          { role: role._id },
+          { $set: { collarCategory } }
+        );
+        updatedJobsCount = Number(updateResult?.modifiedCount || 0);
+      }
+
+      return res.json({
+        success: true,
+        message: `Collar category saved for "${role.name}"`,
+        role: {
+          _id: role._id,
+          name: role.name,
+          defaultCollarCategory: role.defaultCollarCategory,
+        },
+        updatedJobsCount,
+      });
+    } catch (error) {
+      next(error);
     }
   },
 };

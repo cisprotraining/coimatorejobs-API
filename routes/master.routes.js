@@ -1,5 +1,6 @@
 import express from 'express';
 import masterController from '../controller/master.controller.js';
+import { authenticate, authorize } from '../middleware/auth.js';
 
 const masterRouter = express.Router();
 
@@ -11,6 +12,11 @@ masterRouter.get('/functional-areas', masterController.getFunctionalAreas);
 
 // Roles
 masterRouter.get('/roles', masterController.getRoles);
+masterRouter.get('/roles/used', authenticate, authorize(['employer', 'hr-admin', 'superadmin']), masterController.getUsedRoles);
+masterRouter.post('/roles/custom', authenticate, authorize(['hr-admin', 'superadmin']), masterController.createCustomRole);
+masterRouter.delete('/roles/:id', authenticate, authorize(['hr-admin', 'superadmin']), masterController.deleteCustomRole);
+masterRouter.patch('/roles/:id/collar', authenticate, authorize(['hr-admin', 'superadmin']), masterController.updateRoleCollarCategory);
+masterRouter.post('/roles/collar-config', authenticate, authorize(['hr-admin']), masterController.saveRoleCollarConfig);
 
 // Skills
 masterRouter.get('/skills', masterController.getSkills);

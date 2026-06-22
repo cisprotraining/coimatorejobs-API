@@ -62,6 +62,17 @@ const createUniqueSlug = async (Model, baseValue) => {
   return candidate;
 };
 
+const applyCurrentRoleCollarCategory = (job) => {
+  if (!job) return job;
+  const plainJob = typeof job.toObject === 'function' ? job.toObject() : { ...job };
+  const roleDefaultCollar = plainJob?.role?.defaultCollarCategory || '';
+
+  return {
+    ...plainJob,
+    collarCategory: roleDefaultCollar || plainJob.collarCategory || '',
+  };
+};
+
 const resolveIndustryId = async (industryValue) => {
   const value = toSafeString(industryValue);
   if (!value) return null;
@@ -1045,13 +1056,13 @@ candidateController.getAllJobPosts = async (req, res, next) => {
       .populate('skills', 'name slug keywords') // Required Skills matching: name + slug + keywords
       .populate('industry', 'name')         // Populates industry for FilterJobsBox
       .populate('functionalAreas', 'name')  // Populates functional areas for FilterJobsBox
-      .populate('role', 'name')             // Populates role for FilterJobsBox
+      .populate('role', 'name defaultCollarCategory')             // Populates role for FilterJobsBox
       .select('-__v -applicantCount') 
       .sort({ createdAt: -1 }); 
 
     return res.status(200).json({
       success: true,
-      jobPosts,
+      jobPosts: jobPosts.map((job) => applyCurrentRoleCollarCategory(job)),
     });
   } catch (error) {
     next(error);

@@ -8,6 +8,17 @@ import Skill from './skill.model.js';
 import RoleSuggestion from './roleSuggestion.model.js';
 import { sendJobAlertEmail } from '../utils/mailer.js';
 
+export const COLLAR_CATEGORIES = [
+  'Blue Collar',
+  'White Collar',
+  'Black Collar',
+  'Grey Collar',
+  'Pink Collar',
+  'Gold Collar',
+  'Green Collar',
+  'Red Collar',
+];
+
 const jobPostSchema = new mongoose.Schema({
   employer: {
     type: mongoose.Schema.Types.ObjectId,
@@ -88,6 +99,12 @@ const jobPostSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Role',
     default: null,
+  },
+  collarCategory: {
+    type: String,
+    required: [true, 'Collar category is required'],
+    enum: COLLAR_CATEGORIES,
+    trim: true,
   },
   skills: {
     type: [mongoose.Schema.Types.ObjectId],

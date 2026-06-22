@@ -1,5 +1,16 @@
 import mongoose from 'mongoose';
 
+const COLLAR_CATEGORIES = [
+  'Blue Collar',
+  'White Collar',
+  'Black Collar',
+  'Grey Collar',
+  'Pink Collar',
+  'Gold Collar',
+  'Green Collar',
+  'Red Collar',
+];
+
 const roleSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -31,6 +42,26 @@ const roleSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
     index: true,
+  },
+
+  isCustom: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+    index: true,
+  },
+
+  defaultCollarCategory: {
+    type: String,
+    enum: COLLAR_CATEGORIES,
+    default: null,
+    trim: true,
   },
 
   /**

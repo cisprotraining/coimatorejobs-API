@@ -52,7 +52,7 @@ app.use(cors({
       return callback(new Error('CORS not allowed from this origin'), false);
     }
   },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true, // If you're using tokens or cookies
 }));

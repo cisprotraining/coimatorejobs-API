@@ -7,9 +7,10 @@ import Location from '../models/location.model.js';
 import Skill from '../models/skill.model.js';
 import dotenv from 'dotenv';
 import connectToDatabase from '../database/mongodb.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
-await connectToDatabase();
 
 const generateSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 const generateRoleSlug = (name, functionalAreaId) => `${generateSlug(name)}-${String(functionalAreaId).slice(-8).toLowerCase()}`;
@@ -184,7 +185,7 @@ const industrySpecificFunctionalAreasData = [
 const functionalAreasData = [...globalFunctionalAreasData, ...industrySpecificFunctionalAreasData];
 
 // COMMON ROLES FOR ALL INDUSTRIES (Global Roles)
-const commonRoles = [
+export const commonRoles = [
   // Seniority-based common roles (appear in all industries)
   { name: 'Manager', functionalAreaName: 'Operations', isGlobal: true },
   { name: 'Senior Manager', functionalAreaName: 'Operations', isGlobal: true },
@@ -270,7 +271,7 @@ const commonRoles = [
 ];
 
 // INDUSTRY-SPECIFIC ROLES
-const industrySpecificRoles = [
+export const industrySpecificRoles = [
   // IT / Software specific roles
   { name: 'Software Developer', functionalAreaName: 'Software Development', isGlobal: false },
   { name: 'Senior Software Engineer', functionalAreaName: 'Software Development', isGlobal: false },
@@ -651,7 +652,7 @@ const industrySpecificRoles = [
 ];
 
 // Combine all roles
-const rolesData = [...commonRoles, ...industrySpecificRoles];
+export const rolesData = [...commonRoles, ...industrySpecificRoles];
 
 // Add keywords to all roles
 rolesData.forEach(role => {
@@ -1024,8 +1025,9 @@ for (const role of rolesData) {
 }
 
 // ----------------- SEED FUNCTION -----------------
-async function seed() {
+export async function seed() {
     try {
+        await connectToDatabase();
         console.log('Starting enhanced seeding process...');
 
         const requestedReset = process.env.SEED_RESET === 'true' || process.argv.includes('--reset');
@@ -1275,5 +1277,12 @@ async function seed() {
         process.exit(1);
     }
 }
-seed();
+
+const isDirectRun =
+    process.argv[1] &&
+    path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+    seed();
+}
 

@@ -13,6 +13,7 @@ import { SUPERADMIN_EMAIL } from '../config/env.js';
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
+import { COLLAR_CATEGORIES } from '../models/jobs.model.js';
 
 const jobsController = {};
 const MONTHLY_RESUME_LIMIT = 5;
@@ -39,6 +40,17 @@ const createUniqueSlug = async (Model, baseValue) => {
     index += 1;
   }
   return candidate;
+};
+
+const applyCurrentRoleCollarCategory = (job) => {
+  if (!job) return job;
+  const plainJob = typeof job.toObject === 'function' ? job.toObject() : { ...job };
+  const roleDefaultCollar = plainJob?.role?.defaultCollarCategory || '';
+
+  return {
+    ...plainJob,
+    collarCategory: roleDefaultCollar || plainJob.collarCategory || '',
+  };
 };
 
 const resolveIndustryId = async (industryValue) => {
@@ -123,7 +135,7 @@ const resolveFunctionalAreaIds = async (functionalAreasInput, industryId) => {
   return uniqueIds;
 };
 
-const resolveRoleId = async (roleValue, functionalAreaIds) => {
+const resolveRoleId = async (roleValue, functionalAreaIds, actorId = null, collarCategory = null) => {
   const normalized = toSafeString(roleValue);
   if (!normalized) return null;
 
@@ -146,6 +158,9 @@ const resolveRoleId = async (roleValue, functionalAreaIds) => {
     functionalArea: primaryFaId,
     isGlobal: false,
     isActive: true,
+    isCustom: true,
+    createdBy: actorId,
+    defaultCollarCategory: collarCategory || null,
   });
   return created._id;
 };
@@ -269,6 +284,7 @@ jobsController.createJobPost = async (req, res, next) => {
       maxApplicants,
       companyProfile, // Added to allow explicit selection if needed
       role, // singular ID
+      collarCategory,
       skills = [],
       functionalAreas = [], // required array of IDs
     } = req.body;
@@ -277,7 +293,7 @@ jobsController.createJobPost = async (req, res, next) => {
     const requiredFields = [
       'title', 'description', 'contactEmail', 'jobType',
       'offeredSalary', 'careerLevel', 'experience', 'qualification',
-      'applicationDeadline', 'positions', 'location', 'functionalAreas'
+      'applicationDeadline', 'positions', 'location', 'functionalAreas', 'collarCategory'
     ];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     if (missingFields.length > 0) {
@@ -310,8 +326,12 @@ jobsController.createJobPost = async (req, res, next) => {
 
     const resolvedIndustryId = await resolveIndustryId(industry);
     const resolvedFunctionalAreaIds = await resolveFunctionalAreaIds(functionalAreas, resolvedIndustryId);
-    const resolvedRoleId = await resolveRoleId(role, resolvedFunctionalAreaIds);
+    const resolvedRoleId = await resolveRoleId(role, resolvedFunctionalAreaIds, req.user.id, collarCategory);
     const resolvedSkillIds = await resolveSkillIds(skills);
+
+    if (!COLLAR_CATEGORIES.includes(collarCategory)) {
+      throw new BadRequestError('Invalid collar category');
+    }
 
    if (!positions || !positions.total || Number(positions.total) < 1) {
       throw new BadRequestError('Positions must be at least 1');
@@ -364,6 +384,7 @@ jobsController.createJobPost = async (req, res, next) => {
       functionalAreas: resolvedFunctionalAreaIds,
       industry: resolvedIndustryId,
       role: resolvedRoleId,
+      collarCategory,
       skills: resolvedSkillIds,
       qualification,
       applicationDeadline,
@@ -555,7 +576,7 @@ jobsController.getJobPosts = async (req, res, next) => {
       .populate('companyProfile', 'companyName logo email')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
-      .populate('role', 'name slug')
+      .populate('role', 'name slug defaultCollarCategory')
       .populate('skills', 'name')
       .select('employer companyProfile title location applicantCount status createdAt applicationDeadline postedBy')
       .sort({ createdAt: -1 });  // Most recent first
@@ -599,9 +620,10 @@ jobsController.getJobPosts = async (req, res, next) => {
 
     const jobPostsWithDownloadUsage = filteredJobPosts.map((job) => {
       const downloadsUsed = downloadUsageMap.get(String(job._id)) || 0;
+      const jobWithCurrentCollar = applyCurrentRoleCollarCategory(job);
 
       return {
-        ...job.toObject(),
+        ...jobWithCurrentCollar,
         resumeDownloadUsage: {
           used: downloadsUsed,
           limit: MONTHLY_RESUME_LIMIT,
@@ -758,7 +780,7 @@ jobsController.getJobPost = async (req, res, next) => {
       .populate('companyProfile', 'companyName logo')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
-      .populate('role', 'name slug')
+      .populate('role', 'name slug defaultCollarCategory')
       .populate('skills', 'name')
       // .select('title description contactEmail contactUsername specialisms jobType offeredSalary careerLevel experience gender industry qualification applicationDeadline location remoteWork status companyProfile -__v')
       .select('-__v -applicantCount'); // fix here
@@ -774,7 +796,7 @@ jobsController.getJobPost = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      jobPost,
+      jobPost: applyCurrentRoleCollarCategory(jobPost),
     });
   } catch (error) {
     next(error);
@@ -845,9 +867,15 @@ jobsController.updateJobPost = async (req, res, next) => {
     // Added 'maxApplicants' so it updates properly.
     ['title', 'description', 'contactEmail', 'contactUsername', 'jobType',
      'offeredSalary', 'careerLevel', 'experience', 'gender', 'qualification',
-     'applicationDeadline', 'remoteWork', 'status', 'maxApplicants'].forEach(field => {
+     'applicationDeadline', 'remoteWork', 'status', 'maxApplicants', 'collarCategory'].forEach(field => {
       if (req.body[field] !== undefined) updateData[field] = req.body[field];
     });
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'collarCategory')) {
+      if (!COLLAR_CATEGORIES.includes(req.body.collarCategory)) {
+        throw new BadRequestError('Invalid collar category');
+      }
+    }
 
     // Handle location using strict dot notation
     const parsedLocation = req.body.location;
