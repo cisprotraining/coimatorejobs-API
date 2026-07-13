@@ -39,6 +39,19 @@ const jobApplicationSchema = new mongoose.Schema({
     type: Boolean,
     default: false, // Indicates if the employer has shortlisted this application
   },
+  candidateJoinConfirmation: {
+    type: String,
+    enum: ['pending', 'confirmed', 'declined', 'not_required'],
+    default: 'not_required',
+  },
+  candidateJoinConfirmedAt: {
+    type: Date,
+    default: null,
+  },
+  selectedAt: {
+    type: Date,
+    default: null,
+  },
 }, { timestamps: true });
 
 // Prevent duplicate applications

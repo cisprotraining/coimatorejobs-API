@@ -24,6 +24,13 @@ const getIstMonthKey = () =>
     month: '2-digit',
   }).format(new Date());
 
+const getIstMonthLabel = () =>
+  new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date());
+
 const getCycleDateFilter = (cycle = 'Monthly') => {
   if (cycle === 'Total') return {};
 
@@ -73,7 +80,7 @@ export const resolveEmployerPlan = async (employerId) => {
   return plan;
 };
 
-const getFeatureLimit = (plan, featureKey, legacyKey = null) => {
+export const getFeatureLimit = (plan, featureKey, legacyKey = null) => {
   const feature = plan?.[featureKey] || {};
   const legacyValue = legacyKey ? Number(plan?.[legacyKey] || 0) : 0;
   const featureEnabled =
@@ -99,6 +106,74 @@ const getFeatureLimit = (plan, featureKey, legacyKey = null) => {
     enabled: true,
     limit: Number(feature.limitCount || legacyValue || 0),
     cycle: feature.cycle || 'Monthly',
+  };
+};
+
+export const getEmployerResumeDownloadUsage = async (employerId, cycle = 'Monthly') => {
+  const employerObjectId = mongoose.Types.ObjectId.isValid(employerId)
+    ? new mongoose.Types.ObjectId(employerId)
+    : employerId;
+
+  const profileQuery = { employer: employerObjectId };
+  if (cycle === 'Daily') profileQuery.dayKey = getIstDateKey();
+  if (cycle === 'Monthly') profileQuery.dayKey = new RegExp(`^${getIstMonthKey()}`);
+
+  const applicantQuery = { employer: employerObjectId };
+  if (cycle === 'Daily') {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    applicantQuery.downloadedAt = { $gte: start };
+  }
+  if (cycle === 'Monthly') applicantQuery.monthKey = getIstMonthKey();
+
+  const [profileRows, applicantDownloadCount] = await Promise.all([
+    ResumeDownloadLog.aggregate([
+      { $match: profileQuery },
+      { $group: { _id: null, total: { $sum: '$downloadCount' } } },
+    ]),
+    EmployerResumeDownloadLog.countDocuments(applicantQuery),
+  ]);
+
+  const profileDownloads = Number(profileRows[0]?.total || 0);
+  const applicantDownloads = Number(applicantDownloadCount || 0);
+
+  return {
+    profileDownloads,
+    applicantDownloads,
+    total: profileDownloads + applicantDownloads,
+  };
+};
+
+export const buildEmployerResumeDownloadQuota = async (employerId, feature = null) => {
+  let resolvedFeature = feature;
+
+  if (!resolvedFeature) {
+    const plan = await resolveEmployerPlan(employerId);
+    resolvedFeature = getFeatureLimit(plan, 'resumeDownloads', 'resumeLimit');
+  }
+
+  const usage = await getEmployerResumeDownloadUsage(employerId, resolvedFeature.cycle);
+  const downloadsRemaining =
+    resolvedFeature.limit === -1
+      ? -1
+      : Math.max(Number(resolvedFeature.limit || 0) - usage.total, 0);
+
+  return {
+    limitPerJob: resolvedFeature.limit,
+    limitPerEmployer: resolvedFeature.limit,
+    limitScope: 'employer',
+    cycle: resolvedFeature.cycle,
+    monthKey: getIstMonthKey(),
+    monthLabel: getIstMonthLabel(),
+    jobs: [],
+    selectedJob: null,
+    summary: {
+      totalJobs: 0,
+      totalDownloadsUsed: usage.total,
+      downloadsRemaining,
+      profileDownloads: usage.profileDownloads,
+      applicantDownloads: usage.applicantDownloads,
+    },
   };
 };
 
@@ -210,7 +285,7 @@ export const requireEmployerResumeAlertLimit = async (req, res) => {
   return true;
 };
 
-export const requireEmployerResumeDownloadLimit = async (req, res, options = {}) => {
+export const requireEmployerResumeDownloadLimit = async (req, res) => {
   if (req.user?.role !== 'employer') return { allowed: true, plan: null, feature: null };
 
   const plan = await resolveEmployerPlan(req.user.id);
@@ -227,35 +302,11 @@ export const requireEmployerResumeDownloadLimit = async (req, res, options = {})
 
   if (feature.limit === -1) return { allowed: true, plan, feature };
 
-  let usageCount = 0;
-  if (options.source === 'applicant') {
-    const query = { employer: req.user.id };
-    if (feature.cycle === 'Daily') {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      query.downloadedAt = { $gte: start };
-    } else if (feature.cycle === 'Monthly') {
-      query.monthKey = getIstMonthKey();
-    }
-    usageCount = await EmployerResumeDownloadLog.countDocuments(query);
-  } else {
-    const employerObjectId = new mongoose.Types.ObjectId(req.user.id);
-    const query = { employer: employerObjectId };
-    if (feature.cycle === 'Daily') query.dayKey = getIstDateKey();
-    if (feature.cycle === 'Monthly') query.dayKey = new RegExp(`^${getIstMonthKey()}`);
-    usageCount =
-      feature.cycle === 'Total'
-        ? await ResumeDownloadLog.aggregate([
-            { $match: { employer: employerObjectId } },
-            { $group: { _id: null, total: { $sum: '$downloadCount' } } },
-          ]).then((rows) => Number(rows[0]?.total || 0))
-        : await ResumeDownloadLog.aggregate([
-            { $match: query },
-            { $group: { _id: null, total: { $sum: '$downloadCount' } } },
-          ]).then((rows) => Number(rows[0]?.total || 0));
-  }
+  const usage = await getEmployerResumeDownloadUsage(req.user.id, feature.cycle);
+  const usageCount = usage.total;
 
   if (usageCount >= feature.limit) {
+    const downloadQuota = await buildEmployerResumeDownloadQuota(req.user.id, feature);
     block(
       res,
       `Resume download limit reached. Your current plan allows ${feature.limit} download(s) per ${feature.cycle.toLowerCase()} cycle.`,
@@ -265,6 +316,7 @@ export const requireEmployerResumeDownloadLimit = async (req, res, options = {})
         limit: feature.limit,
         used: usageCount,
         cycle: feature.cycle,
+        downloadQuota,
       },
     );
     return { allowed: false, plan, feature };

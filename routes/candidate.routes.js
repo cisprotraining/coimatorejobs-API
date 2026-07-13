@@ -54,6 +54,9 @@ candidateRouter.get('/applications/:applicationId/status', authenticate, authori
 // Get applied jobs dashboard
 candidateRouter.get('/applied-jobs/get', authenticate, authorize(['candidate']), candidateController.getAppliedJobs);
 
+// Confirm joining after employer selects an application
+candidateRouter.put('/applied-jobs/:applicationId/confirm-joining', authenticate, authorize(['candidate']), candidateController.confirmSelectedJobJoining);
+
 // Get saved jobs dashboard
 candidateRouter.get('/saved-jobs/get', authenticate, authorize(['candidate']), candidateController.getSavedJobs);
 

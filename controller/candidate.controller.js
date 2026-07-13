@@ -6,6 +6,7 @@ import JobApply from "../models/jobApply.model.js";
 import SavedJob from '../models/savedJob.model.js';
 import CandidateResume from '../models/candidateResume.model.js';
 import ResumeDownloadLog from '../models/resumeDownloadLog.model.js';
+import CandidateEmployerActivity from '../models/candidateEmployerActivity.model.js';
 import Industry from '../models/industry.model.js';
 import FunctionalArea from '../models/functionalArea.model.js';
 import Role from '../models/role.model.js';
@@ -18,6 +19,7 @@ import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
 import { DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { s3 } from "../config/aws-s3.js";
 import {
+  buildEmployerResumeDownloadQuota,
   requireEmployerPlanFeature,
   requireEmployerResumeDownloadLimit,
 } from "../utils/employerPlanAccess.js";
@@ -1208,6 +1210,9 @@ candidateController.applyToJob = async (req, res, next) => {
       // NEW AUTO CLOSE LOGIC: Close if applicant count reaches maxApplicants
       if (jobPost.maxApplicants && jobPost.applicantCount >= jobPost.maxApplicants) {
         jobPost.status = 'Closed';
+        jobPost.closedAt = new Date();
+        jobPost.closedBy = null;
+        jobPost.closedByRole = 'system';
       }
 
       // SAVE THE JOB POST 
@@ -1452,6 +1457,59 @@ candidateController.getAppliedJobs = async (req, res, next) => {
   }
 };
 
+candidateController.confirmSelectedJobJoining = async (req, res, next) => {
+  try {
+    const candidateId = req.user.id;
+    const { applicationId } = req.params;
+
+    const application = await JobApply.findOne({
+      _id: applicationId,
+      candidate: candidateId,
+    })
+      .populate({
+        path: 'jobPost',
+        populate: { path: 'companyProfile', select: 'companyName logo' },
+        select: '-__v',
+      })
+      .select('-__v');
+
+    if (!application) {
+      throw new NotFoundError('Application not found');
+    }
+
+    if (application.status !== 'Accepted') {
+      throw new BadRequestError('You can confirm joining only after the employer selects your application');
+    }
+
+    application.candidateJoinConfirmation = 'confirmed';
+    application.candidateJoinConfirmedAt = new Date();
+    await application.save();
+
+    try {
+      await createNotification(candidateId, 'application_selected', {
+        ...notificationPresets.applicationSelected(application.jobPost?.title || 'this job'),
+        title: 'Joining Confirmed',
+        description: `You confirmed joining for ${application.jobPost?.title || 'this job'}.`,
+        jobPost: application.jobPost?._id,
+        application: application._id,
+        actionUrl: '/candidates-dashboard/applied-jobs',
+        icon: 'la-check-circle',
+        color: '#22c55e',
+      });
+    } catch (notificationError) {
+      console.error('Failed to create joining confirmation notification:', notificationError);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Joining confirmed successfully',
+      application,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 /**
  * Retrieves all saved jobs for a candidate
  * @route GET /api/candidate/saved-jobs
@@ -1516,6 +1574,12 @@ candidateController.deleteAppliedJob = async (req, res, next) => {
       // reopen job if it was closed
       if (job.status === 'Closed') {
         job.status = 'Published';
+        job.closedAt = null;
+        job.closedBy = null;
+        job.closedByRole = null;
+        job.candidateSelectionSource = 'unknown';
+        job.candidateSelectionSourceUpdatedAt = null;
+        job.candidateSelectionSourceUpdatedBy = null;
       }
 
       await job.save();
@@ -1569,7 +1633,7 @@ candidateController.getApplicationStatus = async (req, res, next) => {
 
     const application = await JobApply.findOne({ _id: applicationId, candidate: candidateId })
       .populate('jobPost', 'title')
-      .select('status shortlisted jobPost');
+      .select('status shortlisted jobPost candidateJoinConfirmation candidateJoinConfirmedAt selectedAt');
     if (!application) {
       throw new NotFoundError('Application not found');
     }
@@ -1578,6 +1642,9 @@ candidateController.getApplicationStatus = async (req, res, next) => {
       success: true,
       status: application.status,
       shortlisted: application.shortlisted,
+      candidateJoinConfirmation: application.candidateJoinConfirmation,
+      candidateJoinConfirmedAt: application.candidateJoinConfirmedAt,
+      selectedAt: application.selectedAt,
       jobTitle: application.jobPost.title,
     });
   } catch (error) {
@@ -1939,20 +2006,44 @@ candidateController.getResumeForHR = async (req, res, next) => {
 
     const signedUrl = await getPrivateFileUrl(key);
 
+    let downloadQuota = null;
+
     if (userRole === 'employer') {
       const dayKey = getIstDayKey();
+      const downloadedAt = new Date();
       await ResumeDownloadLog.updateOne(
         { employer: userId, dayKey },
         {
           $inc: { downloadCount: 1 },
-          $set: { candidate: resolvedCandidateUserId, downloadedAt: new Date() },
+          $set: { candidate: resolvedCandidateUserId, downloadedAt },
           $setOnInsert: { employer: userId, dayKey },
         },
         { upsert: true }
       );
+      await CandidateEmployerActivity.updateOne(
+        { employer: userId, candidate: resolvedCandidateUserId },
+        {
+          $inc: { resumeDownloadCount: 1 },
+          $set: {
+            candidateProfile: profile?._id || null,
+            lastResumeDownloadedAt: downloadedAt,
+            lastActivityAt: downloadedAt,
+          },
+          $setOnInsert: {
+            employer: userId,
+            candidate: resolvedCandidateUserId,
+          },
+        },
+        { upsert: true }
+      );
+      downloadQuota = await buildEmployerResumeDownloadQuota(userId);
     }
 
-    res.json({ success: true, url: signedUrl });
+    res.json({
+      success: true,
+      url: signedUrl,
+      ...(downloadQuota ? { downloadQuota } : {}),
+    });
   } catch (error) {
     console.error("Error in getResumeForHR:", error);
     next(error);

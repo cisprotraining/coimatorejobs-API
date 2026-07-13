@@ -1125,7 +1125,7 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
       .limit(10);
 
     // 4. Get pending candidate account registrations (User model)
-    const pendingCandidates = await User.find({
+    const pendingCandidateAccounts = await User.find({
       role: 'candidate',
       status: 'pending',
       isActive: true,
@@ -1134,6 +1134,50 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
       .select('name email status createdAt')
       .sort({ createdAt: -1 })
       .limit(10);
+
+    const pendingCandidateProfiles = await CandidateProfile.find({
+      status: 'pending',
+      isActive: true,
+    })
+      .populate('candidate', 'name email status')
+      .select('candidate fullName email phone jobTitle status createdAt')
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+
+    const [pendingCandidateAccountCount, pendingCandidateProfileCount] = await Promise.all([
+      User.countDocuments({
+        role: 'candidate',
+        status: 'pending',
+        isActive: true,
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+      }),
+      CandidateProfile.countDocuments({
+        status: 'pending',
+        isActive: true,
+      }),
+    ]);
+
+    const pendingCandidates = [
+      ...pendingCandidateProfiles.map((profile) => ({
+        ...profile,
+        approvalType: 'candidate-profile',
+        name: profile.fullName || profile.candidate?.name || 'Unknown Candidate',
+        email: profile.email || profile.candidate?.email || '',
+        subtitle: profile.jobTitle || 'Candidate Profile',
+      })),
+      ...pendingCandidateAccounts.map((candidate) => ({
+        _id: candidate._id,
+        approvalType: 'candidate-account',
+        name: candidate.name,
+        email: candidate.email,
+        status: candidate.status,
+        createdAt: candidate.createdAt,
+        subtitle: 'Candidate Account',
+      })),
+    ]
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, 10);
 
     // 5. Get recent activities by HR-Admin
     const recentActivities = await JobPost.find({
@@ -1159,12 +1203,17 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
           items: pendingEmployers,
         },
         candidates: {   
-          count: pendingCandidates.length,
+          count: pendingCandidateAccountCount + pendingCandidateProfileCount,
           items: pendingCandidates,
         },
       },
       recentActivities,
-      totalPendingActions: pendingCompanies.length + pendingJobs.length + pendingEmployers.length + pendingCandidates.length,
+      totalPendingActions:
+        pendingCompanies.length +
+        pendingJobs.length +
+        pendingEmployers.length +
+        pendingCandidateAccountCount +
+        pendingCandidateProfileCount,
     });
   } catch (error) {
     next(error);
@@ -1726,6 +1775,975 @@ hrAdminDashboardController.getEmployerActivityReport = async (req, res, next) =>
     // Send file
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=employer-activity-${monthsNum}-months.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    next(error);
+  }
+};
+
+hrAdminDashboardController.getEmployerActivityReport = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const legacyMonths = req.query.months || 3;
+    const rangeInput = req.query.period
+      ? req.query
+      : { period: `${legacyMonths}months` };
+    const { startDate, endDate, label, period, error } = parseCandidateActivityDateRange(rangeInput);
+
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const dateFilter = { $gte: startDate, $lte: endDate };
+    const scopedEmployerCondition =
+      user.role === 'hr-admin' ? { employer: { $in: user.employerIds || [] } } : {};
+    const scopedUserCondition =
+      user.role === 'hr-admin' ? { _id: { $in: user.employerIds || [] } } : {};
+
+    const [
+      newEmployers,
+      createdCompanyProfiles,
+      updatedCompanyProfiles,
+      jobPosts,
+      expiredJobPosts,
+    ] = await Promise.all([
+      User.find({
+        role: 'employer',
+        isActive: true,
+        createdAt: dateFilter,
+        ...scopedUserCondition,
+      }).select('name email contactEmail status isActive createdAt').lean(),
+
+      CompanyProfile.find({
+        createdAt: dateFilter,
+        ...scopedEmployerCondition,
+      })
+        .populate('employer', 'name email contactEmail status')
+        .select('employer companyName email phone companyType industry status isVerified location createdAt')
+        .lean(),
+
+      CompanyProfile.find({
+        createdAt: { $lt: startDate },
+        updatedAt: dateFilter,
+        ...scopedEmployerCondition,
+      })
+        .populate('employer', 'name email contactEmail status')
+        .select('employer companyName email phone companyType industry status isVerified location updatedAt')
+        .lean(),
+
+      JobPost.find({
+        createdAt: dateFilter,
+        ...scopedEmployerCondition,
+      })
+        .populate('employer', 'name email contactEmail')
+        .populate('companyProfile', 'companyName')
+        .select('employer companyProfile title jobType offeredSalary careerLevel experience industry location status applicationDeadline createdAt applicantCount')
+        .lean(),
+
+      JobPost.find({
+        applicationDeadline: dateFilter,
+        ...scopedEmployerCondition,
+      })
+        .populate('employer', 'name email contactEmail')
+        .populate('companyProfile', 'companyName')
+        .select('employer companyProfile title jobType industry location status applicationDeadline createdAt applicantCount')
+        .lean(),
+    ]);
+
+    const jobIds = jobPosts.map((job) => job._id);
+    const applicationCounts = jobIds.length
+      ? await Application.aggregate([
+          { $match: { jobPost: { $in: jobIds }, createdAt: dateFilter } },
+          { $group: { _id: '$jobPost', count: { $sum: 1 } } },
+        ])
+      : [];
+    const applicationCountMap = new Map(
+      applicationCounts.map((row) => [String(row._id), Number(row.count || 0)])
+    );
+
+    const activeJobPosts = jobPosts.filter(
+      (job) => job.status === 'Published' && new Date(job.applicationDeadline) >= new Date()
+    );
+    const uniqueJobPostingEmployers = new Set(
+      jobPosts.map((job) => String(job.employer?._id || job.employer)).filter(Boolean)
+    );
+    const uniqueCompanyCreatedEmployers = new Set(
+      createdCompanyProfiles.map((profile) => String(profile.employer?._id || profile.employer)).filter(Boolean)
+    );
+    const uniqueCompanyUpdatedEmployers = new Set(
+      updatedCompanyProfiles.map((profile) => String(profile.employer?._id || profile.employer)).filter(Boolean)
+    );
+    const uniqueExpiredJobEmployers = new Set(
+      expiredJobPosts.map((job) => String(job.employer?._id || job.employer)).filter(Boolean)
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'HR Dashboard System';
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet('Employer Activity');
+    const addSectionTitle = (title) => {
+      sheet.addRow([]);
+      const row = sheet.addRow([title]);
+      row.font = { bold: true, size: 13 };
+      return row;
+    };
+    const addHeaderRow = (values) => {
+      const row = sheet.addRow(values);
+      row.font = { bold: true };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF2FF' } };
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      });
+      return row;
+    };
+    const addTotalRow = (labelText, value) => {
+      const row = sheet.addRow([labelText, value]);
+      row.font = { bold: true };
+      return row;
+    };
+    const getEmployerName = (record) => record.employer?.name || record.name || 'N/A';
+    const getEmployerEmail = (record) =>
+      record.employer?.contactEmail || record.employer?.email || record.contactEmail || record.email || 'N/A';
+    const getCompanyName = (record) => record.companyName || record.companyProfile?.companyName || 'N/A';
+    const getIndustryName = (record) => {
+      if (!record?.industry) return 'N/A';
+      if (typeof record.industry === 'string') return record.industry;
+      return record.industry?.name || String(record.industry);
+    };
+    const getLocationLabel = (location) => {
+      if (!location) return 'N/A';
+      const city = Array.isArray(location.city) ? location.city.join(', ') : location.city;
+      return [city, location.state, location.country].filter(Boolean).join(', ') || 'N/A';
+    };
+    const generatedBy =
+      req.user?.role === 'superadmin'
+        ? 'Super Admin'
+        : req.user?.name || req.user?.email || 'HR Admin';
+
+    sheet.mergeCells('A1:C1');
+    sheet.getCell('A1').value = 'Employer Activity Report';
+    sheet.getCell('A1').font = { size: 16, bold: true };
+    sheet.getCell('A1').alignment = { horizontal: 'center' };
+    sheet.addRow(['Period', label]);
+    sheet.addRow(['From', formatReportDate(startDate)]);
+    sheet.addRow(['To', formatReportDate(endDate)]);
+    sheet.addRow([]);
+
+    sheet.addRow(['Activity Summary']);
+    addHeaderRow(['Activity', 'Employer Count', 'Total Actions']);
+    sheet.addRow(['New Employer Registrations', newEmployers.length, newEmployers.length]);
+    sheet.addRow(['Company Profiles Created', uniqueCompanyCreatedEmployers.size, createdCompanyProfiles.length]);
+    sheet.addRow(['Company Profiles Updated', uniqueCompanyUpdatedEmployers.size, `${updatedCompanyProfiles.length} Updates`]);
+    sheet.addRow(['Jobs Posted', uniqueJobPostingEmployers.size, `${jobPosts.length} Job Posts`]);
+    sheet.addRow(['Expired Job Posts', uniqueExpiredJobEmployers.size, `${expiredJobPosts.length} Expired Jobs`]);
+
+    addSectionTitle('1. New Employer Registrations');
+    addHeaderRow(['S.No', 'Employer Name', 'Email', 'Registered Date', 'Account Status']);
+    newEmployers.forEach((employer, index) => {
+      sheet.addRow([
+        index + 1,
+        employer.name || 'N/A',
+        employer.contactEmail || employer.email || 'N/A',
+        formatReportDate(employer.createdAt),
+        employer.isActive ? 'Active' : employer.status || 'N/A',
+      ]);
+    });
+    addTotalRow('Total Registrations :', newEmployers.length);
+
+    addSectionTitle('2. Newly Created Company Profiles');
+    addHeaderRow(['S.No', 'Employer Name', 'Company Name', 'Email', 'Mobile', 'Industry', 'Location', 'Profile Status', 'Created On']);
+    createdCompanyProfiles.forEach((profile, index) => {
+      sheet.addRow([
+        index + 1,
+        getEmployerName(profile),
+        profile.companyName || 'N/A',
+        profile.email || getEmployerEmail(profile),
+        profile.phone || 'N/A',
+        getIndustryName(profile),
+        getLocationLabel(profile.location),
+        profile.status || 'N/A',
+        formatReportDate(profile.createdAt),
+      ]);
+    });
+    addTotalRow('Total Company Profiles Created :', createdCompanyProfiles.length);
+
+    addSectionTitle('3. Company Profile Updates');
+    addHeaderRow(['S.No', 'Employer Name', 'Company Name', 'Email', 'Updated Fields', 'Updated On']);
+    updatedCompanyProfiles.forEach((profile, index) => {
+      sheet.addRow([
+        index + 1,
+        getEmployerName(profile),
+        profile.companyName || 'N/A',
+        profile.email || getEmployerEmail(profile),
+        'Company Profile Details',
+        formatReportDate(profile.updatedAt),
+      ]);
+    });
+    addTotalRow('Total Updated Company Profiles :', updatedCompanyProfiles.length);
+
+    addSectionTitle('4. Job Posts');
+    addHeaderRow(['S.No', 'Employer Name', 'Company', 'Job Title', 'Job Type', 'Industry', 'Location', 'Posted Date', 'Expiry Date', 'Job Status', 'Applications']);
+    jobPosts.forEach((job, index) => {
+      sheet.addRow([
+        index + 1,
+        getEmployerName(job),
+        getCompanyName(job),
+        job.title || 'N/A',
+        job.jobType || 'N/A',
+        getIndustryName(job),
+        getLocationLabel(job.location),
+        formatReportDate(job.createdAt),
+        formatReportDate(job.applicationDeadline),
+        job.status || 'N/A',
+        applicationCountMap.get(String(job._id)) || 0,
+      ]);
+    });
+    addTotalRow('Total Employers Posted Jobs :', uniqueJobPostingEmployers.size);
+    addTotalRow('Total Job Posts :', jobPosts.length);
+    addTotalRow('Currently Active Jobs :', activeJobPosts.length);
+
+    addSectionTitle('5. Expired Job Posts');
+    addHeaderRow(['S.No', 'Employer Name', 'Company', 'Job Title', 'Job Type', 'Industry', 'Location', 'Posted Date', 'Expired On', 'Job Status']);
+    expiredJobPosts.forEach((job, index) => {
+      sheet.addRow([
+        index + 1,
+        getEmployerName(job),
+        getCompanyName(job),
+        job.title || 'N/A',
+        job.jobType || 'N/A',
+        getIndustryName(job),
+        getLocationLabel(job.location),
+        formatReportDate(job.createdAt),
+        formatReportDate(job.applicationDeadline),
+        job.status || 'N/A',
+      ]);
+    });
+    addTotalRow('Total Expired Job Posts :', expiredJobPosts.length);
+
+    addSectionTitle('Report Footer');
+    sheet.addRow(['Generated By', generatedBy]);
+    sheet.addRow(['Generated On', formatReportDate(new Date())]);
+
+    sheet.columns = [
+      { width: 12 },
+      { width: 28 },
+      { width: 30 },
+      { width: 30 },
+      { width: 20 },
+      { width: 24 },
+      { width: 28 },
+      { width: 24 },
+      { width: 24 },
+      { width: 18 },
+      { width: 16 },
+    ];
+    sheet.views = [{ state: 'frozen', ySplit: 7 }];
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    const filenameSuffix =
+      period === 'custom'
+        ? `${req.query.fromDate}-to-${req.query.toDate}`
+        : period;
+
+    res.setHeader('Content-Disposition', `attachment; filename=employer-activity-${filenameSuffix}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    next(error);
+  }
+};
+
+const parseCandidateActivityDateRange = ({ period = 'monthly', fromDate, toDate }) => {
+  const now = new Date();
+  let startDate = new Date(now);
+  let endDate = new Date(now);
+  let label = 'Current month';
+  const normalizedPeriod = String(period || 'monthly').toLowerCase();
+
+  if (normalizedPeriod === 'daily') {
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999);
+    label = 'Today';
+  } else if (normalizedPeriod === 'monthly') {
+    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    label = 'Current month';
+  } else if (['3months', '6months', '12months'].includes(normalizedPeriod)) {
+    const months = Number(normalizedPeriod.replace('months', ''));
+    startDate.setMonth(startDate.getMonth() - months);
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999);
+    label = `Last ${months} months`;
+  } else if (normalizedPeriod === 'custom') {
+    if (!fromDate || !toDate) {
+      return { error: 'fromDate and toDate are required for custom period' };
+    }
+
+    startDate = new Date(`${fromDate}T00:00:00.000`);
+    endDate = new Date(`${toDate}T23:59:59.999`);
+    label = `${fromDate} to ${toDate}`;
+  } else {
+    return { error: 'Invalid period. Use daily, monthly, 3months, 6months, 12months, or custom' };
+  }
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return { error: 'Invalid date format. Use YYYY-MM-DD' };
+  }
+
+  if (startDate > endDate) {
+    return { error: 'fromDate cannot be after toDate' };
+  }
+
+  return { startDate, endDate, label, period: normalizedPeriod };
+};
+
+const formatReportDate = (value) => {
+  if (!value) return 'N/A';
+  return new Date(value).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+/**
+ * HIRING ACTIVITIES REPORT
+ * @route GET /api/v1/hr-admin-dashboard/reports/hiring-activities
+ */
+hrAdminDashboardController.getHiringActivitiesReport = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const { startDate, endDate, label, period, error } = parseCandidateActivityDateRange(req.query);
+
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const dateFilter = { $gte: startDate, $lte: endDate };
+    const scopedJobCondition =
+      user.role === 'hr-admin' ? { employer: { $in: user.employerIds || [] } } : {};
+
+    const jobs = await JobPost.find({
+      ...scopedJobCondition,
+      $or: [
+        { createdAt: dateFilter },
+        { updatedAt: dateFilter },
+      ],
+    })
+      .populate('employer', 'name email contactEmail')
+      .populate('companyProfile', 'companyName')
+      .select('employer companyProfile title status applicationDeadline createdAt updatedAt applicantCount')
+      .lean();
+
+    const jobIdsFromPeriod = jobs.map((job) => job._id);
+    const applicationJobIds = await Application.distinct('jobPost', { createdAt: dateFilter });
+    const scopedApplicationJobIds = applicationJobIds.length
+      ? await JobPost.find({
+          _id: { $in: applicationJobIds },
+          ...scopedJobCondition,
+        }).distinct('_id')
+      : [];
+
+    const allJobIds = [
+      ...new Set([
+        ...jobIdsFromPeriod.map((id) => String(id)),
+        ...scopedApplicationJobIds.map((id) => String(id)),
+      ]),
+    ].map((id) => new mongoose.Types.ObjectId(id));
+
+    const reportJobs = allJobIds.length
+      ? await JobPost.find({ _id: { $in: allJobIds }, ...scopedJobCondition })
+          .populate('employer', 'name email contactEmail')
+          .populate('companyProfile', 'companyName')
+          .select('employer companyProfile title status applicationDeadline createdAt updatedAt applicantCount')
+          .lean()
+      : [];
+
+    const applicationStats = allJobIds.length
+      ? await Application.aggregate([
+          {
+            $match: {
+              jobPost: { $in: allJobIds },
+              createdAt: dateFilter,
+            },
+          },
+          {
+            $group: {
+              _id: '$jobPost',
+              applied: { $sum: 1 },
+              selected: { $sum: { $cond: [{ $eq: ['$status', 'Accepted'] }, 1, 0] } },
+              rejected: { $sum: { $cond: [{ $eq: ['$status', 'Rejected'] }, 1, 0] } },
+              shortlisted: { $sum: { $cond: [{ $eq: ['$shortlisted', true] }, 1, 0] } },
+              placed: {
+                $sum: {
+                  $cond: [{ $eq: ['$candidateJoinConfirmation', 'confirmed'] }, 1, 0],
+                },
+              },
+            },
+          },
+        ])
+      : [];
+
+    const statsMap = new Map(
+      applicationStats.map((row) => [
+        String(row._id),
+        {
+          applied: Number(row.applied || 0),
+          selected: Number(row.selected || 0),
+          rejected: Number(row.rejected || 0),
+          shortlisted: Number(row.shortlisted || 0),
+          placed: Number(row.placed || 0),
+        },
+      ])
+    );
+
+    const getEmployerName = (job) => job.employer?.name || 'N/A';
+    const getEmployerEmail = (job) => job.employer?.contactEmail || job.employer?.email || 'N/A';
+    const getCompanyName = (job) => job.companyProfile?.companyName || 'N/A';
+    const getJobStatus = (job) => {
+      if (job.status === 'Closed') return 'Closed';
+      if (job.applicationDeadline && new Date(job.applicationDeadline) < new Date()) return 'Expired';
+      if (job.status === 'Published') return 'Open';
+      return job.status || 'N/A';
+    };
+
+    const rows = reportJobs
+      .map((job) => ({
+        job,
+        stats: statsMap.get(String(job._id)) || {
+          applied: 0,
+          selected: 0,
+          rejected: 0,
+          shortlisted: 0,
+          placed: 0,
+        },
+      }))
+      .sort((a, b) => b.stats.applied - a.stats.applied || new Date(b.job.createdAt) - new Date(a.job.createdAt));
+
+    const applicationDetails = allJobIds.length
+      ? await Application.find({
+          jobPost: { $in: allJobIds },
+          createdAt: dateFilter,
+        })
+          .populate('candidate', 'name email')
+          .populate('candidateProfile', 'fullName email phone jobTitle experience location')
+          .populate({
+            path: 'jobPost',
+            select: 'title companyProfile employer status applicationDeadline createdAt',
+            populate: [
+              { path: 'companyProfile', select: 'companyName' },
+              { path: 'employer', select: 'name email contactEmail' },
+            ],
+          })
+          .select('candidate candidateProfile jobPost status shortlisted candidateJoinConfirmation candidateJoinConfirmedAt selectedAt createdAt updatedAt')
+          .lean()
+      : [];
+
+    const candidateDetailRows = applicationDetails
+      .filter((application) => application.jobPost)
+      .map((application) => {
+        const job = application.jobPost;
+        return {
+          application,
+          job,
+          jobTitle: job.title || 'N/A',
+          companyName: job.companyProfile?.companyName || 'N/A',
+          employerName: job.employer?.name || 'N/A',
+          employerEmail: job.employer?.contactEmail || job.employer?.email || 'N/A',
+          candidateName:
+            application.candidateProfile?.fullName ||
+            application.candidate?.name ||
+            'N/A',
+          candidateEmail:
+            application.candidateProfile?.email ||
+            application.candidate?.email ||
+            'N/A',
+          candidatePhone: application.candidateProfile?.phone || 'N/A',
+          candidateJobTitle: application.candidateProfile?.jobTitle || 'N/A',
+          candidateExperience: application.candidateProfile?.experience || 'N/A',
+          status: application.status || 'N/A',
+          selected: application.status === 'Accepted' ? 'Yes' : 'No',
+          rejected: application.status === 'Rejected' ? 'Yes' : 'No',
+          shortlisted: application.shortlisted ? 'Yes' : 'No',
+          placed: application.candidateJoinConfirmation === 'confirmed' ? 'Yes' : 'No',
+        };
+      })
+      .sort((a, b) =>
+        String(a.jobTitle).localeCompare(String(b.jobTitle)) ||
+        new Date(b.application.createdAt) - new Date(a.application.createdAt)
+      );
+
+    const totals = rows.reduce(
+      (acc, row) => {
+        acc.applied += row.stats.applied;
+        acc.selected += row.stats.selected;
+        acc.rejected += row.stats.rejected;
+        acc.shortlisted += row.stats.shortlisted;
+        acc.placed += row.stats.placed;
+        return acc;
+      },
+      { applied: 0, selected: 0, rejected: 0, shortlisted: 0, placed: 0 }
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'HR Dashboard System';
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet('Hiring Activities');
+    const addHeaderRow = (values) => {
+      const row = sheet.addRow(values);
+      row.font = { bold: true };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF2FF' } };
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      });
+      return row;
+    };
+
+    const generatedBy =
+      user?.role === 'superadmin'
+        ? 'Super Admin'
+        : user?.name || user?.email || 'HR Admin';
+
+    sheet.mergeCells('A1:K1');
+    sheet.getCell('A1').value = 'Hiring Activities Report';
+    sheet.getCell('A1').font = { size: 16, bold: true };
+    sheet.getCell('A1').alignment = { horizontal: 'center' };
+    sheet.addRow(['Period', label]);
+    sheet.addRow(['From', formatReportDate(startDate)]);
+    sheet.addRow(['To', formatReportDate(endDate)]);
+    sheet.addRow(['Generated By', generatedBy]);
+    sheet.addRow(['Generated On', formatReportDate(new Date())]);
+    sheet.addRow([]);
+
+    sheet.addRow(['Summary']);
+    addHeaderRow(['Jobs', 'Applied Candidates', 'Selected', 'Rejected', 'Shortlisted', 'Placed']);
+    sheet.addRow([rows.length, totals.applied, totals.selected, totals.rejected, totals.shortlisted, totals.placed]);
+    sheet.addRow([]);
+
+    addHeaderRow([
+      'S.No',
+      'Job Title',
+      'Company',
+      'Employer',
+      'Employer Email',
+      'Job Status',
+      'Posted Date',
+      'Expiry Date',
+      'Applied Candidates',
+      'Selected',
+      'Rejected',
+      'Shortlisted',
+      'Placed',
+    ]);
+
+    rows.forEach(({ job, stats }, index) => {
+      sheet.addRow([
+        index + 1,
+        job.title || 'N/A',
+        getCompanyName(job),
+        getEmployerName(job),
+        getEmployerEmail(job),
+        getJobStatus(job),
+        formatReportDate(job.createdAt),
+        formatReportDate(job.applicationDeadline),
+        stats.applied,
+        stats.selected,
+        stats.rejected,
+        stats.shortlisted,
+        stats.placed,
+      ]);
+    });
+
+    sheet.columns = [
+      { width: 10 },
+      { width: 34 },
+      { width: 28 },
+      { width: 28 },
+      { width: 32 },
+      { width: 16 },
+      { width: 22 },
+      { width: 22 },
+      { width: 20 },
+      { width: 14 },
+      { width: 14 },
+      { width: 16 },
+      { width: 12 },
+    ];
+    sheet.views = [{ state: 'frozen', ySplit: 12 }];
+
+    const detailSheet = workbook.addWorksheet('Candidate Details');
+    const addDetailHeaderRow = (values) => {
+      const row = detailSheet.addRow(values);
+      row.font = { bold: true };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF2FF' } };
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      });
+      return row;
+    };
+
+    detailSheet.mergeCells('A1:Q1');
+    detailSheet.getCell('A1').value = 'Hiring Activities - Candidate Details';
+    detailSheet.getCell('A1').font = { size: 16, bold: true };
+    detailSheet.getCell('A1').alignment = { horizontal: 'center' };
+    detailSheet.addRow(['Period', label]);
+    detailSheet.addRow(['From', formatReportDate(startDate)]);
+    detailSheet.addRow(['To', formatReportDate(endDate)]);
+    detailSheet.addRow([]);
+
+    addDetailHeaderRow([
+      'S.No',
+      'Job Title',
+      'Company',
+      'Employer',
+      'Employer Email',
+      'Candidate Name',
+      'Candidate Email',
+      'Candidate Phone',
+      'Candidate Current Role',
+      'Experience',
+      'Applied Date',
+      'Application Status',
+      'Selected',
+      'Rejected',
+      'Shortlisted',
+      'Placed',
+      'Joining Confirmed On',
+    ]);
+
+    candidateDetailRows.forEach((row, index) => {
+      detailSheet.addRow([
+        index + 1,
+        row.jobTitle,
+        row.companyName,
+        row.employerName,
+        row.employerEmail,
+        row.candidateName,
+        row.candidateEmail,
+        row.candidatePhone,
+        row.candidateJobTitle,
+        row.candidateExperience,
+        formatReportDate(row.application.createdAt),
+        row.status,
+        row.selected,
+        row.rejected,
+        row.shortlisted,
+        row.placed,
+        row.application.candidateJoinConfirmedAt
+          ? formatReportDate(row.application.candidateJoinConfirmedAt)
+          : 'N/A',
+      ]);
+    });
+
+    detailSheet.columns = [
+      { width: 10 },
+      { width: 34 },
+      { width: 28 },
+      { width: 28 },
+      { width: 32 },
+      { width: 28 },
+      { width: 32 },
+      { width: 18 },
+      { width: 26 },
+      { width: 18 },
+      { width: 22 },
+      { width: 18 },
+      { width: 12 },
+      { width: 12 },
+      { width: 14 },
+      { width: 12 },
+      { width: 24 },
+    ];
+    detailSheet.views = [{ state: 'frozen', ySplit: 6 }];
+
+    const filenameSuffix =
+      period === 'custom'
+        ? `${req.query.fromDate}-to-${req.query.toDate}`
+        : period;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=hiring-activities-${filenameSuffix}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * CANDIDATE ACTIVITY REPORT
+ * @route GET /api/v1/hr-admin-dashboard/reports/candidate-activity
+ */
+hrAdminDashboardController.getCandidateActivityReport = async (req, res, next) => {
+  try {
+    const { startDate, endDate, label, period, error } = parseCandidateActivityDateRange(req.query);
+
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
+    const dateFilter = { $gte: startDate, $lte: endDate };
+    const [
+      newCandidates,
+      createdProfiles,
+      updatedProfiles,
+      applications,
+      statusChangedApplications,
+    ] = await Promise.all([
+      User.find({
+        role: 'candidate',
+        isActive: true,
+        createdAt: dateFilter,
+      }).select('name email status isActive createdAt').lean(),
+
+      CandidateProfile.find({
+        createdAt: dateFilter,
+      })
+        .populate('candidate', 'name email status')
+        .select('candidate fullName email phone jobTitle status resume experience location createdAt')
+        .lean(),
+
+      CandidateProfile.find({
+        createdAt: { $lt: startDate },
+        updatedAt: dateFilter,
+      })
+        .populate('candidate', 'name email status')
+        .select('candidate fullName email phone jobTitle status resume experience location updatedAt')
+        .lean(),
+
+      Application.find({
+        createdAt: dateFilter,
+      })
+        .populate('candidate', 'name email')
+        .populate('candidateProfile', 'fullName email')
+        .populate({
+          path: 'jobPost',
+          select: 'title companyProfile',
+          populate: { path: 'companyProfile', select: 'companyName' },
+        })
+        .select('candidate candidateProfile jobPost status createdAt')
+        .lean(),
+
+      Application.find({
+        status: { $ne: 'Pending' },
+        updatedAt: dateFilter,
+      })
+        .populate('candidate', 'name email')
+        .populate('candidateProfile', 'fullName email')
+        .populate({
+          path: 'jobPost',
+          select: 'title companyProfile',
+          populate: { path: 'companyProfile', select: 'companyName' },
+        })
+        .select('candidate candidateProfile jobPost status updatedAt')
+        .lean(),
+    ]);
+
+    const registrationProfileMap = new Map(
+      (
+        await CandidateProfile.find({
+          candidate: { $in: newCandidates.map((candidate) => candidate._id) },
+        })
+          .select('candidate phone')
+          .lean()
+      ).map((profile) => [String(profile.candidate), profile])
+    );
+
+    const uniqueAppliedCandidates = new Set(
+      applications.map((application) => String(application.candidate?._id || application.candidate)).filter(Boolean)
+    );
+    const uniqueStatusChangedCandidates = new Set(
+      statusChangedApplications.map((application) => String(application.candidate?._id || application.candidate)).filter(Boolean)
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'HR Dashboard System';
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet('Candidate Activity');
+    const addSectionTitle = (title) => {
+      sheet.addRow([]);
+      const row = sheet.addRow([title]);
+      row.font = { bold: true, size: 13 };
+      return row;
+    };
+    const addHeaderRow = (values) => {
+      const row = sheet.addRow(values);
+      row.font = { bold: true };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF2FF' } };
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      });
+      return row;
+    };
+    const addTotalRow = (labelText, value) => {
+      const row = sheet.addRow([labelText, value]);
+      row.font = { bold: true };
+      return row;
+    };
+    const calculateProfileCompletion = (profile) => {
+      const checks = [
+        profile?.fullName,
+        profile?.email,
+        profile?.phone,
+        profile?.jobTitle,
+        profile?.resume,
+        profile?.experience,
+        profile?.location?.city,
+      ];
+      const completed = checks.filter(Boolean).length;
+      return `${Math.round((completed / checks.length) * 100)}%`;
+    };
+    const getCompanyName = (application) => application.jobPost?.companyProfile?.companyName || 'N/A';
+
+    const generatedBy =
+      req.user?.role === 'superadmin'
+        ? 'Super Admin'
+        : req.user?.name || req.user?.email || 'HR Admin';
+
+    sheet.mergeCells('A1:C1');
+    sheet.getCell('A1').value = 'Candidate Activity Report';
+    sheet.getCell('A1').font = { size: 16, bold: true };
+    sheet.getCell('A1').alignment = { horizontal: 'center' };
+    sheet.addRow(['Period', label]);
+    sheet.addRow(['From', formatReportDate(startDate)]);
+    sheet.addRow(['To', formatReportDate(endDate)]);
+    sheet.addRow([]);
+
+    sheet.addRow(['Activity Summary']);
+    addHeaderRow(['Activity', 'Candidate Count', 'Total Actions']);
+    sheet.addRow(['New Candidate Registrations', newCandidates.length, newCandidates.length]);
+    sheet.addRow(['Candidate Profiles Created', createdProfiles.length, createdProfiles.length]);
+    sheet.addRow(['Candidate Profiles Updated', updatedProfiles.length, `${updatedProfiles.length} Updates`]);
+    sheet.addRow(['Candidates Applied to Jobs', uniqueAppliedCandidates.size, `${applications.length} Applications`]);
+    sheet.addRow(['Application Status Changed', uniqueStatusChangedCandidates.size, `${statusChangedApplications.length} Status Changes`]);
+
+    addSectionTitle('1. New Candidate Registrations');
+    addHeaderRow(['S.No', 'Candidate Name', 'Email', 'Mobile', 'Registered Date', 'Login Method', 'Status']);
+    newCandidates.forEach((candidate, index) => {
+      const profile = registrationProfileMap.get(String(candidate._id));
+      sheet.addRow([
+        index + 1,
+        candidate.name || 'N/A',
+        candidate.email || 'N/A',
+        profile?.phone || 'N/A',
+        formatReportDate(candidate.createdAt),
+        'Email',
+        candidate.isActive ? 'Active' : candidate.status || 'N/A',
+      ]);
+    });
+    addTotalRow('Total Registrations :', newCandidates.length);
+
+    addSectionTitle('2. Newly Created Candidate Profiles');
+    addHeaderRow(['S.No', 'Candidate Name', 'Email', 'Profile Completion', 'Resume Uploaded', 'Experience', 'Preferred Location', 'Created On']);
+    createdProfiles.forEach((profile, index) => {
+      sheet.addRow([
+        index + 1,
+        profile.fullName || profile.candidate?.name || 'N/A',
+        profile.email || profile.candidate?.email || 'N/A',
+        calculateProfileCompletion(profile),
+        profile.resume ? 'Yes' : 'No',
+        profile.experience || 'N/A',
+        profile.location?.city || 'N/A',
+        formatReportDate(profile.createdAt),
+      ]);
+    });
+    addTotalRow('Total Profiles Created :', createdProfiles.length);
+
+    addSectionTitle('3. Candidate Profile Updates');
+    addHeaderRow(['S.No', 'Candidate Name', 'Email', 'Updated Fields', 'Updated On']);
+    updatedProfiles.forEach((profile, index) => {
+      sheet.addRow([
+        index + 1,
+        profile.fullName || profile.candidate?.name || 'N/A',
+        profile.email || profile.candidate?.email || 'N/A',
+        'Profile Details',
+        formatReportDate(profile.updatedAt),
+      ]);
+    });
+    addTotalRow('Total Updated Profiles :', updatedProfiles.length);
+
+    addSectionTitle('4. Job Applications');
+    addHeaderRow(['S.No', 'Candidate Name', 'Email', 'Job Title', 'Company', 'Applied Date', 'Application Status']);
+    applications.forEach((application, index) => {
+      sheet.addRow([
+        index + 1,
+        application.candidateProfile?.fullName || application.candidate?.name || 'N/A',
+        application.candidateProfile?.email || application.candidate?.email || 'N/A',
+        application.jobPost?.title || 'N/A',
+        getCompanyName(application),
+        formatReportDate(application.createdAt),
+        application.status || 'N/A',
+      ]);
+    });
+    addTotalRow('Total Candidates Applied :', uniqueAppliedCandidates.size);
+    addTotalRow('Total Applications :', applications.length);
+
+    addSectionTitle('5. Application Status Changes');
+    addHeaderRow(['S.No', 'Candidate Name', 'Email', 'Job Title', 'Company', 'Previous Status', 'Current Status', 'Changed On']);
+    statusChangedApplications.forEach((application, index) => {
+      sheet.addRow([
+        index + 1,
+        application.candidateProfile?.fullName || application.candidate?.name || 'N/A',
+        application.candidateProfile?.email || application.candidate?.email || 'N/A',
+        application.jobPost?.title || 'N/A',
+        getCompanyName(application),
+        'N/A',
+        application.status || 'N/A',
+        formatReportDate(application.updatedAt),
+      ]);
+    });
+    addTotalRow('Total Status Changes :', statusChangedApplications.length);
+
+    addSectionTitle('Report Footer');
+    sheet.addRow(['Generated By', generatedBy]);
+    sheet.addRow(['Generated On', formatReportDate(new Date())]);
+
+    sheet.columns = [
+      { width: 12 },
+      { width: 28 },
+      { width: 32 },
+      { width: 20 },
+      { width: 28 },
+      { width: 20 },
+      { width: 22 },
+      { width: 22 },
+    ];
+    sheet.views = [{ state: 'frozen', ySplit: 7 }];
+
+    const filenameSuffix =
+      period === 'custom'
+        ? `${req.query.fromDate}-to-${req.query.toDate}`
+        : period;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=candidate-activity-${filenameSuffix}.xlsx`);
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {

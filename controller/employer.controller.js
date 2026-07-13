@@ -2,6 +2,10 @@ import mongoose from "mongoose";
 import CompanyProfile from "../models/companyProfile.model.js";
 import CandidateProfile from "../models/candidateProfile.model.js";
 import SavedCandidate from "../models/savedCandidate.model.js";
+import DemandCandidate from "../models/demandCandidate.model.js";
+import CandidateEmployerActivity from "../models/candidateEmployerActivity.model.js";
+import ResumeDownloadLog from "../models/resumeDownloadLog.model.js";
+import EmployerResumeDownloadLog from "../models/employerResumeDownloadLog.model.js";
 import JobPost from "../models/jobs.model.js";
 import User from "../models/user.model.js";
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
@@ -17,6 +21,52 @@ import path from 'path';
 const employerController = {};
 const DEFAULT_COMPANY_EMAIL = "hello@coimbatorejobs.in";
 const INTERNAL_EMAIL_SUFFIX = "@internal.coimbatorejobs.in";
+
+const attachDemandCandidateCounts = async (profiles = []) => {
+  const profileList = profiles.map((profile) => (
+    typeof profile.toObject === 'function' ? profile.toObject() : profile
+  ));
+  const profileIds = profileList.map((profile) => profile?._id).filter(Boolean);
+  const employerIds = profileList.map((profile) => profile?.employer).filter(Boolean);
+
+  if (!profileIds.length) return profileList;
+
+  const [counts, activityCounts] = await Promise.all([
+    DemandCandidate.aggregate([
+      { $match: { companyProfile: { $in: profileIds } } },
+      { $group: { _id: '$companyProfile', count: { $sum: 1 } } },
+    ]),
+    employerIds.length
+      ? CandidateEmployerActivity.aggregate([
+          { $match: { employer: { $in: employerIds } } },
+          { $group: { _id: '$employer', count: { $sum: 1 } } },
+        ])
+      : [],
+  ]);
+
+  const countMap = new Map(counts.map((item) => [item._id.toString(), item.count]));
+  const activityCountMap = new Map(activityCounts.map((item) => [item._id.toString(), item.count]));
+  return profileList.map((profile) => ({
+    ...profile,
+    demandCandidateCount: countMap.get(profile._id.toString()) || 0,
+    candidateActivityCount: activityCountMap.get(getObjectIdString(profile.employer)) || 0,
+  }));
+};
+
+const getObjectIdString = (value) => {
+  if (!value) return "";
+  if (value._id) return value._id.toString();
+  return value.toString();
+};
+
+const pickLatestDate = (...values) => {
+  const dates = values
+    .filter(Boolean)
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()));
+  if (!dates.length) return null;
+  return new Date(Math.max(...dates.map((date) => date.getTime())));
+};
 
 const parseField = (val) => {
   if (!val) return [];
@@ -193,9 +243,11 @@ employerController.getAllCompanyProfiles = async (req, res, next) => {
       .populate('industry', 'name') // <-- ADD THIS LINE
       .select('-__v');
       
+    const profilesWithDemandCounts = await attachDemandCandidateCounts(profiles);
+
     return res.status(200).json({
       success: true,
-      profiles
+      profiles: profilesWithDemandCounts
     });
   } catch (error) {
     next(error);
@@ -1235,12 +1287,193 @@ employerController.getAssignedCompanyProfiles = async (req, res, next) => {
       .select('-__v')
       .sort({ createdAt: -1 });
 
+    const profilesWithDemandCounts = await attachDemandCandidateCounts(profiles);
+
     res.status(200).json({
       success: true,
-      count: profiles.length,
-      data: profiles
+      count: profilesWithDemandCounts.length,
+      data: profilesWithDemandCounts
     });
 
+  } catch (error) {
+    next(error);
+  }
+};
+
+employerController.getCompanyCandidateActivity = async (req, res, next) => {
+  try {
+    const { companyProfileId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(companyProfileId)) {
+      throw new BadRequestError("Invalid company profile id");
+    }
+
+    const companyProfile = await CompanyProfile.findById(companyProfileId)
+      .select("companyName employer")
+      .lean();
+
+    if (!companyProfile) {
+      throw new NotFoundError("Company profile not found");
+    }
+
+    const employerId = companyProfile.employer;
+    const activityMap = new Map();
+
+    const upsertActivity = ({ candidateId, candidate, candidateProfile, viewDate, downloadDate, viewCount = 0, downloadCount = 0 }) => {
+      const key = getObjectIdString(candidateId || candidate?._id || candidateProfile?.candidate);
+      if (!key) return;
+
+      const existing = activityMap.get(key) || {
+        candidateId: key,
+        candidateName: candidateProfile?.fullName || candidate?.name || "N/A",
+        candidateEmail: candidateProfile?.email || candidate?.email || "N/A",
+        candidatePhone: candidateProfile?.phone || candidate?.phone || "N/A",
+        candidateProfileId: candidateProfile?._id || null,
+        candidateRole: candidateProfile?.role?.name || candidateProfile?.jobTitle || "N/A",
+        candidateLocation: candidateProfile?.location?.city || "N/A",
+        profileViewCount: 0,
+        resumeDownloadCount: 0,
+        lastProfileViewedAt: null,
+        lastResumeDownloadedAt: null,
+        lastActivityAt: null,
+      };
+
+      existing.candidateName = existing.candidateName !== "N/A" ? existing.candidateName : (candidateProfile?.fullName || candidate?.name || "N/A");
+      existing.candidateEmail = existing.candidateEmail !== "N/A" ? existing.candidateEmail : (candidateProfile?.email || candidate?.email || "N/A");
+      existing.candidatePhone = existing.candidatePhone !== "N/A" ? existing.candidatePhone : (candidateProfile?.phone || candidate?.phone || "N/A");
+      existing.candidateProfileId = existing.candidateProfileId || candidateProfile?._id || null;
+      existing.candidateRole = existing.candidateRole !== "N/A" ? existing.candidateRole : (candidateProfile?.role?.name || candidateProfile?.jobTitle || "N/A");
+      existing.candidateLocation = existing.candidateLocation !== "N/A" ? existing.candidateLocation : (candidateProfile?.location?.city || "N/A");
+      existing.profileViewCount += Number(viewCount || 0);
+      existing.resumeDownloadCount += Number(downloadCount || 0);
+      existing.lastProfileViewedAt = pickLatestDate(existing.lastProfileViewedAt, viewDate);
+      existing.lastResumeDownloadedAt = pickLatestDate(existing.lastResumeDownloadedAt, downloadDate);
+      existing.lastActivityAt = pickLatestDate(existing.lastProfileViewedAt, existing.lastResumeDownloadedAt);
+
+      activityMap.set(key, existing);
+    };
+
+    const activities = await CandidateEmployerActivity.find({ employer: employerId })
+      .populate("candidate", "name email phone profilePhoto")
+      .populate({
+        path: "candidateProfile",
+        select: "fullName jobTitle email phone location profilePhoto role candidate",
+        populate: { path: "role", select: "name" },
+      })
+      .sort({ lastActivityAt: -1 })
+      .lean();
+
+    activities.forEach((activity) => {
+      upsertActivity({
+        candidateId: activity.candidate?._id || activity.candidate,
+        candidate: activity.candidate,
+        candidateProfile: activity.candidateProfile,
+        viewDate: activity.lastProfileViewedAt,
+        downloadDate: activity.lastResumeDownloadedAt,
+        viewCount: activity.profileViewCount,
+        downloadCount: activity.resumeDownloadCount,
+      });
+    });
+
+    const viewedProfiles = await CandidateProfile.find({
+      "uniqueViewers.viewer": employerId,
+    })
+      .select("candidate fullName jobTitle email phone location role uniqueViewers")
+      .populate("role", "name")
+      .lean();
+
+    viewedProfiles.forEach((profile) => {
+      const key = getObjectIdString(profile.candidate);
+      const existing = activityMap.get(key);
+      if (existing?.profileViewCount > 0) return;
+
+      const matchingViews = (profile.uniqueViewers || []).filter((viewer) => (
+        getObjectIdString(viewer.viewer) === getObjectIdString(employerId)
+      ));
+      const lastViewed = pickLatestDate(...matchingViews.map((viewer) => viewer.lastViewed));
+
+      upsertActivity({
+        candidateId: profile.candidate,
+        candidateProfile: profile,
+        viewDate: lastViewed,
+        viewCount: matchingViews.length || 1,
+      });
+    });
+
+    const [profileDownloadLogs, applicantDownloadLogs] = await Promise.all([
+      ResumeDownloadLog.aggregate([
+        { $match: { employer: employerId } },
+        {
+          $group: {
+            _id: "$candidate",
+            count: { $sum: "$downloadCount" },
+            lastDownloadedAt: { $max: "$downloadedAt" },
+          },
+        },
+      ]),
+      EmployerResumeDownloadLog.aggregate([
+        { $match: { employer: employerId } },
+        {
+          $group: {
+            _id: "$candidate",
+            count: { $sum: 1 },
+            lastDownloadedAt: { $max: "$downloadedAt" },
+          },
+        },
+      ]),
+    ]);
+
+    const downloadedCandidateIds = [
+      ...new Set(
+        [...profileDownloadLogs, ...applicantDownloadLogs]
+          .map((item) => item?._id)
+          .filter(Boolean)
+          .map((id) => id.toString())
+      ),
+    ];
+
+    const downloadedProfiles = downloadedCandidateIds.length
+      ? await CandidateProfile.find({ candidate: { $in: downloadedCandidateIds } })
+          .select("candidate fullName jobTitle email phone location role")
+          .populate("role", "name")
+          .lean()
+      : [];
+    const downloadedProfileMap = new Map(downloadedProfiles.map((profile) => [getObjectIdString(profile.candidate), profile]));
+
+    [...profileDownloadLogs, ...applicantDownloadLogs].forEach((log) => {
+      const key = getObjectIdString(log._id);
+      const existing = activityMap.get(key);
+      if (existing?.resumeDownloadCount > 0) return;
+
+      upsertActivity({
+        candidateId: log._id,
+        candidateProfile: downloadedProfileMap.get(getObjectIdString(log._id)),
+        downloadDate: log.lastDownloadedAt,
+        downloadCount: Number(log.count || 0),
+      });
+    });
+
+    const candidateActivity = Array.from(activityMap.values())
+      .map((activity) => ({
+        ...activity,
+        profileViewed: activity.profileViewCount > 0,
+        resumeDownloaded: activity.resumeDownloadCount > 0,
+      }))
+      .sort((a, b) => {
+        const aTime = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+        const bTime = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+        return bTime - aTime;
+      });
+
+    return res.status(200).json({
+      success: true,
+      companyProfile: {
+        _id: companyProfile._id,
+        companyName: companyProfile.companyName,
+      },
+      count: candidateActivity.length,
+      activity: candidateActivity,
+    });
   } catch (error) {
     next(error);
   }

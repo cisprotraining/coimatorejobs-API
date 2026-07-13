@@ -955,8 +955,8 @@ const sendApplicationStatusUpdateEmail = async ({ candidateEmail, candidateName,
       nextSteps = '<li>The employer will schedule an interview or next round soon</li><li>Check your email regularly for interview details</li><li>Prepare your profile and answers for potential interview questions</li>';
     } else if (status === 'selected') {
       statusColor = '#22c55e';
-      statusMessage = 'Great news! You have been selected! 🎉';
-      nextSteps = '<li>Review the offer details shared by the employer</li><li>Contact the employer for any clarifications</li><li>Complete the remaining hiring process steps</li>';
+      statusMessage = 'Great news! You have been selected for this job role.';
+      nextSteps = '<li>Open your Applied Jobs page and confirm whether you are joining this company</li><li>Review the offer details shared by the employer</li><li>Contact the employer or HR team for any clarifications</li>';
     } else if (status === 'rejected') {
       statusColor = '#ef4444';
       statusMessage = 'Thank you for applying';
@@ -1092,6 +1092,53 @@ const sendEmployerJobPostedEmail = async ({ recipient, employerName, jobTitle, c
   }
 };
 
+const sendDemandCandidateStatusEmail = async ({
+  recipient,
+  employerName,
+  companyName,
+  roleTitle,
+  statusLabel = 'Updated',
+  previousStatusLabel = '',
+  dashboardLink,
+}) => {
+  try {
+    if (!recipient) throw new Error('Recipient email is missing');
+
+    await sendMail({
+      from: `"Candidate Demand Update" <${defaultFromAddress}>`,
+      to: recipient,
+      subject: `Candidate enquiry status updated - ${roleTitle}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
+          <h2 style="color: #2563eb;">Candidate Enquiry Updated</h2>
+          <p>Dear ${employerName || 'Employer'},</p>
+          <p>Your candidate demand enquiry for <strong>${roleTitle}</strong> has been updated by our admin team.</p>
+          <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #2563eb;">
+            <p style="margin: 5px 0;"><strong>Company:</strong> ${companyName || '-'}</p>
+            <p style="margin: 5px 0;"><strong>Requested role:</strong> ${roleTitle}</p>
+            ${previousStatusLabel ? `<p style="margin: 5px 0;"><strong>Previous status:</strong> ${previousStatusLabel}</p>` : ''}
+            <p style="margin: 5px 0;"><strong>Current status:</strong> ${statusLabel}</p>
+          </div>
+          <p>Please log in to your employer dashboard to view your enquiry details and current status.</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${dashboardLink}"
+               style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              View Enquiry Updates
+            </a>
+          </div>
+          <p style="color: #64748b; font-size: 12px; text-align: center;">
+            &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.
+          </p>
+        </div>
+      `,
+      cc: [process.env.MAIL_SUPPORT].filter(Boolean),
+    });
+    console.log(`Candidate demand update sent to ${recipient}`);
+  } catch (error) {
+    console.error(`Failed to send candidate demand update to ${recipient}:`, error);
+  }
+};
+
 const formatReceiptCurrency = (amount = 0, currency = 'INR') =>
   new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -1182,5 +1229,5 @@ const sendPlanReceiptEmail = async ({
   }
 };
 
-export { sendJobAlertEmail, sendJobAlertSetupConfirmationEmail, sendResumeAlertEmail, sendPasswordResetEmail, sendLoginOtpEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendCandidateAccountDeletedAlertEmail, sendCompanyProfileStatusEmail, sendCandidateProfileStatusEmail, sendJobApplicationNotificationEmail, sendCandidateApplicationConfirmationEmail, sendApplicationStatusUpdateEmail, sendEmployerJobPostedEmail, sendPlanReceiptEmail };
+export { sendJobAlertEmail, sendJobAlertSetupConfirmationEmail, sendResumeAlertEmail, sendPasswordResetEmail, sendLoginOtpEmail, sendWelcomeEmail, sendSuperadminAlertEmail, sendUserStatusUpdateEmail, sendPasswordResetSuccessEmail, sendAdminPasswordResetEmail, sendProfileDeletionEmail, sendCandidateAccountDeletedAlertEmail, sendCompanyProfileStatusEmail, sendCandidateProfileStatusEmail, sendJobApplicationNotificationEmail, sendCandidateApplicationConfirmationEmail, sendApplicationStatusUpdateEmail, sendEmployerJobPostedEmail, sendDemandCandidateStatusEmail, sendPlanReceiptEmail };
 

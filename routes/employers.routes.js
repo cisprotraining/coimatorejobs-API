@@ -6,6 +6,7 @@ import jobsController from '../controller/jobs.controller.js';
 import employerDashboardController from '../controller/employerDashboard.controller.js';
 import hrAdminDashboardController from '../controller/hrAdminDashboard.controller.js';
 import paymentPlanController from '../controller/paymentPlan.controller.js';
+import demandCandidateController from '../controller/demandCandidate.controller.js';
 import { authenticate, authorize, authorizeEmployerLike, optionalAuthenticate } from '../middleware/auth.js';
 import companyUpload from '../utils/fileUpload.js';  
 import normalizeBody from '../utils/normalizeBody.js';
@@ -62,6 +63,13 @@ employerRouter.delete('/company-profile/delete/:id',authenticate,authorizeEmploy
 
 // hr-admin / superadmin only
 employerRouter.get('/company-profile/assigned', authenticate, authorize(['hr-admin', 'superadmin']), employerController.getAssignedCompanyProfiles);
+employerRouter.get('/company-profile/:companyProfileId/candidate-activity', authenticate, authorize(['hr-admin', 'superadmin']), employerController.getCompanyCandidateActivity);
+
+// Candidate demand enquiries from employer candidate search
+employerRouter.post('/demand-candidates', authenticate, authorize(['employer']), demandCandidateController.createDemandCandidate);
+employerRouter.get('/demand-candidates/my', authenticate, authorize(['employer']), demandCandidateController.getMyDemandCandidates);
+employerRouter.get('/demand-candidates/company/:companyProfileId', authenticate, authorize(['hr-admin', 'superadmin']), demandCandidateController.getCompanyDemandCandidates);
+employerRouter.patch('/demand-candidates/:id/status', authenticate, authorize(['hr-admin', 'superadmin']), demandCandidateController.updateDemandCandidateStatus);
 
 
 // post job
@@ -218,6 +226,12 @@ employerRouter.get('/hr-admin-dashboard/reports/monthly-performance', authentica
 //employer activity report
 employerRouter.get('/hr-admin-dashboard/reports/employer-activity', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getEmployerActivityReport
 );
+
+//candidate activity report
+employerRouter.get('/hr-admin-dashboard/reports/candidate-activity', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getCandidateActivityReport);
+
+//hiring activities report
+employerRouter.get('/hr-admin-dashboard/reports/hiring-activities', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getHiringActivitiesReport);
 
 //skill demand report
 employerRouter.get('/hr-admin-dashboard/reports/skills-demand', authenticate, authorize(['hr-admin', 'superadmin']), hrAdminDashboardController.getSkillsDemandReport);

@@ -1,5 +1,6 @@
 // middleware/trackCandidateView.js
 import CandidateProfile from '../models/candidateProfile.model.js';
+import CandidateEmployerActivity from '../models/candidateEmployerActivity.model.js';
 
 const trackCandidateView = async (req, res, next) => {
   try {
@@ -11,6 +12,8 @@ const trackCandidateView = async (req, res, next) => {
 
     const employerId = req.user.id;
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const viewedAt = new Date();
+    const profile = await CandidateProfile.findById(profileId).select('candidate');
 
     // Increment total views
     await CandidateProfile.updateOne(
@@ -37,7 +40,7 @@ const trackCandidateView = async (req, res, next) => {
           $push: {
             uniqueViewers: {
               viewer: employerId,
-              lastViewed: new Date()
+              lastViewed: viewedAt
             }
           }
         })
@@ -57,10 +60,29 @@ const trackCandidateView = async (req, res, next) => {
             },
             uniqueViewers: {
               viewer: employerId,
-              lastViewed: new Date()
+              lastViewed: viewedAt
             }
           }
         }
+      );
+    }
+
+    if (profile?.candidate) {
+      await CandidateEmployerActivity.updateOne(
+        { employer: employerId, candidate: profile.candidate },
+        {
+          $inc: { profileViewCount: 1 },
+          $set: {
+            candidateProfile: profile._id,
+            lastProfileViewedAt: viewedAt,
+            lastActivityAt: viewedAt,
+          },
+          $setOnInsert: {
+            employer: employerId,
+            candidate: profile.candidate,
+          },
+        },
+        { upsert: true }
       );
     }
   } catch (err) {

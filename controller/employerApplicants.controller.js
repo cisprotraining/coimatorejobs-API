@@ -5,6 +5,7 @@ import CandidateProfile from '../models/candidateProfile.model.js';
 import CompanyProfile from '../models/companyProfile.model.js';
 import User from '../models/user.model.js';
 import EmployerResumeDownloadLog from '../models/employerResumeDownloadLog.model.js';
+import CandidateEmployerActivity from '../models/candidateEmployerActivity.model.js';
 import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { canManageJob, buildJobQueryForUser } from '../utils/roleHelper.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors.js';
@@ -12,7 +13,12 @@ import { sendApplicationStatusUpdateEmail } from '../utils/mailer.js';
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
 import { getPrivateFileUrl } from '../utils/s3SignedUrl.js';
 import { s3 } from "../config/aws-s3.js";
-import { requireEmployerResumeDownloadLimit } from '../utils/employerPlanAccess.js';
+import {
+  getEmployerResumeDownloadUsage,
+  getFeatureLimit,
+  requireEmployerResumeDownloadLimit,
+  resolveEmployerPlan,
+} from '../utils/employerPlanAccess.js';
 
 const employerApplicantsController = {};
 
@@ -96,6 +102,16 @@ const resolveApplicationResumeValue = async (application) => {
 
 const buildResumeQuotaResponse = async ({ user, jobId = null }) => {
   const monthKey = getIstMonthKey();
+  let resumeFeature = {
+    enabled: true,
+    limit: MONTHLY_RESUME_LIMIT,
+    cycle: 'Monthly',
+  };
+
+  if (user.role === 'employer') {
+    const plan = await resolveEmployerPlan(user.id);
+    resumeFeature = getFeatureLimit(plan, 'resumeDownloads', 'resumeLimit');
+  }
 
   const jobQuery = buildJobQueryForUser(user);
   const jobs = await JobPost.find(jobQuery)
@@ -134,9 +150,15 @@ const buildResumeQuotaResponse = async ({ user, jobId = null }) => {
     ])
   );
 
+  const employerUsage = await getEmployerResumeDownloadUsage(user.id, resumeFeature.cycle);
+  const totalDownloadsUsed = employerUsage.total;
+  const downloadsRemaining =
+    resumeFeature.limit === -1
+      ? -1
+      : Math.max(Number(resumeFeature.limit || 0) - totalDownloadsUsed, 0);
+
   const jobsWithUsage = jobs.map((job) => {
     const usage = usageMap.get(String(job._id)) || { downloadsUsed: 0, lastDownloadedAt: null };
-    const downloadsRemaining = Math.max(MONTHLY_RESUME_LIMIT - usage.downloadsUsed, 0);
 
     return {
       jobId: job._id,
@@ -145,7 +167,9 @@ const buildResumeQuotaResponse = async ({ user, jobId = null }) => {
       applicantCount: job.applicantCount || 0,
       downloadsUsed: usage.downloadsUsed,
       downloadsRemaining,
-      limit: MONTHLY_RESUME_LIMIT,
+      limit: resumeFeature.limit,
+      limitScope: 'employer',
+      cycle: resumeFeature.cycle,
       monthKey,
       monthLabel: getIstMonthLabel(),
       lastDownloadedAt: usage.lastDownloadedAt,
@@ -154,10 +178,12 @@ const buildResumeQuotaResponse = async ({ user, jobId = null }) => {
   });
 
   const selectedJob = jobsWithUsage.find((job) => job.isSelected) || jobsWithUsage[0] || null;
-  const totalDownloadsUsed = jobsWithUsage.reduce((sum, job) => sum + job.downloadsUsed, 0);
 
   return {
-    limitPerJob: MONTHLY_RESUME_LIMIT,
+    limitPerJob: resumeFeature.limit,
+    limitPerEmployer: resumeFeature.limit,
+    limitScope: 'employer',
+    cycle: resumeFeature.cycle,
     monthKey,
     monthLabel: getIstMonthLabel(),
     selectedJob,
@@ -165,6 +191,9 @@ const buildResumeQuotaResponse = async ({ user, jobId = null }) => {
     summary: {
       totalJobs: jobsWithUsage.length,
       totalDownloadsUsed,
+      downloadsRemaining,
+      profileDownloads: employerUsage.profileDownloads,
+      applicantDownloads: employerUsage.applicantDownloads,
     },
   };
 };
@@ -382,6 +411,9 @@ employerApplicantsController.getApplicantsByJob = async (req, res, next) => {
         app.candidate?.profilePhoto ||
         "/default-avatar.jpg",
       status: app.status,
+      candidateJoinConfirmation: app.candidateJoinConfirmation || 'not_required',
+      candidateJoinConfirmedAt: app.candidateJoinConfirmedAt || null,
+      selectedAt: app.selectedAt || null,
       appliedAt: app.createdAt,
       resume: app.resume,
       applicationId: app._id,
@@ -551,6 +583,9 @@ employerApplicantsController.getAllApplicants = async (req, res, next) => {
       tags: app.candidateProfile?.categories || [],
       avatar: app.candidateProfile?.profilePhoto || app.candidate?.profilePhoto || '/default-avatar.jpg',
       status: app.status,
+      candidateJoinConfirmation: app.candidateJoinConfirmation || 'not_required',
+      candidateJoinConfirmedAt: app.candidateJoinConfirmedAt || null,
+      selectedAt: app.selectedAt || null,
       shortlisted: app.shortlisted || false,
       appliedAt: app.createdAt,
       resume: app.resume,
@@ -771,6 +806,9 @@ employerApplicantsController.getHrAdminEmployersApplicants = async (req, res, ne
       tags: app.candidateProfile?.categories || [],
       avatar: app.candidateProfile?.profilePhoto || app.candidate?.profilePhoto || '/default-avatar.jpg',
       status: app.status,
+      candidateJoinConfirmation: app.candidateJoinConfirmation || 'not_required',
+      candidateJoinConfirmedAt: app.candidateJoinConfirmedAt || null,
+      selectedAt: app.selectedAt || null,
       shortlisted: app.shortlisted,
       appliedAt: app.createdAt,
       resume: app.resume,
@@ -820,7 +858,10 @@ employerApplicantsController.updateApplicantStatus = async (req, res, next) => {
     }
 
     const application = await Application.findById(applicationId)
-      .populate('jobPost')
+      .populate({
+        path: 'jobPost',
+        populate: { path: 'companyProfile', select: 'companyName' },
+      })
       .populate('candidate', 'email name');
     
     // new ownership check using role helper
@@ -829,6 +870,15 @@ employerApplicantsController.updateApplicantStatus = async (req, res, next) => {
     }
 
     application.status = status;
+    if (status === 'Accepted') {
+      application.candidateJoinConfirmation = 'pending';
+      application.candidateJoinConfirmedAt = null;
+      application.selectedAt = new Date();
+    } else {
+      application.candidateJoinConfirmation = 'not_required';
+      application.candidateJoinConfirmedAt = null;
+      application.selectedAt = null;
+    }
     await application.save();
 
     // Send status update email to candidate
@@ -1046,9 +1096,7 @@ employerApplicantsController.downloadApplicantResume = async (req, res, next) =>
       });
     }
 
-    const downloadAccess = await requireEmployerResumeDownloadLimit(req, res, {
-      source: 'applicant',
-    });
+    const downloadAccess = await requireEmployerResumeDownloadLimit(req, res);
     if (!downloadAccess.allowed) return;
 
     const key = await resolveExistingResumeKey(resumeValue);
@@ -1061,14 +1109,34 @@ employerApplicantsController.downloadApplicantResume = async (req, res, next) =>
 
     const signedUrl = await getPrivateFileUrl(key);
 
+    const downloadedAt = new Date();
+    const candidateId = application.candidate?._id || application.candidate;
+
     await EmployerResumeDownloadLog.create({
       employer: user.id,
       jobPost: application.jobPost._id,
-      candidate: application.candidate?._id || application.candidate,
+      candidate: candidateId,
       application: application._id,
       monthKey,
-      downloadedAt: new Date(),
+      downloadedAt,
     });
+
+    await CandidateEmployerActivity.updateOne(
+      { employer: user.id, candidate: candidateId },
+      {
+        $inc: { resumeDownloadCount: 1 },
+        $set: {
+          candidateProfile: application.candidateProfile?._id || null,
+          lastResumeDownloadedAt: downloadedAt,
+          lastActivityAt: downloadedAt,
+        },
+        $setOnInsert: {
+          employer: user.id,
+          candidate: candidateId,
+        },
+      },
+      { upsert: true }
+    );
 
     const nextQuota = await buildResumeQuotaResponse({
       user,
@@ -1122,10 +1190,21 @@ employerApplicantsController.bulkUpdateStatus = async (req, res, next) => {
       }
     }
 
+    const statusUpdate = { status };
+    if (status === 'Accepted') {
+      statusUpdate.candidateJoinConfirmation = 'pending';
+      statusUpdate.candidateJoinConfirmedAt = null;
+      statusUpdate.selectedAt = new Date();
+    } else {
+      statusUpdate.candidateJoinConfirmation = 'not_required';
+      statusUpdate.candidateJoinConfirmedAt = null;
+      statusUpdate.selectedAt = null;
+    }
+
     // Update statuses
     await Application.updateMany(
       { _id: { $in: applicationIds } },
-      { $set: { status } }
+      { $set: statusUpdate }
     );
 
     return res.status(200).json({
@@ -1416,6 +1495,9 @@ employerApplicantsController.getShortlistedResumes = async (req, res, next) => {
       tags: app.candidateProfile?.categories || [],
       avatar: app.candidateProfile?.profilePhoto || app.candidate?.profilePhoto || '/default-avatar.jpg',
       status: app.status,
+      candidateJoinConfirmation: app.candidateJoinConfirmation || 'not_required',
+      candidateJoinConfirmedAt: app.candidateJoinConfirmedAt || null,
+      selectedAt: app.selectedAt || null,
       shortlisted: app.shortlisted,
       appliedAt: app.createdAt,
       resume: app.resume,

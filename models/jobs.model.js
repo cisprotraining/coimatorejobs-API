@@ -181,6 +181,34 @@ const jobPostSchema = new mongoose.Schema({
     enum: ['Draft', 'Published', 'Closed'],
     default: 'Published',
   },
+  candidateSelectionSource: {
+    type: String,
+    enum: ['unknown', 'coimbatorejobs', 'external', 'not_selected'],
+    default: 'unknown',
+  },
+  candidateSelectionSourceUpdatedAt: {
+    type: Date,
+    default: null,
+  },
+  candidateSelectionSourceUpdatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
+  closedAt: {
+    type: Date,
+    default: null,
+  },
+  closedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+  },
+  closedByRole: {
+    type: String,
+    enum: ['employer', 'hr-admin', 'superadmin', 'system', null],
+    default: null,
+  },
   // for trending jobs
   profileViews: { type: Number, default: 0 },
   dailyViews: [{

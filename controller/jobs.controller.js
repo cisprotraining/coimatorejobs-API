@@ -14,7 +14,12 @@ import { createNotification, notificationPresets } from '../utils/notificationHe
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
 import { COLLAR_CATEGORIES } from '../models/jobs.model.js';
-import { requireEmployerJobPostLimit } from '../utils/employerPlanAccess.js';
+import {
+  getEmployerResumeDownloadUsage,
+  getFeatureLimit,
+  requireEmployerJobPostLimit,
+  resolveEmployerPlan,
+} from '../utils/employerPlanAccess.js';
 
 const jobsController = {};
 const MONTHLY_RESUME_LIMIT = 5;
@@ -582,7 +587,7 @@ jobsController.getJobPosts = async (req, res, next) => {
       .populate('industry', 'name slug')
       .populate('role', 'name slug defaultCollarCategory')
       .populate('skills', 'name')
-      .select('employer companyProfile title location applicantCount status createdAt applicationDeadline postedBy')
+      .select('employer companyProfile title location applicantCount status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy createdAt applicationDeadline postedBy')
       .sort({ createdAt: -1 });  // Most recent first
 
     const normalizedSearch = String(search || '').trim().toLowerCase();
@@ -622,17 +627,37 @@ jobsController.getJobPosts = async (req, res, next) => {
       downloadUsageAgg.map((item) => [String(item._id), Number(item.downloadsUsed || 0)])
     );
 
+    let employerResumeUsage = null;
+    let employerResumeFeature = {
+      enabled: true,
+      limit: MONTHLY_RESUME_LIMIT,
+      cycle: 'Monthly',
+    };
+
+    if (userRole === 'employer') {
+      const plan = await resolveEmployerPlan(userId);
+      employerResumeFeature = getFeatureLimit(plan, 'resumeDownloads', 'resumeLimit');
+      employerResumeUsage = await getEmployerResumeDownloadUsage(userId, employerResumeFeature.cycle);
+    }
+
     const jobPostsWithDownloadUsage = filteredJobPosts.map((job) => {
-      const downloadsUsed = downloadUsageMap.get(String(job._id)) || 0;
+      const jobDownloadsUsed = downloadUsageMap.get(String(job._id)) || 0;
+      const downloadsUsed = employerResumeUsage?.total ?? jobDownloadsUsed;
+      const limit = employerResumeFeature.limit;
       const jobWithCurrentCollar = applyCurrentRoleCollarCategory(job);
 
       return {
         ...jobWithCurrentCollar,
         resumeDownloadUsage: {
           used: downloadsUsed,
-          limit: MONTHLY_RESUME_LIMIT,
-          label: `${downloadsUsed}/${MONTHLY_RESUME_LIMIT}`,
-          isLimitReached: downloadsUsed >= MONTHLY_RESUME_LIMIT,
+          limit,
+          label: limit === -1 ? `${downloadsUsed}/Unlimited` : `${downloadsUsed}/${limit}`,
+          isLimitReached: limit !== -1 && downloadsUsed >= limit,
+          limitScope: userRole === 'employer' ? 'employer' : 'job',
+          cycle: employerResumeFeature.cycle,
+          jobDownloadsUsed,
+          profileDownloads: employerResumeUsage?.profileDownloads || 0,
+          applicantDownloads: employerResumeUsage?.applicantDownloads || jobDownloadsUsed,
         },
       };
     });
@@ -695,7 +720,7 @@ jobsController.getEmployerJobPosts = async (req, res, next) => {
       .populate('companyProfile', 'companyName logo')
       .populate('employer', 'name email')
       .select(
-        'title status employer companyProfile postedBy createdAt applicationDeadline'
+        'title status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy employer companyProfile postedBy createdAt applicationDeadline'
       )
       .sort({ createdAt: -1 });
 
@@ -754,7 +779,7 @@ jobsController.getAdminPostedJobs = async (req, res, next) => {
       .populate('employer', 'name email')
       .populate('postedBy', 'name role')
       .select(
-        'title status employer companyProfile postedBy createdAt applicationDeadline'
+        'title status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy employer companyProfile postedBy createdAt applicationDeadline'
       )
       .sort({ createdAt: -1 });
 
@@ -878,6 +903,31 @@ jobsController.updateJobPost = async (req, res, next) => {
     if (Object.prototype.hasOwnProperty.call(req.body, 'collarCategory')) {
       if (!COLLAR_CATEGORIES.includes(req.body.collarCategory)) {
         throw new BadRequestError('Invalid collar category');
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'candidateSelectionSource')) {
+      const allowedSelectionSources = ['unknown', 'coimbatorejobs', 'external', 'not_selected'];
+      if (!allowedSelectionSources.includes(req.body.candidateSelectionSource)) {
+        throw new BadRequestError('Invalid candidate selection source');
+      }
+
+      updateData.candidateSelectionSource = req.body.candidateSelectionSource;
+      updateData.candidateSelectionSourceUpdatedAt =
+        req.body.candidateSelectionSource === 'unknown' ? null : new Date();
+      updateData.candidateSelectionSourceUpdatedBy =
+        req.body.candidateSelectionSource === 'unknown' ? null : userId;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'status')) {
+      if (req.body.status === 'Closed' && jobPost.status !== 'Closed') {
+        updateData.closedAt = new Date();
+        updateData.closedBy = userId;
+        updateData.closedByRole = userRole || 'system';
+      } else if (req.body.status !== 'Closed') {
+        updateData.closedAt = null;
+        updateData.closedBy = null;
+        updateData.closedByRole = null;
       }
     }
 
@@ -1035,6 +1085,10 @@ jobsController.deleteJobPost = async (req, res, next) => {
     const isOwner = jobPost.employer.toString() === userId.toString();
     const isPoster = jobPost.postedBy.toString() === userId.toString();
     const isAdmin = ['hr-admin', 'superadmin'].includes(userRole);
+
+    if (userRole === 'employer') {
+      throw new ForbiddenError('Employers cannot delete job posts. Please close the job post instead.');
+    }
 
     if (!isOwner && !isPoster && !isAdmin) {
       throw new ForbiddenError('You do not have permission to modify this job post');
