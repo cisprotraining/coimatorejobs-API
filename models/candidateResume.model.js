@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import ResumeAlert from './resumeAlert.model.js';
 import { sendResumeAlertEmail } from '../utils/mailer.js';
 import { matchResumeToAlert } from '../utils/resumeMatching.js';
+import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
+import { sendPushToUsers } from '../utils/fcm.js';
 
 const educationSchema = new mongoose.Schema({
   institution: String,
@@ -119,7 +121,7 @@ const candidateResumeSchema = new mongoose.Schema({
 // Hook for new/updated candidate profile to trigger resume alerts
 candidateResumeSchema.post('save', async function (doc) {
   try {
-    const alerts = await ResumeAlert.find({ isActive: true }).populate('employer', 'email');
+    const alerts = await ResumeAlert.find({ isActive: true }).populate('employer', '_id email');
 
     for (const alert of alerts) {
       if (alert.frequency !== 'Instant') continue;
@@ -128,13 +130,40 @@ candidateResumeSchema.post('save', async function (doc) {
       console.log(`[ResumeAlert] ${alert.title}: matched=${matched}, score=${matchScore}`);
 
       if (matched && alert.employer?.email) {
+        const candidateName = doc.personalInfo?.fullName || 'Unnamed Candidate';
+        const jobTitle = doc.personalInfo?.professionalTitle || 'Not Specified';
+        const profileId = doc.profile || doc._id;
+
         await sendResumeAlertEmail({
           recipient: alert.employer.email,
-          candidateName: doc.personalInfo?.fullName || 'Unnamed Candidate',
-          jobTitle: doc.personalInfo?.professionalTitle || 'Not Specified',
-          profileId: doc.profile,
+          candidateName,
+          jobTitle,
+          profileId,
           alert,
           matchScore,
+        });
+
+        const notificationPayload = {
+          ...notificationPresets.emailUpdate(
+            'New Candidate Resume Match',
+            `${candidateName} matched your alert "${alert.title}".`
+          ),
+          actionUrl: `/candidates-single/${profileId}`,
+          icon: 'la-file-alt',
+          color: '#22c55e',
+        };
+
+        await createNotification(alert.employer._id, 'email_update', notificationPayload);
+        await sendPushToUsers([alert.employer._id], {
+          title: notificationPayload.title,
+          body: notificationPayload.description,
+          link: `${process.env.FRONTEND_URL}${notificationPayload.actionUrl}`,
+          data: {
+            type: 'resume_alert_match',
+            profileId,
+            alertId: alert._id,
+            actionUrl: notificationPayload.actionUrl,
+          },
         });
       }
     }

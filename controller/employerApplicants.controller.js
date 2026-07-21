@@ -11,6 +11,7 @@ import { canManageJob, buildJobQueryForUser } from '../utils/roleHelper.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors.js';
 import { sendApplicationStatusUpdateEmail } from '../utils/mailer.js';
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
+import { sendPushToUsers } from '../utils/fcm.js';
 import { getPrivateFileUrl } from '../utils/s3SignedUrl.js';
 import { s3 } from "../config/aws-s3.js";
 import {
@@ -23,6 +24,32 @@ import {
 const employerApplicantsController = {};
 
 const MONTHLY_RESUME_LIMIT = 5;
+
+const getCandidateApplicationNotification = (status, jobTitle) => {
+  if (status === 'Accepted') {
+    return {
+      type: 'application_selected',
+      data: notificationPresets.applicationSelected(jobTitle),
+    };
+  }
+
+  if (status === 'Rejected') {
+    return {
+      type: 'application_rejected',
+      data: {
+        title: 'Application Status Update',
+        description: `Unfortunately, your application for ${jobTitle} was not selected this time. Keep applying for more opportunities.`,
+        icon: 'la-times-circle',
+        color: '#ef4444',
+      },
+    };
+  }
+
+  return {
+    type: 'application_reviewed',
+    data: notificationPresets.applicationReviewed(jobTitle),
+  };
+};
 
 const getIstMonthKey = () =>
   new Intl.DateTimeFormat("en-CA", {
@@ -902,22 +929,26 @@ employerApplicantsController.updateApplicantStatus = async (req, res, next) => {
 
     // Create notification for candidate
     try {
-      let notificationType = 'application_reviewed';
-      let notificationData = notificationPresets.applicationReviewed(application.jobPost.title);
-
-      if (status === 'Accepted') {
-        notificationType = 'application_selected';
-        notificationData = notificationPresets.applicationSelected(application.jobPost.title);
-      } else if (status === 'Rejected') {
-        notificationType = 'application_rejected';
-        notificationData = notificationPresets.applicationRejected(application.jobPost.title);
-      }
+      const { type: notificationType, data: notificationData } =
+        getCandidateApplicationNotification(status, application.jobPost.title);
 
       await createNotification(application.candidate._id, notificationType, {
         ...notificationData,
         jobPost: application.jobPost._id,
         application: applicationId,
-        actionUrl: `${process.env.FRONTEND_URL}/candidates-dashboard/applied-jobs`,
+        actionUrl: '/candidates-dashboard/applied-jobs',
+      });
+
+      await sendPushToUsers([application.candidate._id], {
+        title: notificationData.title,
+        body: notificationData.description,
+        link: `${process.env.FRONTEND_URL}/candidates-dashboard/applied-jobs`,
+        data: {
+          type: notificationType,
+          jobPostId: application.jobPost._id,
+          applicationId,
+          actionUrl: '/candidates-dashboard/applied-jobs',
+        },
       });
     } catch (notificationError) {
       console.error('Failed to create notification:', notificationError);
@@ -1229,8 +1260,11 @@ employerApplicantsController.shortlistApplicant = async (req, res, next) => {
     const applicationId = req.params.applicationId;
 
     const application = await Application.findById(applicationId)
-      .populate('jobPost')
-      .populate('candidate', 'email');
+      .populate({
+        path: 'jobPost',
+        populate: { path: 'companyProfile', select: 'companyName' },
+      })
+      .populate('candidate', 'email name');
     if (!application) {
       throw new NotFoundError('Application not found');
     }
@@ -1249,6 +1283,36 @@ employerApplicantsController.shortlistApplicant = async (req, res, next) => {
     
     application.shortlisted = true;
     await application.save();
+
+    try {
+      const notificationData = {
+        title: 'Application Shortlisted',
+        description: `Your application for ${application.jobPost.title} has been shortlisted.`,
+        icon: 'la-star',
+        color: '#f59e0b',
+      };
+
+      await createNotification(application.candidate._id, 'application_reviewed', {
+        ...notificationData,
+        jobPost: application.jobPost._id,
+        application: applicationId,
+        actionUrl: '/candidates-dashboard/applied-jobs',
+      });
+
+      await sendPushToUsers([application.candidate._id], {
+        title: notificationData.title,
+        body: notificationData.description,
+        link: `${process.env.FRONTEND_URL}/candidates-dashboard/applied-jobs`,
+        data: {
+          type: 'application_shortlisted',
+          jobPostId: application.jobPost._id,
+          applicationId,
+          actionUrl: '/candidates-dashboard/applied-jobs',
+        },
+      });
+    } catch (notificationError) {
+      console.error('Failed to notify shortlisted candidate:', notificationError);
+    }
 
     // Notify candidate (assuming sendEmail is defined)
     // const job = await JobPost.findById(application.jobPost).populate('companyProfile', 'companyName');

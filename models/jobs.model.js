@@ -7,6 +7,8 @@ import Role from './role.model.js';
 import Skill from './skill.model.js';
 import RoleSuggestion from './roleSuggestion.model.js';
 import { sendJobAlertEmail } from '../utils/mailer.js';
+import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
+import { sendPushToUsers } from '../utils/fcm.js';
 
 export const COLLAR_CATEGORIES = [
   'Blue Collar',
@@ -404,7 +406,7 @@ jobPostSchema.post('save', async function (doc) {
       .populate('role', 'name')
       .populate('skills', 'name');
 
-    const alerts = await JobAlert.find({ isActive: true }).populate('candidate', 'email');
+    const alerts = await JobAlert.find({ isActive: true }).populate('candidate', '_id email');
     console.log('Found job alerts:', alerts);
     
     for (const alert of alerts) {
@@ -417,6 +419,25 @@ jobPostSchema.post('save', async function (doc) {
           jobTitle: populatedDoc.title,
           companyName: populatedDoc.companyProfile.companyName,
           jobId: populatedDoc._id,
+        });
+
+        const notificationPayload = {
+          ...notificationPresets.jobAlert(populatedDoc.title, populatedDoc.companyProfile.companyName),
+          jobPost: populatedDoc._id,
+          actionUrl: `/job/${populatedDoc._id}`,
+        };
+
+        await createNotification(alert.candidate._id, 'job_alert', notificationPayload);
+        await sendPushToUsers([alert.candidate._id], {
+          title: notificationPayload.title,
+          body: notificationPayload.description,
+          link: `${process.env.FRONTEND_URL}${notificationPayload.actionUrl}`,
+          data: {
+            type: 'job_alert',
+            jobPostId: populatedDoc._id,
+            alertId: alert._id,
+            actionUrl: notificationPayload.actionUrl,
+          },
         });
       }
     }

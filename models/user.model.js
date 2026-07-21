@@ -28,6 +28,13 @@ const userSchema = new mongoose.Schema({
         unique: true,
         sparse: true
     },
+    employerId: {
+        type: String,
+        unique: true,
+        sparse: true,
+        trim: true,
+        uppercase: true
+    },
     // optional contact email (for employers who want to use their own email instead of system-generated one)
     contactEmail: {
         type: String,

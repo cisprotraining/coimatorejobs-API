@@ -567,11 +567,13 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       status: newProfile.status,
       dashboardUrl: `${process.env.FRONTEND_URL}/candidate/dashboard`
     });
-    await createNotification(candidateId, 'email_update', {
-      ...notificationPresets.emailUpdate(
-        'Candidate Profile Submitted',
-        `Your candidate profile is ${newProfile.status}.`
+    const createdProfileStatusLabel =
+      newProfile.status.charAt(0).toUpperCase() + newProfile.status.slice(1);
+    await createNotification(candidateId, 'profile_update', {
+      ...notificationPresets.profileUpdate(
+        `Your candidate profile status is ${newProfile.status}.`
       ),
+      title: `Candidate Profile Status: ${createdProfileStatusLabel}`,
       actionUrl: '/candidates-dashboard/my-profile',
       icon: newProfile.status === 'approved' ? 'la-check-circle' : 'la-clock-o',
       color: newProfile.status === 'approved' ? '#22c55e' : '#f59e0b',
@@ -912,6 +914,16 @@ candidateController.deleteCandidateProfile = async (req, res, next) => {
 
     await CandidateProfile.findByIdAndDelete(profileId);
 
+    await createNotification(profile.candidate, 'profile_update', {
+      ...notificationPresets.profileUpdate(
+        `Your candidate profile has been deleted by ${deletedByLabel}.`
+      ),
+      title: 'Profile Deleted',
+      actionUrl: '/candidates-dashboard/my-profile',
+      icon: 'la-trash',
+      color: '#ef4444',
+    });
+
     // Send deletion confirmation email to candidate
     await sendProfileDeletionEmail({
       recipient: profile.email,
@@ -980,11 +992,12 @@ candidateController.approveCandidateProfile = async (req, res, next) => {
       rejectionReason: status === 'rejected' ? rejectionReason : null,
       dashboardUrl: `${process.env.FRONTEND_URL}/candidate-dashboard/dashboard`
     });
-    await createNotification(profile.candidate, 'email_update', {
-      ...notificationPresets.emailUpdate(
-        'Candidate Profile Status Update',
+    const profileStatusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+    await createNotification(profile.candidate, 'profile_update', {
+      ...notificationPresets.profileUpdate(
         `Your candidate profile has been ${status}.`
       ),
+      title: `Candidate Profile Status: ${profileStatusLabel}`,
       actionUrl: '/candidates-dashboard/my-profile',
       icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
       color: status === 'approved' ? '#22c55e' : '#ef4444',
@@ -1810,7 +1823,8 @@ candidateController.getTrendingJobs = async (req, res, next) => {
 candidateController.getSimilarJobs = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const limit = parseInt(req.query.limit) || 10;
+    const requestedLimit = parseInt(req.query.limit, 10) || 10;
+    const limit = Math.min(Math.max(requestedLimit, 1), 50);
 
     // 1. Find the reference job
     const referenceJob = await JobPost.findById(id).select('title role industry location skills jobType');
@@ -1818,60 +1832,87 @@ candidateController.getSimilarJobs = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
-    // 2. Find jobs that match the same role, industry, or city (excluding the current job)
-    // We use $or to cast a wide net, then we score them to bring the best to the top
-    const matchQuery = {
-      _id: { $ne: id },
-      status: 'Published',
-      applicationDeadline: { $gte: new Date() },
-      $or: [
-        { role: referenceJob.role },
-        { industry: referenceJob.industry },
-        { 'location.city': referenceJob.location?.city }
-      ]
+    const normalizeText = (value) => String(value || '').trim().toLowerCase();
+    const normalizeCities = (value) => {
+      if (Array.isArray(value)) return value.map(normalizeText).filter(Boolean);
+      return normalizeText(value) ? [normalizeText(value)] : [];
+    };
+    const hasCityMatch = (job) => {
+      const referenceCities = normalizeCities(referenceJob.location?.city);
+      const jobCities = normalizeCities(job.location?.city);
+      return referenceCities.some((city) => jobCities.includes(city));
     };
 
-    const similarJobs = await JobPost.find(matchQuery)
+    const referenceRoleId = referenceJob.role?.toString();
+    const referenceTitle = normalizeText(referenceJob.title);
+    const referenceSkills = referenceJob.skills?.map((skill) => skill.toString()) || [];
+
+    const baseQuery = {
+      _id: { $ne: id },
+      status: 'Published',
+      applicationDeadline: { $gte: new Date() }
+    };
+
+    const availableJobs = await JobPost.find(baseQuery)
       .populate('companyProfile', 'companyName logo')
-      .limit(limit * 2) // Fetch extra to score and sort
+      .sort({ createdAt: -1 })
+      .limit(200)
       .lean();
 
-    // 3. Score the similarity
-    const scoredJobs = similarJobs.map(job => {
+    const scoreJob = (job) => {
+      const sameRole = Boolean(
+        (referenceRoleId && job.role?.toString() === referenceRoleId) ||
+        (referenceTitle && normalizeText(job.title) === referenceTitle)
+      );
+      const sameLocation = hasCityMatch(job);
+      const sameIndustry = referenceJob.industry && job.industry?.toString() === referenceJob.industry?.toString();
+      const sameJobType = job.jobType === referenceJob.jobType;
+      const jobSkills = job.skills?.map((skill) => skill.toString()) || [];
+      const commonSkills = jobSkills.filter((skill) => referenceSkills.includes(skill));
+
       let score = 0;
-      
-      // Exact Role match is highly relevant
-      if (job.role?.toString() === referenceJob.role?.toString()) score += 40;
-      
-      // Same Industry
-      if (job.industry?.toString() === referenceJob.industry?.toString()) score += 20;
-      
-      // Same City
-      if (job.location?.city === referenceJob.location?.city) score += 20;
-      
-      // Same Job Type (e.g., both Full-Time)
-      if (job.jobType === referenceJob.jobType) score += 10;
+      if (sameRole) score += 60;
+      if (sameLocation) score += 30;
+      if (sameIndustry) score += 15;
+      if (sameJobType) score += 10;
+      score += commonSkills.length * 5;
 
-      // Overlapping Skills
-      const refSkills = referenceJob.skills?.map(s => s.toString()) || [];
-      const jobSkills = job.skills?.map(s => s.toString()) || [];
-      const commonSkills = jobSkills.filter(s => refSkills.includes(s));
-      score += (commonSkills.length * 5); // +5 points per matching skill
+      return {
+        job,
+        sameRole,
+        sameLocation,
+        similarityScore: Math.min(score, 100)
+      };
+    };
 
-      return { job, similarityScore: Math.min(score, 100) };
-    })
-    .filter(item => item.similarityScore > 0) // Only keep jobs with at least some similarity
-    .sort((a, b) => b.similarityScore - a.similarityScore)
-    .slice(0, limit); // Cut down to requested limit
+    const scoredJobs = availableJobs.map(scoreJob);
+    const byNewest = (a, b) => new Date(b.job.createdAt || 0) - new Date(a.job.createdAt || 0);
+    const byScoreThenNewest = (a, b) => (b.similarityScore - a.similarityScore) || byNewest(a, b);
+    const seen = new Set();
+    const orderedJobs = [];
 
-    // 4. (Optional Fallback) If no similar jobs found, fallback to trending jobs
-    if (scoredJobs.length === 0) {
-      // You can call your existing trending logic here as a fallback
+    const addBucket = (items) => {
+      items.forEach((item) => {
+        const jobId = item.job?._id?.toString();
+        if (!jobId || seen.has(jobId)) return;
+        seen.add(jobId);
+        orderedJobs.push(item);
+      });
+    };
+
+    addBucket(scoredJobs.filter((item) => item.sameRole).sort(byScoreThenNewest));
+    addBucket(scoredJobs.filter((item) => !item.sameRole && item.sameLocation).sort(byScoreThenNewest));
+
+    if (orderedJobs.length === 0) {
+      addBucket(scoredJobs.map((item) => ({
+        ...item,
+        similarityScore: item.similarityScore || 1
+      })).sort(byNewest));
     }
 
     return res.status(200).json({
       success: true,
-      similarJobs: scoredJobs
+      similarJobs: orderedJobs.slice(0, limit)
     });
 
   } catch (error) {

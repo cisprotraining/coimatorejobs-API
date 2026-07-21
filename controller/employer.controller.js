@@ -104,6 +104,13 @@ const normalizeEstablishedSince = (value) => {
   const rawValue = String(value).trim();
   if (!rawValue) return rawValue;
 
+  if (/^\d{1,3}$/.test(rawValue)) {
+    const years = Number(rawValue);
+    if (Number.isFinite(years) && years > 0 && years <= 200) {
+      return `${new Date().getFullYear() - Math.floor(years)}-01-01`;
+    }
+  }
+
   if (/^\d{4}$/.test(rawValue)) {
     return `${rawValue}-01-01`;
   }
@@ -446,11 +453,13 @@ employerController.createCompanyProfile = async (req, res, next) => {
       status: newProfile.status,
       dashboardUrl: `${process.env.FRONTEND_URL}employer-dashboard/dashboard`
     });
-    await createNotification(employerUser._id, 'email_update', {
-      ...notificationPresets.emailUpdate(
-        'Company Profile Submitted',
-        `Your company profile "${newProfile.companyName}" is ${newProfile.status}.`
+    const createdCompanyStatusLabel =
+      newProfile.status.charAt(0).toUpperCase() + newProfile.status.slice(1);
+    await createNotification(employerUser._id, 'profile_update', {
+      ...notificationPresets.profileUpdate(
+        `Your company profile "${newProfile.companyName}" status is ${newProfile.status}.`
       ),
+      title: `Company Profile Status: ${createdCompanyStatusLabel}`,
       actionUrl: '/employers-dashboard/company-profile',
       icon: newProfile.status === 'approved' ? 'la-check-circle' : 'la-clock-o',
       color: newProfile.status === 'approved' ? '#22c55e' : '#f59e0b',
@@ -969,6 +978,16 @@ employerController.deleteCompanyProfile = async (req, res, next) => {
     // Delete the profile from the database
     await CompanyProfile.findByIdAndDelete(profileId);
 
+    await createNotification(employerUser?._id || profile.employer, 'profile_update', {
+      ...notificationPresets.profileUpdate(
+        `Your company profile "${profile.companyName}" has been deleted by ${deletedByLabel}.`
+      ),
+      title: 'Profile Deleted',
+      actionUrl: '/employers-dashboard/company-profile',
+      icon: 'la-trash',
+      color: '#ef4444',
+    });
+
     // Email employer
     await sendProfileDeletionEmail({
       recipient: employerEmail,
@@ -1046,11 +1065,12 @@ employerController.approveCompanyProfile = async (req, res, next) => {
       dashboardUrl: `${process.env.FRONTEND_URL}employer-dashboard/dashboard`,
       actionBy
     });
-    await createNotification(employerUser._id, 'email_update', {
-      ...notificationPresets.emailUpdate(
-        'Company Profile Status Update',
+    const companyStatusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+    await createNotification(employerUser._id, 'profile_update', {
+      ...notificationPresets.profileUpdate(
         `Your company profile "${profile.companyName}" has been ${status}.`
       ),
+      title: `Company Profile Status: ${companyStatusLabel}`,
       actionUrl: '/employers-dashboard/company-profile',
       icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
       color: status === 'approved' ? '#22c55e' : '#ef4444',

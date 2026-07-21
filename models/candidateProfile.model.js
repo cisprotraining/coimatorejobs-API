@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import ResumeAlert from './resumeAlert.model.js';
 import { sendResumeAlertEmail } from '../utils/mailer.js';
 import { matchResumeToAlert } from '../utils/resumeMatching.js';
+import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
+import { sendPushToUsers } from '../utils/fcm.js';
 
 const candidateProfileSchema = new mongoose.Schema({
   candidate: {
@@ -197,7 +199,7 @@ const candidateProfileSchema = new mongoose.Schema({
 // Hook for new/updated candidate profile to trigger resume alerts
 candidateProfileSchema.post('save', async function (doc) {
   try {
-    const alerts = await ResumeAlert.find({ isActive: true }).populate('employer', 'email');
+    const alerts = await ResumeAlert.find({ isActive: true }).populate('employer', '_id email');
 
     for (const alert of alerts) {
       if (alert.frequency !== 'Instant') continue;
@@ -206,7 +208,7 @@ candidateProfileSchema.post('save', async function (doc) {
 
       console.log(`[ResumeAlert] ${alert.title}: match=${matched}, score=${matchScore}`);
 
-      if (matched && alert.employer.email) {
+      if (matched && alert.employer?.email) {
         await sendResumeAlertEmail({
           recipient: alert.employer.email,
           candidateName: doc.fullName,
@@ -214,6 +216,29 @@ candidateProfileSchema.post('save', async function (doc) {
           profileId: doc._id,
           alert,
           matchScore,
+        });
+
+        const notificationPayload = {
+          ...notificationPresets.emailUpdate(
+            'New Candidate Profile Match',
+            `${doc.fullName || 'A candidate'} matched your alert "${alert.title}".`
+          ),
+          actionUrl: `/candidates-single/${doc._id}`,
+          icon: 'la-user-tie',
+          color: '#22c55e',
+        };
+
+        await createNotification(alert.employer._id, 'email_update', notificationPayload);
+        await sendPushToUsers([alert.employer._id], {
+          title: notificationPayload.title,
+          body: notificationPayload.description,
+          link: `${process.env.FRONTEND_URL}${notificationPayload.actionUrl}`,
+          data: {
+            type: 'resume_alert_match',
+            profileId: doc._id,
+            alertId: alert._id,
+            actionUrl: notificationPayload.actionUrl,
+          },
         });
       }
     }

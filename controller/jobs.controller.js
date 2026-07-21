@@ -11,6 +11,7 @@ import EmployerResumeDownloadLog from '../models/employerResumeDownloadLog.model
 import { sendSuperadminAlertEmail, sendEmployerJobPostedEmail } from '../utils/mailer.js';
 import { SUPERADMIN_EMAIL } from '../config/env.js';
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
+import { sendPushToUsers } from '../utils/fcm.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
 import { COLLAR_CATEGORIES } from '../models/jobs.model.js';
@@ -202,26 +203,32 @@ const resolveSkillIds = async (skillsInput = []) => {
   return Array.from(new Set(ids.map((id) => String(id))));
 };
 
-const getAdminAlertRecipients = async () => {
-  const recipients = new Set();
+const getAdminAlertUsers = async () => {
+  const recipientEmails = new Set();
 
   if (SUPERADMIN_EMAIL) {
-    recipients.add(String(SUPERADMIN_EMAIL).trim().toLowerCase());
+    recipientEmails.add(String(SUPERADMIN_EMAIL).trim().toLowerCase());
   }
 
-  const hrAdmins = await User.find({
-    role: 'hr-admin',
+  const adminUsers = await User.find({
     isActive: true,
-    status: 'approved',
-  }).select('email');
+    $or: [
+      { role: 'hr-admin', status: 'approved' },
+      { role: 'superadmin' },
+      ...(SUPERADMIN_EMAIL ? [{ email: String(SUPERADMIN_EMAIL).trim().toLowerCase() }] : []),
+    ],
+  }).select('_id name email role');
 
-  hrAdmins.forEach((admin) => {
+  adminUsers.forEach((admin) => {
     if (admin?.email) {
-      recipients.add(String(admin.email).trim().toLowerCase());
+      recipientEmails.add(String(admin.email).trim().toLowerCase());
     }
   });
 
-  return Array.from(recipients);
+  return {
+    emails: Array.from(recipientEmails),
+    users: adminUsers,
+  };
 };
 
 /**
@@ -413,7 +420,8 @@ jobsController.createJobPost = async (req, res, next) => {
 
     await newJobPost.save();
 
-    const recipients = await getAdminAlertRecipients();
+    const adminRecipients = await getAdminAlertUsers();
+    const recipients = adminRecipients.emails;
     const actor = await User.findById(req.user.id).select('name email role');
     const actorLabel =
       actor?.email ||
@@ -449,6 +457,35 @@ jobsController.createJobPost = async (req, res, next) => {
           );
         }
       });
+
+      const adminNotificationPayload = {
+        ...notificationPresets.emailUpdate(
+          'New Job Posted',
+          `Job "${newJobPost.title}" posted for ${companyProfileDoc.companyName} by ${actorLabel}.`
+        ),
+        jobPost: newJobPost._id,
+        actionUrl: '/super-admin-dashboard/manage-jobs',
+      };
+
+      await Promise.allSettled(
+        adminRecipients.users.map((adminUser) =>
+          createNotification(adminUser._id, 'email_update', adminNotificationPayload)
+        )
+      );
+
+      await sendPushToUsers(
+        adminRecipients.users.map((adminUser) => adminUser._id),
+        {
+          title: adminNotificationPayload.title,
+          body: adminNotificationPayload.description,
+          link: `${process.env.FRONTEND_URL}/super-admin-dashboard/manage-jobs`,
+          data: {
+            type: 'job_posted',
+            jobPostId: newJobPost._id,
+            actionUrl: adminNotificationPayload.actionUrl,
+          },
+        }
+      );
     } else {
       console.warn(
         `[JOB_POST_ADMIN_ALERT] Skipped for job="${newJobPost.title}" (${newJobPost._id}) because no recipients were found`
@@ -466,13 +503,24 @@ jobsController.createJobPost = async (req, res, next) => {
         companyName: companyProfileDoc.companyName,
         dashboardLink: `${process.env.FRONTEND_URL}/employers-dashboard/manage-jobs`,
       });
-      await createNotification(actor._id, 'email_update', {
+      const employerNotificationPayload = {
         ...notificationPresets.emailUpdate(
           'Job Posted Successfully',
           `Your job "${newJobPost.title}" is posted and live now.`
         ),
         jobPost: newJobPost._id,
         actionUrl: '/employers-dashboard/manage-jobs',
+      };
+      await createNotification(actor._id, 'email_update', employerNotificationPayload);
+      await sendPushToUsers([actor._id], {
+        title: employerNotificationPayload.title,
+        body: employerNotificationPayload.description,
+        link: `${process.env.FRONTEND_URL}/employers-dashboard/manage-jobs`,
+        data: {
+          type: 'job_posted',
+          jobPostId: newJobPost._id,
+          actionUrl: employerNotificationPayload.actionUrl,
+        },
       });
       console.log(
         `[JOB_POST_EMPLOYER_CONFIRMATION] Completed for job="${newJobPost.title}" (${newJobPost._id}) -> ${actor.email}`

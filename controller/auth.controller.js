@@ -31,6 +31,41 @@ const LOGIN_OTP_EXPIRY_MINUTES = 10;
 const LOGIN_OTP_MAX_ATTEMPTS = 5;
 const DEFAULT_PUBLIC_EMPLOYER_EMAIL = 'hello@coimbatorejobs.in';
 const INTERNAL_EMPLOYER_EMAIL_REGEX = /^employer_.*_@internal\.coimbatorejobs\.in$/i;
+const EMPLOYER_ID_PREFIX = 'EMP';
+const OLD_SEQUENTIAL_EMPLOYER_ID_REGEX = /^EMP-0+\d+$/;
+
+const buildEmployerId = () =>
+  `${EMPLOYER_ID_PREFIX}-${crypto.randomInt(10000000, 100000000)}`;
+
+const generateUniqueEmployerId = async (session = null) => {
+  let candidate = buildEmployerId();
+
+  while (await User.exists({ employerId: candidate }).session(session)) {
+    candidate = buildEmployerId();
+  }
+
+  return candidate;
+};
+
+const ensureEmployerId = async (user, session = null) => {
+  if (!user || user.role !== 'employer') return user?.employerId || null;
+
+  const currentEmployerId = String(user.employerId || '').trim().toUpperCase();
+  if (currentEmployerId && !OLD_SEQUENTIAL_EMPLOYER_ID_REGEX.test(currentEmployerId)) {
+    return user.employerId;
+  }
+
+  user.employerId = await generateUniqueEmployerId(session);
+  await user.save({ session, validateBeforeSave: false });
+  return user.employerId;
+};
+
+const ensureEmployerIdsForUsers = async (users = []) => {
+  for (const user of users) {
+    await ensureEmployerId(user);
+  }
+  return users;
+};
 
 const getDefaultFreePlanAssignment = async (session = null) => {
   const query = PaymentPlan.findOne({
@@ -266,12 +301,17 @@ authentication.signup = async (req, res, next) => {
           safeRole === 'employer'
             ? await getDefaultFreePlanAssignment(session)
             : {};
+        const employerId =
+          safeRole === 'employer'
+            ? await generateUniqueEmployerId(session)
+            : undefined;
         const newUser = new User({
           name,
           email: normalizedEmail,
           password: hashedPassword,
           role: safeRole,
           status,
+          ...(employerId ? { employerId } : {}),
           ...freePlanAssignment
         });
         await newUser.save({ session });
@@ -304,6 +344,7 @@ authentication.signup = async (req, res, next) => {
                 email: newUser.email,
                 role: newUser.role,
                 status: newUser.status,
+                employerId: newUser.employerId,
                 activePaymentPlan: newUser.activePaymentPlan || null
             }
         });
@@ -406,6 +447,10 @@ authentication.createAdminUser = async (req, res, next) => {
       role === 'employer'
         ? await getDefaultFreePlanAssignment(session)
         : {};
+    const employerId =
+      role === 'employer'
+        ? await generateUniqueEmployerId(session)
+        : undefined;
 
    // Admin-created users: HR admin creates as approved, Superadmin-assigned users remain pending.
     const createPayload = {
@@ -418,6 +463,7 @@ authentication.createAdminUser = async (req, res, next) => {
       assignmentSource: resolvedAssignmentSource,
       isSystemGeneratedEmail,
       loginId,
+      ...(employerId ? { employerId } : {}),
       ...freePlanAssignment
     };
     if (!isSystemGeneratedEmail) {
@@ -505,6 +551,7 @@ authentication.createAdminUser = async (req, res, next) => {
         role: user.role,
         email: getPublicEmployerEmail(user),
         loginId: user.loginId,
+        employerId: user.employerId,
         isSystemGeneratedEmail: user.isSystemGeneratedEmail
       }
     });
@@ -734,6 +781,8 @@ authentication.getAssignedUsers = async (req, res, next) => {
     // SUPERADMIN → sees all
     const users = await User.find(query, { password: 0 })
       .sort({ createdAt: -1 });
+
+    await ensureEmployerIdsForUsers(users);
 
     const sanitizedUsers = users.map((userDoc) => {
       const userObj = userDoc.toObject();
@@ -1328,6 +1377,8 @@ authentication.getUsersByRole = async (req, res, next) => {
 
     const [users, totalCount] = await Promise.all([usersPromise, countPromise]);
 
+    await ensureEmployerIdsForUsers(users);
+
     res.status(200).json({
       success: true,
       page: pageNumber,
@@ -1387,29 +1438,27 @@ authentication.updateUserStatus = async (req, res, next) => {
     const user = await targetUser.save();
 
 
-    // Candidate and employer should see account approve/reject updates in in-app notifications.
-    if (['candidate', 'employer'].includes(user.role) && ['approved', 'rejected'].includes(status)) {
-      const statusLabel = status === 'approved' ? 'approved' : 'rejected';
-      const notificationData = notificationPresets.profileUpdate(
-        `Your account status has been ${statusLabel} by admin.`
-      );
-      const actionUrl =
-        user.role === 'employer'
-          ? '/employers-dashboard/dashboard'
-          : '/candidates-dashboard/notifications';
-
-      await createNotification(user._id, 'profile_update', {
-        ...notificationData,
-        actionUrl,
-        icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
-        color: status === 'approved' ? '#22c55e' : '#ef4444',
-      });
-    }
-
     // HR-Admin / Superadmin should also receive related in-app notifications.
     const actorName = req.user.name || req.user.email || 'Admin';
     const actorRoleLabel = req.user.role === 'superadmin' ? 'Super Admin' : 'HR Admin';
     const actionLabel = status === 'approved' ? 'approved' : 'rejected';
+    const userStatusActionUrl = {
+      candidate: '/candidates-dashboard/notifications',
+      employer: '/employers-dashboard/dashboard',
+      'hr-admin': '/hr-admin-dashboard/dashboard',
+      superadmin: '/super-admin-dashboard/dashboard',
+    }[user.role] || '/notification';
+
+    // The affected user should see the same approve/reject update in system notifications.
+    await createNotification(user._id, 'email_update', {
+      ...notificationPresets.emailUpdate(
+        'Account Status Updated',
+        `Your ${user.role} account has been ${actionLabel} by admin.`
+      ),
+      actionUrl: userStatusActionUrl,
+      icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
+      color: status === 'approved' ? '#22c55e' : '#ef4444',
+    });
 
     // Notify the acting admin about the completed action.
     await createNotification(req.user.id, 'email_update', {
@@ -1667,6 +1716,16 @@ authentication.deleteUserProfile = async (req, res, next) => {
 
     await session.commitTransaction();
     session.endSession();
+
+    await createNotification(targetUserId, 'profile_update', {
+      ...notificationPresets.profileUpdate(
+        `Your ${deletedUserSnapshot.role} profile has been deleted by ${loggedInUser.email}.`
+      ),
+      title: 'Profile Deleted',
+      actionUrl: '/notification',
+      icon: 'la-trash',
+      color: '#ef4444',
+    });
 
     // Send deletion confirmation email to user
     await sendProfileDeletionEmail({

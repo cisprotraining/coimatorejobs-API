@@ -107,7 +107,7 @@ const sendJobAlertEmail = async ({ recipient, jobTitle, companyName, jobId }) =>
         <p>A new job matching your alert criteria has been posted:</p>
         <p><strong>Job Title:</strong> ${jobTitle}</p>
         <p><strong>Company:</strong> ${companyName}</p>
-        <p><a href="${process.env.FRONTEND_URL}/job-single-v3/${jobId}">View Job Details</a></p>
+        <p><a href="${process.env.FRONTEND_URL}/job/${jobId}">View Job Details</a></p>
         <p>Update your job alerts or apply directly via your dashboard.</p>
         <p>Best regards,<br><strong>Coimbatore Jobs Team</strong></p>
       `,
