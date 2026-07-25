@@ -8,6 +8,7 @@ import Skill from './skill.model.js';
 import RoleSuggestion from './roleSuggestion.model.js';
 import CompanyProfile from './companyProfile.model.js';
 import { sendJobAlertEmail } from '../utils/mailer.js';
+import { buildCanonicalJobSlug } from '../utils/jobSlug.js';
 
 export const COLLAR_CATEGORIES = [
   'Blue Collar',
@@ -263,44 +264,24 @@ const jobPostSchema = new mongoose.Schema({
 //   next();
 // });
 
-// ------------------ SLUG GENERATOR ------------------
-// Format: title-company-city (falls back to title-city if company name is unavailable)
-const slugifyPart = (value) =>
-  String(value ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+// ------------------ SLUG GENERATION ------------------
+// Canonical format: {job-title}-jobs-in-{primary-city}-{company-name}
+//
+// All slug string logic lives in utils/jobSlug.js — the single source of truth
+// shared with the migration and any future seed script. This model contributes
+// only the database-backed pieces: resolving the company name and answering
+// "is this slug already taken?".
 
-function generateSlug(title, companyName, cities) {
-  const titleSlug = slugifyPart(title);
-  const companySlug = slugifyPart(companyName);
-
-  let citySlug = "india";
-  if (Array.isArray(cities) && cities.length > 0) {
-    citySlug = slugifyPart(cities.join("-"));
-  } else if (typeof cities === "string") {
-    citySlug = slugifyPart(cities);
-  }
-
-  const parts = [titleSlug, companySlug, citySlug].filter(Boolean);
-  return parts.join("-");
-}
-
-// Appends -2, -3, ... until the slug is unique (excluding the document being saved)
-async function ensureUniqueSlug(baseSlug, excludeId) {
-  let candidate = baseSlug;
-  let index = 2;
-  while (
+// Uniqueness predicate for buildCanonicalJobSlug: a candidate is taken when any
+// OTHER JobPost already holds it (the document being saved is excluded so a
+// re-save never bumps its own slug to -2).
+const makeSlugTakenCheck = (excludeId) => async (candidate) =>
+  Boolean(
     await JobPost.exists({
       slug: candidate,
       ...(excludeId ? { _id: { $ne: excludeId } } : {}),
     })
-  ) {
-    candidate = `${baseSlug}-${index}`;
-    index += 1;
-  }
-  return candidate;
-}
+  );
 
 async function resolveCompanyName(companyProfileId) {
   if (!companyProfileId) return null;
@@ -313,14 +294,20 @@ jobPostSchema.pre("save", async function (next) {
   try {
 
     // ---------- SLUG ----------
-    // Canonical slugs are IMMUTABLE after creation to preserve permanent SEO URLs.
-    // Only generate when the document has no slug yet (new jobs, or legacy docs
-    // that predate slug generation). Ordinary edits to title/location/company must
-    // NOT regenerate an existing valid slug. Uniqueness (-2, -3, ...) is unchanged.
+    // Canonical slugs are IMMUTABLE after creation to preserve permanent SEO URLs
+    // (Rule 7). Only generate when the document has no slug yet (new jobs, or
+    // legacy docs that predate slug generation). Ordinary edits to
+    // title/location/company must NOT regenerate an existing slug. Reformatting
+    // existing slugs is the migration's job, never a save's side effect.
     if (!this.slug) {
       const companyName = await resolveCompanyName(this.companyProfile);
-      const baseSlug = generateSlug(this.title, companyName, this.location?.city);
-      this.slug = await ensureUniqueSlug(baseSlug, this._id);
+      const generated = await buildCanonicalJobSlug(
+        { title: this.title, companyName, city: this.location?.city },
+        makeSlugTakenCheck(this._id)
+      );
+      // Leave slug unset when no title is available rather than storing a
+      // meaningless slug — the sparse unique index permits absent slugs.
+      if (generated) this.slug = generated;
     }
 
     // ---------- SEO KEYWORDS ----------
@@ -383,21 +370,32 @@ jobPostSchema.pre("findOneAndUpdate", async function (next) {
 
     if (!existing) return next();
 
-    // Canonical slugs are IMMUTABLE after creation. Never regenerate an existing
-    // valid slug when title/location/company are edited — this keeps permanent SEO
-    // URLs stable. Only backfill a slug for legacy docs that don't have one yet.
+    // Canonical slugs are IMMUTABLE after creation (Rule 7). Never regenerate an
+    // existing slug when title/location/company are edited — this keeps permanent
+    // SEO URLs stable. Only backfill a slug for legacy docs that don't have one.
     if (!existing.slug) {
-      const title = update?.title || existing.title;
+      const title = update?.title || update?.$set?.title || existing.title;
       const city =
         update?.location?.city ||
         update?.["location.city"] ||
+        update?.$set?.["location.city"] ||
+        update?.$set?.location?.city ||
         existing.location?.city;
 
       const companyName = await resolveCompanyName(existing.companyProfile);
-      const baseSlug = generateSlug(title, companyName, city);
-      update.slug = await ensureUniqueSlug(baseSlug, existing._id);
+      const generated = await buildCanonicalJobSlug(
+        { title, companyName, city },
+        makeSlugTakenCheck(existing._id)
+      );
 
-      this.setUpdate(update);
+      if (generated) {
+        // The update may arrive as `{ $set: {...} }` (how updateJobPost calls
+        // this) or as a plain object. Write into whichever shape is in use so the
+        // result never mixes operators with top-level paths.
+        if (update && update.$set) update.$set.slug = generated;
+        else update.slug = generated;
+        this.setUpdate(update);
+      }
     }
 
     next();
