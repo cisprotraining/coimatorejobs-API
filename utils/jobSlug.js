@@ -164,3 +164,38 @@ export const buildCanonicalJobSlug = async ({ title, companyName, city }, isSlug
   if (!base) return '';
   return buildUniqueJobSlug(base, isSlugTaken, options);
 };
+
+/**
+ * PUBLIC (candidate-facing) path for a saved job post: `/job/{slug}`.
+ *
+ * Mirrors the frontend's buildJobPath (utils/jobUrl.js) priority exactly, so a
+ * link generated server-side — notification actionUrl, push payload — lands on
+ * the same page the site itself links to:
+ *   1. stored canonical slug -> /job/{slug}
+ *   2. no slug, but an _id   -> /job/{_id}   (the route resolves either form)
+ *   3. neither               -> /job-list    (never emits `/job/undefined`)
+ *
+ * Takes the SAVED document: the slug is written by the model's pre-save hook, so
+ * calling this before save() would always fall through to the ObjectId branch.
+ */
+export const buildPublicJobPath = (job = {}) => {
+  const slug = toPlainText(job?.slug).trim();
+  if (slug) return `/job/${slug}`;
+
+  const id = job?._id ? String(job._id).trim() : '';
+  return id ? `/job/${id}` : '/job-list';
+};
+
+/**
+ * Absolute public job URL, e.g. https://coimbatorejobs.in/job/{slug}.
+ *
+ * `baseUrl` is the site origin (FRONTEND_URL). Its trailing slash is stripped
+ * because the configured value carries one, and `${base}/job/x` would otherwise
+ * produce a double slash that does not resolve. Falls back to the relative path
+ * when no base is configured — still a working in-app link.
+ */
+export const buildPublicJobUrl = (job = {}, baseUrl = '') => {
+  const path = buildPublicJobPath(job);
+  const base = toPlainText(baseUrl).trim().replace(/\/+$/, '');
+  return base ? `${base}${path}` : path;
+};

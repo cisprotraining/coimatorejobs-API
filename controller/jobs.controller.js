@@ -15,6 +15,7 @@ import { sendPushToUsers } from '../utils/fcm.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
 import { COLLAR_CATEGORIES } from '../models/jobs.model.js';
+import { buildPublicJobPath, buildPublicJobUrl } from '../utils/jobSlug.js';
 import {
   getEmployerResumeDownloadUsage,
   getFeatureLimit,
@@ -522,6 +523,12 @@ jobsController.createJobPost = async (req, res, next) => {
 
     await newJobPost.save();
 
+    // Public job page for this post. Resolved AFTER save() so the canonical slug
+    // written by the model's pre-save hook is available; admin notifications link
+    // straight to the live job rather than to a dashboard listing.
+    const publicJobPath = buildPublicJobPath(newJobPost);
+    const publicJobUrl = buildPublicJobUrl(newJobPost, process.env.FRONTEND_URL);
+
     const adminRecipients = await getAdminAlertUsers();
     const recipients = adminRecipients.emails;
     const actor = await User.findById(req.user.id).select('name email role');
@@ -566,7 +573,7 @@ jobsController.createJobPost = async (req, res, next) => {
           `Job "${newJobPost.title}" posted for ${companyProfileDoc.companyName} by ${actorLabel}.`
         ),
         jobPost: newJobPost._id,
-        actionUrl: '/super-admin-dashboard/manage-jobs',
+        actionUrl: publicJobPath,
       };
 
       await Promise.allSettled(
@@ -580,7 +587,7 @@ jobsController.createJobPost = async (req, res, next) => {
         {
           title: adminNotificationPayload.title,
           body: adminNotificationPayload.description,
-          link: `${process.env.FRONTEND_URL}/super-admin-dashboard/manage-jobs`,
+          link: publicJobUrl,
           data: {
             type: 'job_posted',
             jobPostId: newJobPost._id,
