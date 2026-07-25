@@ -8,12 +8,9 @@ import Skill from './skill.model.js';
 import RoleSuggestion from './roleSuggestion.model.js';
 import CompanyProfile from './companyProfile.model.js';
 import { sendJobAlertEmail } from '../utils/mailer.js';
-<<<<<<< HEAD
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
 import { sendPushToUsers } from '../utils/fcm.js';
-=======
 import { buildCanonicalJobSlug } from '../utils/jobSlug.js';
->>>>>>> 21a9318 (Refactor slug generation logic: centralize in utils/jobSlug.js and ensure immutability for SEO stability)
 
 export const COLLAR_CATEGORIES = [
   'Blue Collar',

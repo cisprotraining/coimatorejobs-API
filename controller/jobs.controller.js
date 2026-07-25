@@ -737,11 +737,7 @@ jobsController.getJobPosts = async (req, res, next) => {
       .populate('industry', 'name slug')
       .populate('role', 'name slug defaultCollarCategory')
       .populate('skills', 'name')
-<<<<<<< HEAD
-      .select('employer companyProfile title location applicantCount status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy createdAt applicationDeadline postedBy')
-=======
-      .select('employer companyProfile title location applicantCount status createdAt applicationDeadline postedBy slug salary offeredSalary')
->>>>>>> 467330d (Add structured salary support and logo validation; implement salary migration script)
+      .select('employer companyProfile title location applicantCount status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy createdAt applicationDeadline postedBy slug salary offeredSalary')
       .sort({ createdAt: -1 });  // Most recent first
 
     const normalizedSearch = String(search || '').trim().toLowerCase();
