@@ -10,6 +10,14 @@ const defaultFromAddress = isProd
   ? (process.env.MAIL_FROM || 'no-reply@coimbatorejobs.in')
   : (process.env.EMAIL_USER || process.env.MAIL_FROM || 'no-reply@coimbatorejobs.in');
 
+const escapeHtml = (value = '') =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 let transporter;
 
 if (isProd) {
@@ -1157,6 +1165,8 @@ const sendPlanReceiptEmail = async ({
   activatedAt,
   expiresAt,
   paymentMode,
+  billingDetails = {},
+  accountEmail = '',
   attachments = [],
 }) => {
   try {
@@ -1184,6 +1194,30 @@ const sendPlanReceiptEmail = async ({
             <p>Thank you for choosing the <strong>${planName}</strong> plan.</p>
             <table style="width: 100%; border-collapse: collapse; margin: 22px 0;">
               <tbody>
+                ${billingDetails?.companyName ? `
+                <tr>
+                  <td style="padding: 12px; border: 1px solid #f0e7dc; background: #fffaf4;"><strong>Company</strong></td>
+                  <td style="padding: 12px; border: 1px solid #f0e7dc;">${escapeHtml(billingDetails.companyName)}</td>
+                </tr>
+                ` : ''}
+                ${billingDetails?.email ? `
+                <tr>
+                  <td style="padding: 12px; border: 1px solid #f0e7dc; background: #fffaf4;"><strong>Billing Email</strong></td>
+                  <td style="padding: 12px; border: 1px solid #f0e7dc;">${escapeHtml(billingDetails.email)}</td>
+                </tr>
+                ` : ''}
+                ${accountEmail ? `
+                <tr>
+                  <td style="padding: 12px; border: 1px solid #f0e7dc; background: #fffaf4;"><strong>Account Email</strong></td>
+                  <td style="padding: 12px; border: 1px solid #f0e7dc;">${escapeHtml(accountEmail)}</td>
+                </tr>
+                ` : ''}
+                ${billingDetails?.phone ? `
+                <tr>
+                  <td style="padding: 12px; border: 1px solid #f0e7dc; background: #fffaf4;"><strong>Phone</strong></td>
+                  <td style="padding: 12px; border: 1px solid #f0e7dc;">${escapeHtml(billingDetails.phone)}</td>
+                </tr>
+                ` : ''}
                 <tr>
                   <td style="padding: 12px; border: 1px solid #f0e7dc; background: #fffaf4;"><strong>Receipt No</strong></td>
                   <td style="padding: 12px; border: 1px solid #f0e7dc;">${receipt || '-'}</td>

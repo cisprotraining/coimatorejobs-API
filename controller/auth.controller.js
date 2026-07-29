@@ -287,8 +287,9 @@ authentication.signup = async (req, res, next) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Candidate and employer self-signup must stay pending until HR/Superadmin approval.
-        const status = ['candidate', 'employer'].includes(safeRole) ? 'pending' : 'approved';
+        // Candidate/employer account signup is approved immediately.
+        // Admin approval is handled at the candidate/company profile level.
+        const status = 'approved';
         
         // old approval logic (we can handle in frontend for now)
          // Approval logic
@@ -329,13 +330,11 @@ authentication.signup = async (req, res, next) => {
         // Small delay for Mailtrap
         await new Promise(resolve => setTimeout(resolve, 6000)); //remove when in production
 
-        await notifyAdminsOfRegistration(newUser);
-
         // Send success response
         return res.status(201).json({
             success: true,
             message: ['candidate', 'employer'].includes(safeRole)
-              ? `${safeRole === 'employer' ? 'Employer' : 'Candidate'} registered successfully. Your account is pending approval.`
+              ? `${safeRole === 'employer' ? 'Employer' : 'Candidate'} registered successfully. Please create your profile for admin approval.`
               : "User created successfully",
             user: {
                 token,
@@ -754,28 +753,32 @@ authentication.getAssignedUsers = async (req, res, next) => {
      * HR-ADMIN → ONLY USERS ASSIGNED TO THEM
      */
     if (shouldApplyAssignedFilter) {
-      let assignedIds = [];
+      const hrAdmins = await User.find({ role: 'hr-admin', isActive: true })
+        .select('employerIds candidateIds');
+      const adminUsers = await User.find({
+        role: { $in: ['hr-admin', 'superadmin'] },
+        isActive: true,
+      }).select('_id');
 
-      // HR-ADMIN -> users assigned to this HR-admin
-      if (loggedInUser.role === 'hr-admin') {
-        assignedIds = [
-          ...(loggedInUser.employerIds || []),
-          ...(loggedInUser.candidateIds || [])
-        ];
+      const assignedIds = hrAdmins.flatMap((hrAdmin) => ([
+        ...(hrAdmin.employerIds || []),
+        ...(hrAdmin.candidateIds || [])
+      ]));
+      const adminCreatedByIds = adminUsers.map((admin) => admin._id);
+
+      const assignedIdStrings = [...new Set(assignedIds.map((id) => id.toString()))];
+      const assignedOr = [];
+
+      if (assignedIdStrings.length) {
+        assignedOr.push({ _id: { $in: assignedIdStrings } });
       }
 
-      // SUPERADMIN -> users assigned to any HR-admin
-      if (loggedInUser.role === 'superadmin') {
-        const hrAdmins = await User.find({ role: 'hr-admin', isActive: true })
-          .select('employerIds candidateIds');
-
-        assignedIds = hrAdmins.flatMap((hrAdmin) => ([
-          ...(hrAdmin.employerIds || []),
-          ...(hrAdmin.candidateIds || [])
-        ]));
+      if (adminCreatedByIds.length) {
+        assignedOr.push({ createdBy: { $in: adminCreatedByIds } });
       }
 
-      query._id = { $in: [...new Set(assignedIds.map((id) => id.toString()))] };
+      query.$and = query.$and || [];
+      query.$and.push(assignedOr.length ? { $or: assignedOr } : { _id: { $in: [] } });
     }
  
     // SUPERADMIN → sees all
@@ -1266,7 +1269,7 @@ authentication.adminResetUserPassword = async (req, res, next) => {
  */
 authentication.getUsersByRole = async (req, res, next) => {
   try {
-    const { roles, page = 1, limit = 20, status, search } = req.query;
+    const { roles, page = 1, limit = 20, status, search, scope = 'assigned' } = req.query;
     const loggedInUser = await User.findById(req.user.id).select('role employerIds candidateIds');
     if (!loggedInUser) {
       return res.status(401).json({ message: 'User not found' });
@@ -1332,7 +1335,7 @@ authentication.getUsersByRole = async (req, res, next) => {
      * HR-ADMIN RULE:
      * Show only users assigned to this HR-admin
      */
-    if (loggedInUser.role === 'hr-admin') {
+    if (loggedInUser.role === 'hr-admin' && scope !== 'all') {
       const assignedIds = [
         ...(loggedInUser.employerIds || []),
         ...(loggedInUser.candidateIds || []),
@@ -1578,7 +1581,7 @@ authentication.getCurrentUser = async (req, res, next) => {
 };
 
 /**
- * Soft delete a user profile
+ * Permanently delete a user profile and related records
  *
  * Who can delete:
  * - Candidate / Employer → their own profile
@@ -1717,16 +1720,6 @@ authentication.deleteUserProfile = async (req, res, next) => {
     await session.commitTransaction();
     session.endSession();
 
-    await createNotification(targetUserId, 'profile_update', {
-      ...notificationPresets.profileUpdate(
-        `Your ${deletedUserSnapshot.role} profile has been deleted by ${loggedInUser.email}.`
-      ),
-      title: 'Profile Deleted',
-      actionUrl: '/notification',
-      icon: 'la-trash',
-      color: '#ef4444',
-    });
-
     // Send deletion confirmation email to user
     await sendProfileDeletionEmail({
       recipient: deletedUserSnapshot.email,
@@ -1813,7 +1806,7 @@ authentication.googleLogin = async (req, res, next) => {
                 email: email,
                 password: hashedPassword,
                 role: selectedRole, // Uses the role from the frontend tab
-                status: 'pending',        // Auto-approve verified Google users changed to pending
+                status: 'approved',
                 isActive: true,
                 isDeleted: false,
                 ...freePlanAssignment

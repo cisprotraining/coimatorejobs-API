@@ -6,6 +6,13 @@ import { createNotification, notificationPresets } from '../utils/notificationHe
 import { sendPushToUsers } from '../utils/fcm.js';
 
 const candidateProfileSchema = new mongoose.Schema({
+  candidateId: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true,
+    uppercase: true
+  },
   candidate: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

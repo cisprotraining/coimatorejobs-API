@@ -21,9 +21,52 @@ import {
   requireEmployerJobPostLimit,
   resolveEmployerPlan,
 } from '../utils/employerPlanAccess.js';
+import crypto from 'crypto';
 
 const jobsController = {};
 const MONTHLY_RESUME_LIMIT = 5;
+const JOB_ID_PREFIX = "JOB";
+
+const buildJobId = () =>
+  `${JOB_ID_PREFIX}-${crypto.randomInt(10000000, 100000000)}`;
+
+const generateUniqueJobId = async (session = null) => {
+  let candidate = buildJobId();
+
+  while (await JobPost.exists({ jobId: candidate }).session(session)) {
+    candidate = buildJobId();
+  }
+
+  return candidate;
+};
+
+const ensureJobId = async (job, session = null) => {
+  if (!job) return job;
+
+  const currentJobId = String(job.jobId || "").trim().toUpperCase();
+  if (currentJobId) return job;
+
+  job.jobId = await generateUniqueJobId(session);
+  if (typeof job.save === "function") {
+    await job.save({ session, validateBeforeSave: false });
+  } else if (job._id) {
+    await JobPost.updateOne(
+      { _id: job._id, $or: [{ jobId: { $exists: false } }, { jobId: "" }, { jobId: null }] },
+      { $set: { jobId: job.jobId } },
+      { session }
+    );
+  }
+
+  return job;
+};
+
+const ensureJobIds = async (jobs = []) => {
+  for (const job of jobs) {
+    await ensureJobId(job);
+  }
+  return jobs;
+};
+
 const getIstMonthKey = () =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata",
@@ -384,6 +427,7 @@ jobsController.createJobPost = async (req, res, next) => {
 
     // Create new job post
     const newJobPost = new JobPost({
+      jobId: await generateUniqueJobId(),
       employer: employerId,        // the actual company owner
       postedBy: req.user.id,           // who is posting (employer or hr-admin)
       companyProfile: companyProfile || companyProfileDoc._id, // Use provided ID or default to employer’s profile
@@ -635,8 +679,9 @@ jobsController.getJobPosts = async (req, res, next) => {
       .populate('industry', 'name slug')
       .populate('role', 'name slug defaultCollarCategory')
       .populate('skills', 'name')
-      .select('employer companyProfile title location applicantCount status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy createdAt applicationDeadline postedBy')
+      .select('jobId employer companyProfile title location applicantCount status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy createdAt applicationDeadline postedBy')
       .sort({ createdAt: -1 });  // Most recent first
+    await ensureJobIds(jobPosts);
 
     const normalizedSearch = String(search || '').trim().toLowerCase();
     const filteredJobPosts = normalizedSearch
@@ -768,9 +813,10 @@ jobsController.getEmployerJobPosts = async (req, res, next) => {
       .populate('companyProfile', 'companyName logo')
       .populate('employer', 'name email')
       .select(
-        'title status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy employer companyProfile postedBy createdAt applicationDeadline'
+        'jobId title status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy employer companyProfile postedBy createdAt applicationDeadline'
       )
       .sort({ createdAt: -1 });
+    await ensureJobIds(jobPosts);
 
     // Success response
     return res.status(200).json({
@@ -827,9 +873,10 @@ jobsController.getAdminPostedJobs = async (req, res, next) => {
       .populate('employer', 'name email')
       .populate('postedBy', 'name role')
       .select(
-        'title status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy employer companyProfile postedBy createdAt applicationDeadline'
+        'jobId title status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy employer companyProfile postedBy createdAt applicationDeadline'
       )
       .sort({ createdAt: -1 });
+    await ensureJobIds(jobPosts);
 
     return res.status(200).json({
       success: true,
@@ -865,6 +912,7 @@ jobsController.getJobPost = async (req, res, next) => {
     if (!jobPost) {
       throw new NotFoundError('Job post not found');
     }
+    await ensureJobId(jobPost);
 
     // Check permissions
     // if (user.role !== 'superadmin' && jobPost.employer.toString() !== user.id.toString()) {
@@ -1102,6 +1150,7 @@ jobsController.updateJobPost = async (req, res, next) => {
       { $set: updateData },
       { new: true, runValidators: true }
     ).populate('functionalAreas role industry skills companyProfile').select('-__v -applicantCount');
+    await ensureJobId(updatedJobPost);
 
     return res.status(200).json({
       success: true,
@@ -1173,10 +1222,11 @@ jobsController.getJobsByLocation = async (req, res, next) => {
       .populate('industry', 'name slug')
       .populate('role', 'name slug')
       .populate('skills', 'name')
-      .select('title role location status createdAt slug seoKeywords')
+      .select('jobId title role location status createdAt slug seoKeywords')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
+    await ensureJobIds(jobs);
     res.json({ success: true, jobs });
   } catch (error) {
     next(error);
@@ -1195,6 +1245,7 @@ jobsController.getJobsByCategory = async (req, res, next) => {
       .populate('role', 'name slug')
       .populate('skills', 'name')
       .sort({ createdAt: -1 });
+    await ensureJobIds(jobs);
     res.json({ success: true, jobs });
   } catch (error) {
     next(error);
@@ -1213,6 +1264,7 @@ jobsController.getJobsByRole = async (req, res, next) => {
       .populate('role', 'name slug')
       .populate('skills', 'name')
       .sort({ createdAt: -1 });
+    await ensureJobIds(jobs);
     res.json({ success: true, jobs });
   } catch (error) {
     next(error);
@@ -1237,6 +1289,7 @@ jobsController.getJobsByRoleAndCity = async (req, res, next) => {
       .populate('industry', 'name slug')
       .populate('role', 'name slug')
       .sort({ createdAt: -1 });
+    await ensureJobIds(jobs);
 
     res.json({ success: true, jobs });
   } catch (err) {
