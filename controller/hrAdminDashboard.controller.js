@@ -988,112 +988,11 @@ hrAdminDashboardController.getCandidateAnalytics = async (req, res, next) => {
  * @route GET /api/v1/hr-admin-dashboard/pending-actions
  * @access Private (HR-Admin, Superadmin)
  */
-// hrAdminDashboardController.getPendingActions = async (req, res, next) => {
-//   try {
-//     const user = req.user;
-
-//     let companyMatch = {};
-//     let userMatch = {};
-
-//     // For HR-Admin, filter by assigned employers
-//     if (user.role === 'hr-admin' && user.employerIds && user.employerIds.length > 0) {
-//       companyMatch.employer = { $in: user.employerIds };
-//       userMatch._id = { $in: user.employerIds };
-//     }
-
-//     // Get pending company approvals
-//     const pendingCompanies = await CompanyProfile.find({
-//       ...companyMatch,
-//       status: 'pending',
-//     })
-//       .populate('employer', 'name email')
-//       .select('companyName email phone status createdAt')
-//       .sort({ createdAt: -1 })
-//       .limit(10);
-
-//     // Get pending job approvals
-//     const pendingJobs = await JobPost.find({
-//       status: 'Pending',
-//       ...(user.role === 'hr-admin' && user.employerIds ? { employer: { $in: user.employerIds } } : {}),
-//     })
-//       .populate('employer', 'name email')
-//       .populate('companyProfile', 'companyName')
-//       .select('title employer companyProfile status createdAt')
-//       .sort({ createdAt: -1 })
-//       .limit(10);
-
-//     // Get pending employer registrations
-//     const pendingEmployers = await User.find({
-//       role: 'employer',
-//       status: 'pending',
-//       ...userMatch,
-//     })
-//       .select('name email createdAt')
-//       .sort({ createdAt: -1 })
-//       .limit(10);
-
-//     // Get pending candidate registrations
-//     const pendingCandidates = await User.find({
-//       role: 'candidate',
-//       status: 'pending',
-//       ...(user.role === 'hr-admin' && user.candidateIds && user.candidateIds.length > 0
-//           ? { _id: { $in: user.candidateIds } }
-//           : {}),
-//     })
-//       .select('name email createdAt')
-//       .sort({ createdAt: -1 })
-//       .limit(10);
-
-//     // Get recent activities by HR-Admin
-//     const recentActivities = await JobPost.find({
-//       postedBy: user.id,
-//       createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }, // Last 7 days
-//     })
-//       .select('title status createdAt')
-//       .sort({ createdAt: -1 })
-//       .limit(10);
-
-//     return res.status(200).json({
-//       success: true,
-//       pendingActions: {
-//         companies: {
-//           count: pendingCompanies.length,
-//           items: pendingCompanies,
-//         },
-//         jobs: {
-//           count: pendingJobs.length,
-//           items: pendingJobs,
-//         },
-//         employers: {
-//           count: pendingEmployers.length,
-//           items: pendingEmployers,
-//         },
-//         candidates: {   
-//           count: pendingCandidates.length,
-//           items: pendingCandidates,
-//         },
-//       },
-//       recentActivities,
-//       totalPendingActions: pendingCompanies.length + pendingJobs.length + pendingEmployers.length + pendingCandidates.length,
-//     });
-//   } catch (error) {
-//     next(error);
-//   }
-// };
-
-
-/**
- * Get pending approvals and actions needed
- * @route GET /api/v1/hr-admin-dashboard/pending-actions
- * @access Private (HR-Admin, Superadmin)
- */
 hrAdminDashboardController.getPendingActions = async (req, res, next) => {
   try {
     // Keep pending actions platform-wide for both HR Admin and Super Admin
     // so both dashboards show the same values.
     const companyMatch = {};
-    const userMatch = {};
-
     // 1. Get pending company profile approvals (CompanyProfile model)
     const pendingCompanies = await CompanyProfile.find({
       ...companyMatch,
@@ -1101,37 +1000,6 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
     })
       .populate('employer', 'name email')
       .select('companyName email phone status createdAt')
-      .sort({ createdAt: -1 })
-      .limit(10);
-
-    // 2. Get pending job approvals (JobPost model)
-    const pendingJobs = await JobPost.find({
-      status: 'Pending',
-    })
-      .populate('employer', 'name email')
-      .populate('companyProfile', 'companyName')
-      .select('title employer companyProfile status createdAt')
-      .sort({ createdAt: -1 })
-      .limit(10);
-
-    // 3. Get pending employer account registrations (User model)
-    const pendingEmployers = await User.find({
-      role: 'employer',
-      status: 'pending',
-      ...userMatch,
-    })
-      .select('name email createdAt')
-      .sort({ createdAt: -1 })
-      .limit(10);
-
-    // 4. Get pending candidate account registrations (User model)
-    const pendingCandidateAccounts = await User.find({
-      role: 'candidate',
-      status: 'pending',
-      isActive: true,
-      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
-    })
-      .select('name email status createdAt')
       .sort({ createdAt: -1 })
       .limit(10);
 
@@ -1145,12 +1013,10 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
       .limit(10)
       .lean();
 
-    const [pendingCandidateAccountCount, pendingCandidateProfileCount] = await Promise.all([
-      User.countDocuments({
-        role: 'candidate',
+    const [pendingCompanyCount, pendingCandidateProfileCount] = await Promise.all([
+      CompanyProfile.countDocuments({
+        ...companyMatch,
         status: 'pending',
-        isActive: true,
-        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
       }),
       CandidateProfile.countDocuments({
         status: 'pending',
@@ -1165,15 +1031,6 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
         name: profile.fullName || profile.candidate?.name || 'Unknown Candidate',
         email: profile.email || profile.candidate?.email || '',
         subtitle: profile.jobTitle || 'Candidate Profile',
-      })),
-      ...pendingCandidateAccounts.map((candidate) => ({
-        _id: candidate._id,
-        approvalType: 'candidate-account',
-        name: candidate.name,
-        email: candidate.email,
-        status: candidate.status,
-        createdAt: candidate.createdAt,
-        subtitle: 'Candidate Account',
       })),
     ]
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
@@ -1191,29 +1048,24 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
       success: true,
       pendingActions: {
         companies: {
-          count: pendingCompanies.length,
+          count: pendingCompanyCount,
           items: pendingCompanies,
         },
         jobs: {
-          count: pendingJobs.length,
-          items: pendingJobs,
+          count: 0,
+          items: [],
         },
         employers: {
-          count: pendingEmployers.length,
-          items: pendingEmployers,
+          count: 0,
+          items: [],
         },
         candidates: {   
-          count: pendingCandidateAccountCount + pendingCandidateProfileCount,
+          count: pendingCandidateProfileCount,
           items: pendingCandidates,
         },
       },
       recentActivities,
-      totalPendingActions:
-        pendingCompanies.length +
-        pendingJobs.length +
-        pendingEmployers.length +
-        pendingCandidateAccountCount +
-        pendingCandidateProfileCount,
+      totalPendingActions: pendingCompanyCount + pendingCandidateProfileCount,
     });
   } catch (error) {
     next(error);

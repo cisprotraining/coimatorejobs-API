@@ -57,6 +57,25 @@ const paymentTransactionSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    billingDetails: {
+      companyName: {
+        type: String,
+        trim: true,
+      },
+      phone: {
+        type: String,
+        trim: true,
+      },
+      email: {
+        type: String,
+        trim: true,
+        lowercase: true,
+      },
+      notes: {
+        type: String,
+        trim: true,
+      },
+    },
     paidAt: {
       type: Date,
       default: null,

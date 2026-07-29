@@ -39,6 +39,13 @@ const salarySchema = new mongoose.Schema({
 }, { _id: false });
 
 const jobPostSchema = new mongoose.Schema({
+  jobId: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true,
+    uppercase: true
+  },
   employer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

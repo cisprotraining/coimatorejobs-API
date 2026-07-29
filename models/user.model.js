@@ -53,11 +53,11 @@ const userSchema = new mongoose.Schema({
         default: 'candidate',
         required: true
     },
-    // NEW: Approval status (for candidate and employer roles)
+    // Account status. Candidate/company profile approval is tracked separately.
     status: {
         type: String,
         enum: ['pending', 'approved', 'rejected'],
-        default: 'pending'
+        default: 'approved'
     },
     // Employer IDs (for HR-Admins to manage employers)
     employerIds: [

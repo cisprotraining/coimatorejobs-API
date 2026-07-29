@@ -275,6 +275,10 @@ const buildPlanReceiptHtml = ({ transaction, employer, plan }) => {
   const amount = Number(transaction.amount || 0) / 100;
   const taxNote = 'Inclusive of applicable platform/payment charges where relevant.';
   const issuedOn = formatReceiptDate(new Date());
+  const billingDetails = transaction.billingDetails || {};
+  const billingCompany = billingDetails.companyName || employer.name || 'Employer';
+  const billingEmail = billingDetails.email || getPublicEmployerEmail(employer);
+  const billingPhone = billingDetails.phone || '';
 
   return `
 <!doctype html>
@@ -500,8 +504,11 @@ const buildPlanReceiptHtml = ({ transaction, employer, plan }) => {
       <section class="grid">
         <div class="panel">
           <h2>Billed To</h2>
-          <p><strong>${escapeHtml(employer.name || 'Employer')}</strong></p>
-          <p>${escapeHtml(getPublicEmployerEmail(employer))}</p>
+          <p><strong>${escapeHtml(billingCompany)}</strong></p>
+          <p>${escapeHtml(billingEmail)}</p>
+          ${billingPhone ? `<p>Phone: ${escapeHtml(billingPhone)}</p>` : ''}
+          ${billingDetails.notes ? `<p>Notes: ${escapeHtml(billingDetails.notes)}</p>` : ''}
+          <p>Account email: ${escapeHtml(getPublicEmployerEmail(employer))}</p>
           ${employer.loginId ? `<p>Login ID: ${escapeHtml(employer.loginId)}</p>` : ''}
         </div>
         <div class="panel">
@@ -590,6 +597,24 @@ const getEmployerReceiptEmail = (user = {}) => {
     return String(user.contactEmail || '').trim();
   }
   return email || String(user.contactEmail || '').trim();
+};
+
+const normalizeBillingDetails = (billingDetails = {}) => ({
+  companyName: String(billingDetails.companyName || '').trim(),
+  phone: String(billingDetails.phone || '').trim(),
+  email: String(billingDetails.email || '').trim().toLowerCase(),
+  notes: String(billingDetails.notes || '').trim(),
+});
+
+const getReceiptRecipients = ({ employer, billingDetails }) => {
+  const recipients = [
+    getEmployerReceiptEmail(employer),
+    normalizeBillingDetails(billingDetails).email,
+  ]
+    .map((email) => String(email || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  return [...new Set(recipients)];
 };
 
 const getCycleDateFilter = (cycle = 'Monthly', field = 'createdAt') => {
@@ -693,10 +718,17 @@ const sendEmployerPlanReceipt = async ({
   receipt,
   activatedAt,
   paymentMode,
+  billingDetails = {},
 }) => {
   try {
-    const recipient = getEmployerReceiptEmail(employer);
-    if (!recipient || !plan) return;
+    const normalizedBillingDetails = normalizeBillingDetails(
+      billingDetails || transaction?.billingDetails,
+    );
+    const recipients = getReceiptRecipients({
+      employer,
+      billingDetails: normalizedBillingDetails,
+    });
+    if (!recipients.length || !plan) return;
 
     const attachments = [];
     if (transaction?.status === 'paid') {
@@ -716,19 +748,25 @@ const sendEmployerPlanReceipt = async ({
       }
     }
 
-    await sendPlanReceiptEmail({
-      recipient,
-      employerName: employer.name,
-      planName: plan.name,
-      amount: transaction ? Number(transaction.amount || 0) / 100 : Number(plan.price || 0),
-      currency: transaction?.currency || 'INR',
-      receipt: receipt || transaction?.receipt,
-      paymentId: transaction?.razorpayPaymentId,
-      activatedAt,
-      expiresAt: addDays(activatedAt, plan.validityDays),
-      paymentMode,
-      attachments,
-    });
+    await Promise.all(
+      recipients.map((recipient) =>
+        sendPlanReceiptEmail({
+          recipient,
+          employerName: normalizedBillingDetails.companyName || employer.name,
+          planName: plan.name,
+          amount: transaction ? Number(transaction.amount || 0) / 100 : Number(plan.price || 0),
+          currency: transaction?.currency || 'INR',
+          receipt: receipt || transaction?.receipt,
+          paymentId: transaction?.razorpayPaymentId,
+          activatedAt,
+          expiresAt: addDays(activatedAt, plan.validityDays),
+          paymentMode,
+          billingDetails: normalizedBillingDetails,
+          accountEmail: getPublicEmployerEmail(employer),
+          attachments,
+        }),
+      ),
+    );
   } catch (error) {
     console.error(`Failed to send employer plan receipt to ${getEmployerReceiptEmail(employer) || 'unknown'}:`, error);
   }
@@ -1128,6 +1166,7 @@ const paymentPlanController = {
 
   async createPaymentOrder(req, res, next) {
     try {
+      const billingDetails = normalizeBillingDetails(req.body?.billingDetails);
       const plan = await PaymentPlan.findOne({
         _id: req.params.id,
         status: 'Active',
@@ -1158,6 +1197,7 @@ const paymentPlanController = {
           receipt: buildReceipt(plan._id, req.user.id),
           activatedAt: assignedAt,
           paymentMode: 'Free activation',
+          billingDetails,
         });
 
         return res.status(200).json({
@@ -1191,6 +1231,7 @@ const paymentPlanController = {
         mode: RAZORPAY_MODE,
         razorpayOrderId: order.id,
         receipt,
+        billingDetails,
       });
 
       return res.status(201).json({
@@ -1215,6 +1256,7 @@ const paymentPlanController = {
         razorpay_order_id: orderId,
         razorpay_payment_id: paymentId,
         razorpay_signature: signature,
+        billingDetails: requestBillingDetails = {},
       } = req.body;
 
       if (!orderId || !paymentId || !signature) {
@@ -1257,6 +1299,10 @@ const paymentPlanController = {
       transaction.status = 'paid';
       transaction.razorpayPaymentId = paymentId;
       transaction.razorpaySignature = signature;
+      transaction.billingDetails = {
+        ...normalizeBillingDetails(transaction.billingDetails),
+        ...normalizeBillingDetails(requestBillingDetails),
+      };
       transaction.paidAt = new Date();
       await transaction.save();
 
@@ -1278,6 +1324,7 @@ const paymentPlanController = {
         transaction,
         activatedAt: transaction.paidAt,
         paymentMode: RAZORPAY_MODE === 'test' ? 'Razorpay Test' : 'Razorpay',
+        billingDetails: transaction.billingDetails,
       });
 
       return res.status(200).json({

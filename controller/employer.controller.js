@@ -17,10 +17,52 @@ import FunctionalArea from '../models/functionalArea.model.js';
 import { normalizeEmail } from "../utils/emailValidation.js";
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 const employerController = {};
 const DEFAULT_COMPANY_EMAIL = "hello@coimbatorejobs.in";
 const INTERNAL_EMAIL_SUFFIX = "@internal.coimbatorejobs.in";
+const COMPANY_ID_PREFIX = "CMP";
+
+const buildCompanyId = () =>
+  `${COMPANY_ID_PREFIX}-${crypto.randomInt(10000000, 100000000)}`;
+
+const generateUniqueCompanyId = async (session = null) => {
+  let candidate = buildCompanyId();
+
+  while (await CompanyProfile.exists({ companyId: candidate }).session(session)) {
+    candidate = buildCompanyId();
+  }
+
+  return candidate;
+};
+
+const ensureCompanyId = async (profile, session = null) => {
+  if (!profile) return profile;
+
+  const currentCompanyId = String(profile.companyId || "").trim().toUpperCase();
+  if (currentCompanyId) return profile;
+
+  profile.companyId = await generateUniqueCompanyId(session);
+  if (typeof profile.save === "function") {
+    await profile.save({ session, validateBeforeSave: false });
+  } else if (profile._id) {
+    await CompanyProfile.updateOne(
+      { _id: profile._id, $or: [{ companyId: { $exists: false } }, { companyId: "" }, { companyId: null }] },
+      { $set: { companyId: profile.companyId } },
+      { session }
+    );
+  }
+
+  return profile;
+};
+
+const ensureCompanyIdsForProfiles = async (profiles = []) => {
+  for (const profile of profiles) {
+    await ensureCompanyId(profile);
+  }
+  return profiles;
+};
 
 const attachDemandCandidateCounts = async (profiles = []) => {
   const profileList = profiles.map((profile) => (
@@ -249,7 +291,8 @@ employerController.getAllCompanyProfiles = async (req, res, next) => {
     const profiles = await CompanyProfile.find()
       .populate('industry', 'name') // <-- ADD THIS LINE
       .select('-__v');
-      
+
+    await ensureCompanyIdsForProfiles(profiles);
     const profilesWithDemandCounts = await attachDemandCandidateCounts(profiles);
 
     return res.status(200).json({
@@ -330,12 +373,6 @@ employerController.createCompanyProfile = async (req, res, next) => {
       throw new BadRequestError('Provided user is not an employer');
     }
 
-    if (employerUser.status !== 'approved') {
-      throw new BadRequestError(
-        'Employer is not approved yet'
-      );
-    }
-
     const industryId = await resolveIndustryId(industry);
     if (!industryId) throw new BadRequestError('Invalid Industry');
 
@@ -392,6 +429,7 @@ employerController.createCompanyProfile = async (req, res, next) => {
 
     // Create new profile
     const newProfile = new CompanyProfile({
+      companyId: await generateUniqueCompanyId(),
       employer: employerId,
       createdBy: loggedInUserId, // HR/Admin or Employer
 
@@ -781,6 +819,7 @@ employerController.getCompanyProfile = async (req, res, next) => {
     if (!profile) {
       throw new NotFoundError('Company profile not found');
     }
+    await ensureCompanyId(profile);
 
     const profileOwnerId = profile.employer.toString();
     const isOwner = loggedInUserId.toString() === profileOwnerId;
@@ -880,6 +919,8 @@ employerController.getCompanyProfilesForEmployer = async (req, res, next) => {
       .populate('industry', 'name')           //  POPULATE INDUSTRY NAME
       .populate('functionalAreas', 'name')    //  POPULATE FUNCTIONAL AREAS
       .select('-__v');
+
+    await ensureCompanyIdsForProfiles(profiles);
 
     // No profiles found
     if (!profiles || profiles.length === 0) {
@@ -1307,6 +1348,7 @@ employerController.getAssignedCompanyProfiles = async (req, res, next) => {
       .select('-__v')
       .sort({ createdAt: -1 });
 
+    await ensureCompanyIdsForProfiles(profiles);
     const profilesWithDemandCounts = await attachDemandCandidateCounts(profiles);
 
     res.status(200).json({

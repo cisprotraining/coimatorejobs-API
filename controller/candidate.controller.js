@@ -26,8 +26,50 @@ import {
 import fs from 'fs';
 import path from 'path';
 import natural from 'natural';  //library (for TF-IDF / cosine similarity)
+import crypto from 'crypto';
 
 const candidateController = {};
+const CANDIDATE_ID_PREFIX = "CND";
+
+const buildCandidateId = () =>
+  `${CANDIDATE_ID_PREFIX}-${crypto.randomInt(10000000, 100000000)}`;
+
+const generateUniqueCandidateProfileId = async (session = null) => {
+  let candidate = buildCandidateId();
+
+  while (await CandidateProfile.exists({ candidateId: candidate }).session(session)) {
+    candidate = buildCandidateId();
+  }
+
+  return candidate;
+};
+
+const ensureCandidateProfileId = async (profile, session = null) => {
+  if (!profile) return profile;
+
+  const currentCandidateId = String(profile.candidateId || "").trim().toUpperCase();
+  if (currentCandidateId) return profile;
+
+  profile.candidateId = await generateUniqueCandidateProfileId(session);
+  if (typeof profile.save === "function") {
+    await profile.save({ session, validateBeforeSave: false });
+  } else if (profile._id) {
+    await CandidateProfile.updateOne(
+      { _id: profile._id, $or: [{ candidateId: { $exists: false } }, { candidateId: "" }, { candidateId: null }] },
+      { $set: { candidateId: profile.candidateId } },
+      { session }
+    );
+  }
+
+  return profile;
+};
+
+const ensureCandidateProfileIds = async (profiles = []) => {
+  for (const profile of profiles) {
+    await ensureCandidateProfileId(profile);
+  }
+  return profiles;
+};
 
 const getIstDayKey = () =>
   new Intl.DateTimeFormat("en-CA", {
@@ -297,6 +339,7 @@ candidateController.getAllCandidateProfiles = async (req, res, next) => {
       : '-__v -resume -email -phone -website -socialMedia -location.completeAddress -dailyViews -uniqueViewers';
 
     const profiles = await CandidateProfile.find(query).select(projection);
+    await ensureCandidateProfileIds(profiles);
 
     return res.status(200).json({
       success: true,
@@ -454,12 +497,6 @@ candidateController.createCandidateProfile = async (req, res, next) => {
       throw new BadRequestError('Target user must have a candidate role');
     }
     
-    if (targetUser.status !== 'approved') {
-      throw new BadRequestError(
-        'Candidate is not approved yet'
-      );
-    }
-
     const resolvedIndustryId = await resolveIndustryId(industry);
     const resolvedFunctionalAreaIds = await resolveFunctionalAreaIds(functionalAreas, resolvedIndustryId);
     const resolvedRoleId = await resolveRoleId(targetRoleId, resolvedFunctionalAreaIds);
@@ -489,6 +526,7 @@ candidateController.createCandidateProfile = async (req, res, next) => {
 
     // 7. Create New Profile
     const newProfile = new CandidateProfile({
+      candidateId: await generateUniqueCandidateProfileId(),
       candidate: candidateId,
       createdBy: loggedInUserId, // Fixes the "createdBy is required" error
 
@@ -648,6 +686,7 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
     if (!profile) {
       throw new NotFoundError('Candidate profile not found');
     }
+    await ensureCandidateProfileId(profile);
 
     // Check permissions
     // if (req.user.role !== 'superadmin' && req.user.role !== 'hr-admin' && profile.candidate.toString() !== candidateId.toString()) {
@@ -847,6 +886,7 @@ candidateController.getCandidateProfilesForCandidate = async (req, res, next) =>
 
     // Fetch all candidate profiles that belong to this candidate, excluding __v field
     const profiles = await CandidateProfile.find({ candidate: candidateId }).select('-__v');
+    await ensureCandidateProfileIds(profiles);
 
     return res.status(200).json({
       success: true,
@@ -1063,6 +1103,7 @@ candidateController.getPendingCandidateProfiles = async (req, res, next) => {
       .skip((page - 1) * Number(limit))
       .limit(Number(limit))
       .select('-__v');
+    await ensureCandidateProfileIds(profiles);
 
     // Total count for pagination
     const total = await CandidateProfile.countDocuments(filter);
@@ -1151,11 +1192,6 @@ candidateController.applyToJob = async (req, res, next) => {
     const candidateProfile = await CandidateProfile.findOne({ candidate: candidateId });
     if (!candidateProfile) {
       throw new BadRequestError('Please create a candidate profile before applying');
-    }
-
-    const candidateUser = await User.findById(candidateId).select('status email name');
-    if (!candidateUser || candidateUser.status !== 'approved') {
-      throw new ForbiddenError('Your account is pending HR approval. You can apply only after approval.');
     }
 
     if (candidateProfile.status !== 'approved') {
@@ -1960,6 +1996,7 @@ candidateController.getAssignedCandidateProfiles = async (req, res, next) => {
     const profiles = await CandidateProfile.find(query)
       .select('-__v')
       .sort({ createdAt: -1 });
+    await ensureCandidateProfileIds(profiles);
 
     res.status(200).json({
       success: true,

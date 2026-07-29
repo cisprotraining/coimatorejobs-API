@@ -20,7 +20,7 @@ import trackJobView from '../middleware/trackJobView.js';
 
 const employerRouter = Router();
 
-employerRouter.get('/active-payment-plans', authenticate, authorize(['employer']), paymentPlanController.getActivePaymentPlans);
+employerRouter.get('/active-payment-plans', paymentPlanController.getActivePaymentPlans);
 employerRouter.get('/my-payment-plan', authenticate, authorize(['employer']), paymentPlanController.getMyPaymentPlan);
 employerRouter.get('/my-plan-history', authenticate, authorize(['employer']), paymentPlanController.getMyPlanHistory);
 employerRouter.get('/my-plan-history/:transactionId/receipt', authenticate, authorize(['employer']), paymentPlanController.downloadMyPlanReceipt);
