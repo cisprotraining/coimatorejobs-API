@@ -23,6 +23,7 @@ const employerController = {};
 const DEFAULT_COMPANY_EMAIL = "hello@coimbatorejobs.in";
 const INTERNAL_EMAIL_SUFFIX = "@internal.coimbatorejobs.in";
 const COMPANY_ID_PREFIX = "CMP";
+const normalizePhoneValue = (value = "") => String(value || "").trim();
 
 const buildCompanyId = () =>
   `${COMPANY_ID_PREFIX}-${crypto.randomInt(10000000, 100000000)}`;
@@ -93,6 +94,25 @@ const attachDemandCandidateCounts = async (profiles = []) => {
     demandCandidateCount: countMap.get(profile._id.toString()) || 0,
     candidateActivityCount: activityCountMap.get(getObjectIdString(profile.employer)) || 0,
   }));
+};
+
+const normalizeCompanyProfilePhones = (profileData = {}) => {
+  const publicPhone = normalizePhoneValue(profileData.publicPhone || profileData.phone);
+  const internalPhone = normalizePhoneValue(profileData.internalPhone);
+
+  return {
+    publicPhone,
+    internalPhone,
+    phone: publicPhone,
+  };
+};
+
+const hideInternalCompanyPhone = (profile) => {
+  const data = typeof profile?.toObject === 'function' ? profile.toObject() : { ...profile };
+  data.publicPhone = data.publicPhone || data.phone || "";
+  data.phone = data.publicPhone;
+  delete data.internalPhone;
+  return data;
 };
 
 const getObjectIdString = (value) => {
@@ -294,10 +314,11 @@ employerController.getAllCompanyProfiles = async (req, res, next) => {
 
     await ensureCompanyIdsForProfiles(profiles);
     const profilesWithDemandCounts = await attachDemandCandidateCounts(profiles);
+    const publicProfiles = profilesWithDemandCounts.map(hideInternalCompanyPhone);
 
     return res.status(200).json({
       success: true,
-      profiles: profilesWithDemandCounts
+      profiles: publicProfiles
     });
   } catch (error) {
     next(error);
@@ -388,11 +409,12 @@ employerController.createCompanyProfile = async (req, res, next) => {
     
 
     const { 
-      companyName, email, phone, website, establishedSince, 
+      companyName, email, website, establishedSince, 
       teamSize, categories, allowInSearch, description, 
       socialMedia, location, companyType, companyGSTIN, panNo, culture, 
       revenue, founders, branches, isHiring
     } = profileData;
+    const phoneValues = normalizeCompanyProfilePhones(profileData);
     const normalizedEstablishedSince = normalizeEstablishedSince(establishedSince);
     const requestedCompanyEmail = normalizeEmail(email || "");
     const resolvedCompanyEmail = resolveCompanyEmailForEmployer({
@@ -407,10 +429,13 @@ employerController.createCompanyProfile = async (req, res, next) => {
     // const requiredFields = ['companyName', 'email', 'phone', 'establishedSince', 
     //                        'teamSize', 'categories', 'description', 'industry', 'companyType'];
 
-    const requiredFields = ['companyName', 'phone', 'establishedSince', 
+    const requiredFields = ['companyName', 'publicPhone', 'establishedSince', 
     'teamSize', 'description'];
     
-    const missingFields = requiredFields.filter(field => !profileData[field]);
+    const missingFields = requiredFields.filter(field => {
+      if (field === 'publicPhone') return !phoneValues.publicPhone;
+      return !profileData[field];
+    });
     if (missingFields.length > 0) {
       throw new BadRequestError(`Missing required fields: ${missingFields.join(', ')}`);
     }
@@ -442,7 +467,9 @@ employerController.createCompanyProfile = async (req, res, next) => {
 
       companyName,
       email: resolvedCompanyEmail,
-      phone,
+      phone: phoneValues.phone,
+      publicPhone: phoneValues.publicPhone,
+      internalPhone: phoneValues.internalPhone,
       companyGSTIN: normalizedCompanyGSTIN,
       panNo: normalizedPanNo,
       website,
@@ -495,7 +522,7 @@ employerController.createCompanyProfile = async (req, res, next) => {
       newProfile.status.charAt(0).toUpperCase() + newProfile.status.slice(1);
     await createNotification(employerUser._id, 'profile_update', {
       ...notificationPresets.profileUpdate(
-        `Your company profile "${newProfile.companyName}" status is ${newProfile.status}.`
+        `Your company profile "${newProfile.companyName}" is currently ${newProfile.status}.`
       ),
       title: `Company Profile Status: ${createdCompanyStatusLabel}`,
       actionUrl: '/employers-dashboard/company-profile',
@@ -679,6 +706,24 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     delete updateData.createdBy;
     delete updateData.employer;
 
+    const hasPhoneUpdate =
+      Object.prototype.hasOwnProperty.call(updateData, 'publicPhone') ||
+      Object.prototype.hasOwnProperty.call(updateData, 'phone') ||
+      Object.prototype.hasOwnProperty.call(updateData, 'internalPhone');
+    if (hasPhoneUpdate) {
+      const phoneValues = normalizeCompanyProfilePhones({
+        phone: Object.prototype.hasOwnProperty.call(updateData, 'phone') ? updateData.phone : profile.phone,
+        publicPhone: Object.prototype.hasOwnProperty.call(updateData, 'publicPhone') ? updateData.publicPhone : (profile.publicPhone || profile.phone),
+        internalPhone: Object.prototype.hasOwnProperty.call(updateData, 'internalPhone') ? updateData.internalPhone : profile.internalPhone,
+      });
+      if (!phoneValues.publicPhone) {
+        throw new BadRequestError('Public Contact Number is required');
+      }
+      updateData.phone = phoneValues.phone;
+      updateData.publicPhone = phoneValues.publicPhone;
+      updateData.internalPhone = phoneValues.internalPhone;
+    }
+
     const shouldRemoveLogo = updateData.removeLogo === true || updateData.removeLogo === 'true';
     delete updateData.removeLogo;
 
@@ -855,6 +900,8 @@ employerController.getCompanyProfile = async (req, res, next) => {
     const employerUser = await User.findById(profile.employer).select('isSystemGeneratedEmail');
 
     let profileData = profile.toObject();
+    profileData.publicPhone = profileData.publicPhone || profileData.phone || "";
+    profileData.phone = profileData.publicPhone;
 
      /**
      * 🔒 Confidential Masking Logic
@@ -864,18 +911,22 @@ employerController.getCompanyProfile = async (req, res, next) => {
      */
     if (employerUser?.isSystemGeneratedEmail) {
 
-        const isPrivilegedViewer =
-          role === 'superadmin' || isOwner;
+        const isPrivilegedViewer = isAdmin || isOwner;
 
         if (!isPrivilegedViewer) {
           // Mask for candidate + hr-admin
           profileData.email = "info@cisproservices.com";
-          profileData.phone = "9361755131";
+          profileData.publicPhone = "9361755131";
+          profileData.phone = profileData.publicPhone;
         } else {
           // Show real HR contact email to owner or superadmin
           profileData.email = employerUser.contactEmail || profileData.email;
         }
 
+    }
+
+    if (!isAdmin && !isOwner) {
+      delete profileData.internalPhone;
     }
 
     // Count active jobs for this company

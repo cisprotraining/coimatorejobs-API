@@ -27,6 +27,7 @@ import crypto from 'crypto';
 const jobsController = {};
 const MONTHLY_RESUME_LIMIT = 5;
 const JOB_ID_PREFIX = "JOB";
+const INTERNAL_EMPLOYER_EMAIL_REGEX = /^employer_.*_@internal\.coimbatorejobs\.in$/i;
 
 const buildJobId = () =>
   `${JOB_ID_PREFIX}-${crypto.randomInt(10000000, 100000000)}`;
@@ -67,6 +68,43 @@ const ensureJobIds = async (jobs = []) => {
   }
   return jobs;
 };
+
+const isRealEmail = (value = '') => {
+  const email = normalizeEmail(value);
+  return (
+    email &&
+    isValidEmailAddress(email) &&
+    !email.endsWith('@internal.coimbatorejobs.in') &&
+    !INTERNAL_EMPLOYER_EMAIL_REGEX.test(email)
+  );
+};
+
+const addRealEmail = (recipients, value) => {
+  const email = normalizeEmail(value);
+  if (isRealEmail(email)) recipients.add(email);
+};
+
+const buildPublicJobLink = (job) => {
+  const frontendBaseUrl = String(process.env.FRONTEND_URL || 'https://coimbatorejobs.in').trim().replace(/\/+$/, '');
+  const publicId = job?.slug || job?._id;
+  return `${frontendBaseUrl}/job/${publicId}`;
+};
+
+const buildEmailJobDetails = (job) => ({
+  jobType: job?.jobType,
+  experience: job?.experience,
+  offeredSalary: job?.offeredSalary,
+  industry: job?.industry?.name,
+  functionalArea: Array.isArray(job?.functionalAreas)
+    ? job.functionalAreas.map((area) => area?.name).filter(Boolean)
+    : undefined,
+  role: job?.role?.name,
+  location: Array.isArray(job?.location?.city)
+    ? job.location.city.join(', ')
+    : job?.location?.city,
+  positions: job?.positions?.total,
+  applicationDeadline: job?.applicationDeadline,
+});
 
 const getIstMonthKey = () =>
   new Intl.DateTimeFormat("en-CA", {
@@ -572,6 +610,11 @@ jobsController.createJobPost = async (req, res, next) => {
     // straight to the live job rather than to a dashboard listing.
     const publicJobPath = buildPublicJobPath(newJobPost);
     const publicJobUrl = buildPublicJobUrl(newJobPost, process.env.FRONTEND_URL);
+    const populatedJobForEmail = await JobPost.findById(newJobPost._id)
+      .populate('functionalAreas', 'name')
+      .populate('industry', 'name')
+      .populate('role', 'name')
+      .lean();
 
     const adminRecipients = await getAdminAlertUsers();
     const recipients = adminRecipients.emails;
@@ -614,7 +657,7 @@ jobsController.createJobPost = async (req, res, next) => {
       const adminNotificationPayload = {
         ...notificationPresets.emailUpdate(
           'New Job Posted',
-          `Job "${newJobPost.title}" posted for ${companyProfileDoc.companyName} by ${actorLabel}.`
+          `A new job, "${newJobPost.title}", was posted for ${companyProfileDoc.companyName} by ${actorLabel}.`
         ),
         jobPost: newJobPost._id,
         actionUrl: publicJobPath,
@@ -655,11 +698,13 @@ jobsController.createJobPost = async (req, res, next) => {
         jobTitle: newJobPost.title,
         companyName: companyProfileDoc.companyName,
         dashboardLink: `${process.env.FRONTEND_URL}/employers-dashboard/manage-jobs`,
+        jobDetailsLink: buildPublicJobLink(populatedJobForEmail || newJobPost),
+        jobDetails: buildEmailJobDetails(populatedJobForEmail || newJobPost),
       });
       const employerNotificationPayload = {
         ...notificationPresets.emailUpdate(
           'Job Posted Successfully',
-          `Your job "${newJobPost.title}" is posted and live now.`
+          `Your job "${newJobPost.title}" has been posted and is now live.`
         ),
         jobPost: newJobPost._id,
         actionUrl: '/employers-dashboard/manage-jobs',
@@ -682,6 +727,77 @@ jobsController.createJobPost = async (req, res, next) => {
       console.warn(
         `[JOB_POST_EMPLOYER_CONFIRMATION] Skipped for job="${newJobPost.title}" (${newJobPost._id}) because employer email not found`
       );
+    } else if (['hr-admin', 'superadmin'].includes(userRole)) {
+      const selectedEmployer = await User.findById(employerId).select('name email contactEmail isSystemGeneratedEmail');
+      const employerEmailRecipients = new Set();
+
+      if (selectedEmployer?.isSystemGeneratedEmail) {
+        addRealEmail(employerEmailRecipients, selectedEmployer.contactEmail);
+      } else {
+        addRealEmail(employerEmailRecipients, selectedEmployer?.email);
+        addRealEmail(employerEmailRecipients, selectedEmployer?.contactEmail);
+      }
+      addRealEmail(employerEmailRecipients, companyProfileDoc.email);
+
+      const employerRecipients = Array.from(employerEmailRecipients);
+      if (employerRecipients.length) {
+        console.log(
+          `[JOB_POST_ADMIN_EMPLOYER_NOTICE] Triggered for job="${newJobPost.title}" (${newJobPost._id}) -> ${employerRecipients.join(', ')}`
+        );
+
+        const employerEmailResults = await Promise.allSettled(
+          employerRecipients.map((recipient) =>
+            sendEmployerJobPostedEmail({
+              recipient,
+              employerName: selectedEmployer?.name || companyProfileDoc.companyName || 'Employer',
+              jobTitle: newJobPost.title,
+              companyName: companyProfileDoc.companyName,
+              dashboardLink: `${process.env.FRONTEND_URL}/employers-dashboard/manage-jobs`,
+              jobDetailsLink: buildPublicJobLink(populatedJobForEmail || newJobPost),
+              postedByAdmin: true,
+              jobDetails: buildEmailJobDetails(populatedJobForEmail || newJobPost),
+            })
+          )
+        );
+
+        employerEmailResults.forEach((result, index) => {
+          const recipient = employerRecipients[index];
+          if (result.status === 'fulfilled') {
+            console.log(`[JOB_POST_ADMIN_EMPLOYER_NOTICE] Sent successfully -> ${recipient}`);
+          } else {
+            console.error(
+              `[JOB_POST_ADMIN_EMPLOYER_NOTICE] Failed -> ${recipient}:`,
+              result.reason?.message || result.reason || 'Unknown error'
+            );
+          }
+        });
+
+        if (selectedEmployer?._id) {
+          const employerNotificationPayload = {
+            ...notificationPresets.emailUpdate(
+              'New Job Posted by Coimbatore Jobs',
+              `Coimbatore Jobs administration posted "${newJobPost.title}" on behalf of ${companyProfileDoc.companyName}.`
+            ),
+            jobPost: newJobPost._id,
+            actionUrl: '/employers-dashboard/manage-jobs',
+          };
+          await createNotification(selectedEmployer._id, 'email_update', employerNotificationPayload);
+          await sendPushToUsers([selectedEmployer._id], {
+            title: employerNotificationPayload.title,
+            body: employerNotificationPayload.description,
+            link: `${process.env.FRONTEND_URL}/employers-dashboard/manage-jobs`,
+            data: {
+              type: 'job_posted_by_admin',
+              jobPostId: newJobPost._id,
+              actionUrl: employerNotificationPayload.actionUrl,
+            },
+          });
+        }
+      } else {
+        console.warn(
+          `[JOB_POST_ADMIN_EMPLOYER_NOTICE] Skipped for job="${newJobPost.title}" (${newJobPost._id}) because selected employer/company email was not found`
+        );
+      }
     }
 
     return res.status(201).json({
@@ -724,26 +840,26 @@ jobsController.getJobPosts = async (req, res, next) => {
     if (userRole === 'hr-admin' || userRole === 'superadmin') {
       if (scope === 'assigned') {
         // Assigned scope:
-        // hr-admin    -> employers assigned to this hr-admin (plus admin-created employer fallback)
-        // superadmin  -> employers assigned to any hr-admin (plus superadmin-created employer fallback)
-        // both        -> include jobs posted directly by current admin
+        // hr-admin/superadmin -> employers assigned to any HR admin,
+        // admin-created employers, and jobs posted directly by admins.
         let assignedEmployerIds = [];
 
-        if (userRole === 'hr-admin') {
-          const currentHrAdmin = await User.findById(userId).select('employerIds');
-          assignedEmployerIds = (currentHrAdmin?.employerIds || []).map((id) => id.toString());
-        } else if (userRole === 'superadmin') {
-          const hrAdmins = await User.find({ role: 'hr-admin', isActive: true }).select('employerIds');
-          assignedEmployerIds = [
-            ...new Set(
-              hrAdmins.flatMap((hr) => (hr.employerIds || []).map((id) => id.toString()))
-            ),
-          ];
-        }
+        const hrAdmins = await User.find({ role: 'hr-admin', isActive: true }).select('employerIds');
+        assignedEmployerIds = [
+          ...new Set(
+            hrAdmins.flatMap((hr) => (hr.employerIds || []).map((id) => id.toString()))
+          ),
+        ];
+
+        const adminUsers = await User.find({
+          role: { $in: ['hr-admin', 'superadmin'] },
+          isActive: true,
+        }).select('_id');
+        const adminUserIds = adminUsers.map((admin) => admin._id);
 
         const createdEmployers = await User.find({
           role: 'employer',
-          createdBy: userId,
+          createdBy: { $in: adminUserIds },
           isDeleted: { $ne: true },
         }).select('_id');
         const createdEmployerIds = createdEmployers.map((u) => u._id.toString());
@@ -757,7 +873,7 @@ jobsController.getJobPosts = async (req, res, next) => {
         query = {
           $or: [
             { employer: { $in: effectiveEmployerIds } },
-            { postedBy: userId },
+            { postedBy: { $in: adminUserIds } },
           ],
         };
       } else {
@@ -783,7 +899,7 @@ jobsController.getJobPosts = async (req, res, next) => {
 
     // Query and populate related company profile (only name and logo)
     const jobPosts = await JobPost.find(query)
-      .populate('companyProfile', 'companyName logo email')
+      .populate('companyProfile', 'companyName logo email publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
       .populate('role', 'name slug defaultCollarCategory')
@@ -920,7 +1036,7 @@ jobsController.getEmployerJobPosts = async (req, res, next) => {
 
     // Fetch jobs with minimal required fields
     const jobPosts = await JobPost.find(query)
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('employer', 'name email')
       .select(
         'jobId title status closedAt closedBy closedByRole candidateSelectionSource candidateSelectionSourceUpdatedAt candidateSelectionSourceUpdatedBy employer companyProfile postedBy createdAt applicationDeadline'
@@ -979,7 +1095,7 @@ jobsController.getAdminPostedJobs = async (req, res, next) => {
      */
 
     const jobPosts = await JobPost.find(query)
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('employer', 'name email')
       .populate('postedBy', 'name role')
       .select(
@@ -1050,6 +1166,8 @@ jobsController.getJobPost = async (req, res, next) => {
         select: 'companyName logo website industry',
         populate: { path: 'industry', select: 'name slug' },
       })
+    const jobPost = await JobPost.findById(jobPostId)
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
       .populate('role', 'name slug defaultCollarCategory')
@@ -1400,7 +1518,7 @@ jobsController.getJobsByLocation = async (req, res, next) => {
     const { skip, limit } = paginate(req);
 
     const jobs = await JobPost.find({ status: 'Published', 'location.city': { $regex: new RegExp(`^${city}$`, 'i') } })
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
       .populate('role', 'name slug')
@@ -1423,7 +1541,7 @@ jobsController.getJobsByCategory = async (req, res, next) => {
     const functionalArea = await FunctionalArea.findOne({ slug: categorySlug });
     if (!functionalArea) throw new NotFoundError('Category not found');
     const jobs = await JobPost.find({ status: 'Published', functionalAreas: functionalArea._id })
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
       .populate('role', 'name slug')
@@ -1442,7 +1560,7 @@ jobsController.getJobsByRole = async (req, res, next) => {
     const role = await Role.findOne({ slug: roleSlug });
     if (!role) throw new NotFoundError('Role not found');
     const jobs = await JobPost.find({ status: 'Published', role: role._id })
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
       .populate('role', 'name slug')
@@ -1468,7 +1586,7 @@ jobsController.getJobsByRoleAndCity = async (req, res, next) => {
       status: 'Published',
       'location.city': { $regex: new RegExp(`^${city}$`, 'i') }
     })
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
       .populate('role', 'name slug')

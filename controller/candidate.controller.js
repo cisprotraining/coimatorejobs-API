@@ -14,6 +14,7 @@ import Skill from '../models/skill.model.js';
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { sendCandidateProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail, sendJobApplicationNotificationEmail, sendCandidateApplicationConfirmationEmail } from '../utils/mailer.js';
 import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
+import { sendPushToUsers } from '../utils/fcm.js';
 import { SUPERADMIN_EMAIL, THROTTLING_RETRY_DELAY_BASE } from "../config/env.js";
 import { getPrivateFileUrl } from "../utils/s3SignedUrl.js";
 import { DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
@@ -1142,7 +1143,7 @@ candidateController.getAllJobPosts = async (req, res, next) => {
     }
 
     const jobPosts = await JobPost.find({ status: 'Published' })
-      .populate('companyProfile', 'companyName logo') 
+      .populate('companyProfile', 'companyName logo publicPhone phone') 
       .populate('skills', 'name slug keywords') // Required Skills matching: name + slug + keywords
       .populate('industry', 'name')         // Populates industry for FilterJobsBox
       .populate('functionalAreas', 'name')  // Populates functional areas for FilterJobsBox
@@ -1323,14 +1324,27 @@ candidateController.applyToJob = async (req, res, next) => {
         console.log(
           `[JOB_APPLY_POSTER_ALERT] Sent successfully -> ${jobPoster.email}`
         );
-        await createNotification(jobPoster._id, 'email_update', {
-          ...notificationPresets.emailUpdate(
-            'New Job Application',
-            `${candidateProfile.fullName || candidateUser.name || 'A candidate'} applied for ${jobPost.title}`
+        const posterNotificationPayload = {
+        ...notificationPresets.emailUpdate(
+          'New Job Application',
+          `${candidateProfile.fullName || candidateUser.name || 'A candidate'} has applied for ${jobPost.title}.`
           ),
           jobPost: jobPostId,
           application: newApplication._id,
           actionUrl: '/employers-dashboard/all-applicants',
+        };
+
+        await createNotification(jobPoster._id, 'email_update', posterNotificationPayload);
+        await sendPushToUsers([jobPoster._id], {
+          title: posterNotificationPayload.title,
+          body: posterNotificationPayload.description,
+          link: `${process.env.FRONTEND_URL}${posterNotificationPayload.actionUrl}`,
+          data: {
+            type: 'new_job_application',
+            jobPostId,
+            applicationId: newApplication._id,
+            actionUrl: posterNotificationPayload.actionUrl,
+          },
         });
       } else {
         console.warn(
@@ -1363,7 +1377,7 @@ candidateController.applyToJob = async (req, res, next) => {
       await createNotification(candidateId, 'email_update', {
         ...notificationPresets.emailUpdate(
           'Application Submitted Successfully',
-          `Position: ${jobPost.title} | Company: ${jobPost.companyProfile?.companyName || 'Company'}`
+          `Your application for ${jobPost.title} at ${jobPost.companyProfile?.companyName || 'Company'} has been submitted successfully.`
         ),
         jobPost: jobPostId,
         application: newApplication._id,
@@ -1387,7 +1401,7 @@ candidateController.applyToJob = async (req, res, next) => {
       await createNotification(candidateId, 'email_update', {
         ...notificationPresets.emailUpdate(
           'Application Submitted Successfully',
-          `Position: ${jobPost.title} | Company: ${jobPost.companyProfile?.companyName || 'Company'}`
+          `Your application for ${jobPost.title} at ${jobPost.companyProfile?.companyName || 'Company'} has been submitted successfully.`
         ),
         jobPost: jobPostId,
         application: newApplication._id,
@@ -1413,6 +1427,17 @@ candidateController.applyToJob = async (req, res, next) => {
         jobPost: jobPostId,
         application: newApplication._id,
         actionUrl: `${process.env.FRONTEND_URL}/candidates-dashboard/applied-jobs`,
+      });
+      await sendPushToUsers([candidateId], {
+        title: 'Application Submitted Successfully',
+        body: `Your application for ${jobPost.title} at ${jobPost.companyProfile?.companyName || 'Company'} was submitted successfully.`,
+        link: `${process.env.FRONTEND_URL}/candidates-dashboard/applied-jobs`,
+        data: {
+          type: 'application_submitted',
+          jobPostId,
+          applicationId: newApplication._id,
+          actionUrl: '/candidates-dashboard/applied-jobs',
+        },
       });
     } catch (notificationError) {
       console.error('Failed to create notification:', notificationError);
@@ -1491,7 +1516,7 @@ candidateController.getAppliedJobs = async (req, res, next) => {
     const appliedJobs = await JobApply.find({ candidate: candidateId })
       .populate({
         path: 'jobPost',
-        populate: { path: 'companyProfile', select: 'companyName logo' },
+        populate: { path: 'companyProfile', select: 'companyName logo publicPhone phone' },
         select: '-__v',
       })
       .select('-__v')
@@ -1517,7 +1542,7 @@ candidateController.confirmSelectedJobJoining = async (req, res, next) => {
     })
       .populate({
         path: 'jobPost',
-        populate: { path: 'companyProfile', select: 'companyName logo' },
+        populate: { path: 'companyProfile', select: 'companyName logo publicPhone phone' },
         select: '-__v',
       })
       .select('-__v');
@@ -1574,7 +1599,7 @@ candidateController.getSavedJobs = async (req, res, next) => {
     const savedJobs = await SavedJob.find({ candidate: candidateId })
       .populate({
         path: 'jobPost',
-        populate: { path: 'companyProfile', select: 'companyName logo' },
+        populate: { path: 'companyProfile', select: 'companyName logo publicPhone phone' },
         select: '-__v',
       })
       .select('-__v')
@@ -1747,7 +1772,7 @@ candidateController.getRecommendedJobs = async (req, res, next) => {
     if (Object.keys(match.$or).length === 0) delete match.$or;
 
     const jobs = await JobPost.find(match)
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
       .sort({ createdAt: -1 });
@@ -1822,7 +1847,7 @@ candidateController.getTrendingJobs = async (req, res, next) => {
       status: 'Published',
       applicationDeadline: { $gte: new Date() }
     })
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .sort({ applicantCount: -1, createdAt: -1 }) // Trending: high applies + recent
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
@@ -1890,7 +1915,7 @@ candidateController.getSimilarJobs = async (req, res, next) => {
     };
 
     const availableJobs = await JobPost.find(baseQuery)
-      .populate('companyProfile', 'companyName logo')
+      .populate('companyProfile', 'companyName logo publicPhone phone')
       .sort({ createdAt: -1 })
       .limit(200)
       .lean();
@@ -1969,29 +1994,29 @@ candidateController.getAssignedCandidateProfiles = async (req, res, next) => {
       return res.status(401).json({ message: 'User not found' });
     }
 
-    let query = {};
+    const [hrAdmins, adminUsers] = await Promise.all([
+      User.find({ role: 'hr-admin', isActive: true }).select('candidateIds'),
+      User.find({
+        role: { $in: ['superadmin', 'hr-admin'] },
+        isActive: true,
+      }).select('_id'),
+    ]);
 
-    /**
-     * HR-ADMIN → only assigned or created candidates
-     */
-    if (loggedInUser.role === 'hr-admin') {
-      query = {
-        $or: [
-          { createdBy: loggedInUser._id },
-          { candidate: { $in: loggedInUser.candidateIds || [] } }
-        ]
-      };
-    }
+    const assignedCandidateIds = [
+      ...new Set(
+        hrAdmins
+          .flatMap((hrAdmin) => hrAdmin.candidateIds || [])
+          .map((id) => id.toString())
+      ),
+    ];
+    const adminIds = adminUsers.map((user) => user._id);
 
-    // SUPERADMIN → all
-    if (loggedInUser.role === 'superadmin') {
-      const adminUsers = await User.find({
-        role: { $in: ['superadmin', 'hr-admin'] }
-      }).select('_id');
-
-      const adminIds = adminUsers.map((user) => user._id);
-      query = { createdBy: { $in: adminIds } };
-    }
+    const query = {
+      $or: [
+        { createdBy: { $in: adminIds } },
+        { candidate: { $in: assignedCandidateIds } },
+      ],
+    };
 
     const profiles = await CandidateProfile.find(query)
       .select('-__v')

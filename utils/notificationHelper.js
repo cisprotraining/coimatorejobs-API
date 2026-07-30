@@ -32,22 +32,22 @@ export const createNotification = async (userId, type, data) => {
  */
 export const notificationPresets = {
   applicationSubmitted: (jobTitle, companyName) => ({
-    title: `Application Submitted`,
-    description: `You have successfully applied for ${jobTitle} at ${companyName}`,
+    title: `Application Submitted Successfully`,
+    description: `Your application for ${jobTitle} at ${companyName} has been submitted successfully.`,
     icon: 'la-check-circle',
     color: '#22c55e',
   }),
 
   applicationReviewed: (jobTitle) => ({
     title: `Application Under Review`,
-    description: `Your application for ${jobTitle} is being reviewed by the employer`,
+    description: `Your application for ${jobTitle} is being reviewed by the employer.`,
     icon: 'la-eye',
     color: '#f59e0b',
   }),
 
   applicationSelected: (jobTitle) => ({
-    title: `Congratulations! Application Selected`,
-    description: `Your application for ${jobTitle} has been selected. The employer will contact you soon!`,
+    title: `Application Selected`,
+    description: `Congratulations! Your application for ${jobTitle} has been selected. The employer will contact you soon.`,
     icon: 'la-thumbs-up',
     color: '#22c55e',
   }),
@@ -61,7 +61,7 @@ export const notificationPresets = {
 
   jobAlert: (jobTitle, companyName) => ({
     title: `New Job Opportunity`,
-    description: `A new job matching your profile: ${jobTitle} at ${companyName}`,
+    description: `A new job matches your profile: ${jobTitle} at ${companyName}.`,
     icon: 'la-lightning',
     color: '#f59e0b',
   }),
@@ -74,8 +74,8 @@ export const notificationPresets = {
   }),
 
   emailUpdate: (title, description) => ({
-    title: title || 'Email Update',
-    description: description || 'You received a new email update.',
+    title: title || 'Notification Update',
+    description: description || 'You have a new update.',
     icon: 'la-envelope',
     color: '#1967d2',
   }),

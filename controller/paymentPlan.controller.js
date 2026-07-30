@@ -16,6 +16,8 @@ import {
 } from '../utils/razorpay.js';
 import { RAZORPAY_MODE } from '../config/env.js';
 import { sendPlanReceiptEmail } from '../utils/mailer.js';
+import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
+import { sendPushToUsers } from '../utils/fcm.js';
 
 const ACTIVE_FREE_PLAN_CONFLICT_MESSAGE =
   'Another active Free plan already exists. Please mark that plan inactive before activating this Free plan.';
@@ -748,7 +750,7 @@ const sendEmployerPlanReceipt = async ({
       }
     }
 
-    await Promise.all(
+    const emailResults = await Promise.all(
       recipients.map((recipient) =>
         sendPlanReceiptEmail({
           recipient,
@@ -767,6 +769,32 @@ const sendEmployerPlanReceipt = async ({
         }),
       ),
     );
+
+    if (!emailResults.some(Boolean)) return;
+
+    const notificationPayload = {
+      ...notificationPresets.emailUpdate(
+        'Payment Receipt Sent',
+        `Your payment receipt for the ${plan.name} plan has been sent to your email. Please check your email for the receipt and plan confirmation.`
+      ),
+      actionUrl: '/employers-dashboard/packages',
+      icon: 'la-receipt',
+      color: '#22c55e',
+    };
+
+    await createNotification(employer._id, 'email_update', notificationPayload);
+    await sendPushToUsers([employer._id], {
+      title: notificationPayload.title,
+      body: notificationPayload.description,
+      link: `${String(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}${notificationPayload.actionUrl}`,
+      data: {
+        type: 'payment_receipt_sent',
+        planId: plan._id,
+        transactionId: transaction?._id,
+        receipt: receipt || transaction?.receipt,
+        actionUrl: notificationPayload.actionUrl,
+      },
+    });
   } catch (error) {
     console.error(`Failed to send employer plan receipt to ${getEmployerReceiptEmail(employer) || 'unknown'}:`, error);
   }
