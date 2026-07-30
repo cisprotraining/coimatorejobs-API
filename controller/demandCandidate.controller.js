@@ -3,6 +3,8 @@ import DemandCandidate from '../models/demandCandidate.model.js';
 import User from '../models/user.model.js';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 import { sendDemandCandidateStatusEmail } from '../utils/mailer.js';
+import { createNotification, notificationPresets } from '../utils/notificationHelper.js';
+import { sendPushToUsers } from '../utils/fcm.js';
 
 const demandCandidateController = {};
 
@@ -46,6 +48,23 @@ const formatDemandStatus = (status = 'pending') => {
   return labels[status] || status;
 };
 
+const getFrontendUrl = (path = '/') =>
+  `${String(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}${path}`;
+
+const getAdminDashboardPath = (role = 'superadmin') =>
+  role === 'hr-admin'
+    ? '/hr-admin-dashboard/company-profile'
+    : '/super-admin-dashboard/company-profile';
+
+const getDemandAdminUsers = async () =>
+  User.find({
+    isActive: true,
+    $or: [
+      { role: 'hr-admin', status: 'approved' },
+      { role: 'superadmin' },
+    ],
+  }).select('_id name email role');
+
 demandCandidateController.createDemandCandidate = async (req, res, next) => {
   try {
     const employerId = req.user.id;
@@ -85,6 +104,47 @@ demandCandidateController.createDemandCandidate = async (req, res, next) => {
       skills: normalizeSkills(skills),
       note: toCleanString(note),
     });
+
+    try {
+      const admins = await getDemandAdminUsers();
+      const notificationPayload = {
+        ...notificationPresets.emailUpdate(
+          'New Candidate Demand Enquiry Submitted',
+          `${companyProfile.companyName} has requested candidates for ${demand.roleTitle}.`
+        ),
+        actionUrl: '/super-admin-dashboard/company-profile',
+        icon: 'la-users',
+        color: '#f59e0b',
+      };
+
+      await Promise.allSettled(
+        admins.map((admin) =>
+          createNotification(admin._id, 'email_update', {
+            ...notificationPayload,
+            actionUrl: getAdminDashboardPath(admin.role),
+          })
+        )
+      );
+
+      await Promise.allSettled(
+        admins.map((admin) => {
+          const actionUrl = getAdminDashboardPath(admin.role);
+          return sendPushToUsers([admin._id], {
+            title: notificationPayload.title,
+            body: notificationPayload.description,
+            link: getFrontendUrl(actionUrl),
+            data: {
+              type: 'candidate_demand_created',
+              demandId: demand._id,
+              companyProfileId: companyProfile._id,
+              actionUrl,
+            },
+          });
+        })
+      );
+    } catch (notificationError) {
+      console.error('Failed to notify admins about candidate demand enquiry:', notificationError);
+    }
 
     return res.status(201).json({
       success: true,
@@ -179,15 +239,47 @@ demandCandidateController.updateDemandCandidateStatus = async (req, res, next) =
         ? (employer.contactEmail || companyProfile.email)
         : (employer?.email || companyProfile.email);
 
-      await sendDemandCandidateStatusEmail({
-        recipient,
-        employerName: employer?.name || companyProfile.companyName,
-        companyName: companyProfile.companyName,
-        roleTitle: demand.roleTitle,
-        statusLabel: formatDemandStatus(status),
-        previousStatusLabel: formatDemandStatus(previousStatus),
-        dashboardLink: `${String(process.env.FRONTEND_URL || '').replace(/\/+$/, '')}/employers-dashboard/all-applicants`,
-      });
+      try {
+        await sendDemandCandidateStatusEmail({
+          recipient,
+          employerName: employer?.name || companyProfile.companyName,
+          companyName: companyProfile.companyName,
+          roleTitle: demand.roleTitle,
+          statusLabel: formatDemandStatus(status),
+          previousStatusLabel: formatDemandStatus(previousStatus),
+          dashboardLink: getFrontendUrl('/employers-dashboard/all-applicants'),
+        });
+      } catch (emailError) {
+        console.error('Failed to send candidate demand status email:', emailError);
+      }
+
+      const statusNotificationPayload = {
+        ...notificationPresets.emailUpdate(
+          'Candidate Demand Status Updated',
+          `Your candidate demand request for ${demand.roleTitle} is now ${formatDemandStatus(status)}.`
+        ),
+        actionUrl: '/employers-dashboard/all-applicants',
+        icon: status === 'candidates_available' ? 'la-check-circle' : 'la-info-circle',
+        color: status === 'candidates_available' ? '#22c55e' : '#1967d2',
+      };
+
+      try {
+        await createNotification(demand.employer, 'email_update', statusNotificationPayload);
+        await sendPushToUsers([demand.employer], {
+          title: statusNotificationPayload.title,
+          body: statusNotificationPayload.description,
+          link: getFrontendUrl(statusNotificationPayload.actionUrl),
+          data: {
+            type: 'candidate_demand_status_updated',
+            demandId: demand._id,
+            companyProfileId: companyProfile._id,
+            status,
+            actionUrl: statusNotificationPayload.actionUrl,
+          },
+        });
+      } catch (notificationError) {
+        console.error('Failed to notify employer about candidate demand status:', notificationError);
+      }
     }
 
     return res.status(200).json({

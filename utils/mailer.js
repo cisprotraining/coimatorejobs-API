@@ -1064,33 +1064,95 @@ const sendJobAlertSetupConfirmationEmail = async ({
   }
 };
 
-// Send job post confirmation email to employer (only when employer posts directly)
-const sendEmployerJobPostedEmail = async ({ recipient, employerName, jobTitle, companyName, dashboardLink }) => {
+const formatEmailValue = (value) => {
+  if (Array.isArray(value)) return value.filter(Boolean).join(', ');
+  return value || '-';
+};
+
+const formatEmailDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+};
+
+// Send job post confirmation email to employer
+const sendEmployerJobPostedEmail = async ({
+  recipient,
+  employerName,
+  jobTitle,
+  companyName,
+  dashboardLink,
+  jobDetailsLink,
+  postedByAdmin = false,
+  jobDetails = {},
+}) => {
   try {
     if (!recipient) throw new Error('Employer email is missing');
+    const actionLink = jobDetailsLink || dashboardLink || resolveFrontendBaseUrl();
+    const subjectPrefix = postedByAdmin ? 'New Job Posted by Coimbatore Jobs Administration' : 'Job Posted Successfully';
+    const introText = postedByAdmin
+      ? 'Coimbatore Jobs administration has posted a new job on behalf of your company.'
+      : 'Your new job has been posted successfully on Coimbatore Jobs.';
+    const titleText = postedByAdmin ? 'New Job Posted by Coimbatore Jobs Administration' : 'Your Job Post is Live';
+    const detailRows = [
+      ['Job Title', jobTitle],
+      ['Company', companyName],
+      ['Job Type', jobDetails.jobType],
+      ['Experience', jobDetails.experience],
+      ['Salary', jobDetails.offeredSalary],
+      ['Industry', jobDetails.industry],
+      ['Functional Area', jobDetails.functionalArea],
+      ['Role', jobDetails.role],
+      ['Location', jobDetails.location],
+      ['Open Positions', jobDetails.positions],
+      ['Application Deadline', formatEmailDate(jobDetails.applicationDeadline)],
+      ['Posted On', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })],
+    ]
+      .filter(([, value]) => formatEmailValue(value) !== '-')
+      .map(([label, value]) => `
+        <tr>
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #64748b; width: 42%;">${escapeHtml(label)}</td>
+          <td style="padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #0f172a; font-weight: 600;">${escapeHtml(formatEmailValue(value))}</td>
+        </tr>
+      `)
+      .join('');
+
     await sendMail({
-      from: `"Job Post Confirmation" <${defaultFromAddress}>`,
+      from: `"Coimbatore Jobs Administration" <${defaultFromAddress}>`,
       to: recipient,
-      subject: `Job Posted Successfully - ${jobTitle}`,
+      subject: `${subjectPrefix} - ${jobTitle}`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1e293b;">
-          <h2 style="color: #22c55e;">Your Job Post is Live</h2>
-          <p>Dear ${employerName || 'Employer'},</p>
-          <p>Your new job has been posted successfully on Coimbatore Jobs.</p>
-          <div style="background: #f0fdf4; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #22c55e;">
-            <p style="margin: 5px 0;"><strong>Job Title:</strong> ${jobTitle}</p>
-            <p style="margin: 5px 0;"><strong>Company:</strong> ${companyName}</p>
-            <p style="margin: 5px 0;"><strong>Posted On:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</p>
+        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #1e293b; background: #ffffff;">
+          <div style="background: #0f172a; color: #ffffff; padding: 24px 28px; border-radius: 14px 14px 0 0;">
+            <h2 style="margin: 0; font-size: 24px; line-height: 1.3;">${escapeHtml(titleText)}</h2>
+            <p style="margin: 8px 0 0; color: #cbd5e1;">Coimbatore Jobs</p>
           </div>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${dashboardLink}"
-               style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-              View Manage Jobs
-            </a>
+          <div style="border: 1px solid #e2e8f0; border-top: 0; padding: 26px; border-radius: 0 0 14px 14px;">
+            <p style="margin-top: 0;">Dear ${escapeHtml(employerName || 'Employer')},</p>
+            <p>${escapeHtml(introText)}</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 22px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;">
+              <tbody>
+                ${detailRows}
+              </tbody>
+            </table>
+            <p>Please review the job details and let us know if any changes are required.</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${escapeHtml(actionLink)}"
+                 style="background: #2563eb; color: white; padding: 13px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 700;">
+                View Job Details
+              </a>
+            </div>
+            <p style="margin-bottom: 0;">Regards,<br><strong>Coimbatore Jobs Administration</strong></p>
+            <p style="color: #64748b; font-size: 12px; text-align: center; margin-top: 26px;">
+              &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.
+            </p>
           </div>
-          <p style="color: #64748b; font-size: 12px; text-align: center;">
-            &copy; ${new Date().getFullYear()} Coimbatore Jobs by Cispro. All rights reserved.
-          </p>
         </div>
       `
     });
@@ -1258,8 +1320,10 @@ const sendPlanReceiptEmail = async ({
       attachments,
     });
     console.log(`Plan receipt email sent to ${recipient}`);
+    return true;
   } catch (error) {
     console.error(`Failed to send plan receipt email to ${recipient}:`, error);
+    return false;
   }
 };
 

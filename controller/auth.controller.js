@@ -103,6 +103,25 @@ const assignDefaultFreePlanIfMissing = async (user) => {
   return user;
 };
 
+const isLegacySelfSignupPendingUser = (user) => {
+  if (!user || !['candidate', 'employer'].includes(user.role)) return false;
+  if (user.status !== 'pending') return false;
+
+  const assignmentSource = user.assignmentSource || 'self-signup';
+  const createdBy = user.createdBy || null;
+
+  return assignmentSource === 'self-signup' && !createdBy;
+};
+
+const approveLegacySelfSignupUserIfNeeded = async (user) => {
+  if (!isLegacySelfSignupPendingUser(user)) return user;
+
+  user.status = 'approved';
+  user.assignmentSource = 'self-signup';
+  await user.save({ validateBeforeSave: false });
+  return user;
+};
+
 // Authentication controller object
 const authentication = {};
 
@@ -896,7 +915,11 @@ authentication.signin = async (req, res, next) => {
         //   });
         // }
 
+        await approveLegacySelfSignupUserIfNeeded(user);
         await assignDefaultFreePlanIfMissing(user);
+        if (user.role === 'employer') {
+          await ensureEmployerId(user);
+        }
 
         if (['candidate', 'employer'].includes(user.role)) {
           const otpRecipient = resolveLoginOtpRecipient(user);
@@ -941,6 +964,7 @@ authentication.signin = async (req, res, next) => {
               role: user.role,
               status: user.status,
               loginId: user.loginId || null,
+              employerId: user.employerId || null,
               email: user.email,
               isSystemGeneratedEmail: user.isSystemGeneratedEmail,
               activePaymentPlan: user.activePaymentPlan || null
@@ -962,6 +986,7 @@ authentication.signin = async (req, res, next) => {
                 role: user.role,
                 status: user.status,
                 loginId: user.loginId || null,
+                employerId: user.employerId || null,
                 // Hide internal email from frontend
                 email: user.isSystemGeneratedEmail ? null : user.email,
                 isSystemGeneratedEmail: user.isSystemGeneratedEmail,
@@ -1031,7 +1056,11 @@ authentication.verifySigninOtp = async (req, res, next) => {
     user.loginOtpHash = undefined;
     user.loginOtpExpiresAt = undefined;
     user.loginOtpAttempts = 0;
+    await approveLegacySelfSignupUserIfNeeded(user);
     await assignDefaultFreePlanIfMissing(user);
+    if (user.role === 'employer') {
+      await ensureEmployerId(user);
+    }
     await user.save({ validateBeforeSave: false });
 
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
@@ -1046,6 +1075,7 @@ authentication.verifySigninOtp = async (req, res, next) => {
         role: user.role,
         status: user.status,
         loginId: user.loginId || null,
+        employerId: user.employerId || null,
         email: user.isSystemGeneratedEmail ? null : user.email,
         isSystemGeneratedEmail: user.isSystemGeneratedEmail,
         activePaymentPlan: user.activePaymentPlan || null
@@ -1189,7 +1219,7 @@ authentication.resetPasswordWithToken = async (req, res, next) => {
     const user = await User.findOne({
       _id: decoded.userId,
       resetPasswordExpire: { $gt: Date.now() }
-    });
+    }).select('+resetPasswordToken +resetPasswordExpire');
 
     if (!user)
       return res.status(400).json({ message: 'Reset token is invalid or expired' });
@@ -1269,11 +1299,22 @@ authentication.adminResetUserPassword = async (req, res, next) => {
  */
 authentication.getUsersByRole = async (req, res, next) => {
   try {
-    const { roles, page = 1, limit = 20, status, search, scope = 'assigned' } = req.query;
+    const { roles, page = 1, limit = 20, status, search, scope = 'assigned', view, includeAll } = req.query;
     const loggedInUser = await User.findById(req.user.id).select('role employerIds candidateIds');
     if (!loggedInUser) {
       return res.status(401).json({ message: 'User not found' });
     }
+    const normalizedScope = String(Array.isArray(scope) ? scope[0] : scope || 'assigned')
+      .trim()
+      .toLowerCase();
+    const normalizedView = String(Array.isArray(view) ? view[0] : view || '')
+      .trim()
+      .toLowerCase();
+    const allScopeRequested =
+      normalizedScope === 'all' ||
+      normalizedView === 'all' ||
+      String(includeAll).trim().toLowerCase() === 'true' ||
+      String(includeAll).trim() === '1';
 
     // Default roles
     let roleFilter = ['candidate', 'employer'];
@@ -1323,6 +1364,7 @@ authentication.getUsersByRole = async (req, res, next) => {
             { name: regex },
             { email: regex },
             { loginId: regex },
+            { employerId: regex },
             { contactEmail: regex },
             { role: regex },
             { status: regex },
@@ -1335,7 +1377,7 @@ authentication.getUsersByRole = async (req, res, next) => {
      * HR-ADMIN RULE:
      * Show only users assigned to this HR-admin
      */
-    if (loggedInUser.role === 'hr-admin' && scope !== 'all') {
+    if (loggedInUser.role === 'hr-admin' && !allScopeRequested) {
       const assignedIds = [
         ...(loggedInUser.employerIds || []),
         ...(loggedInUser.candidateIds || []),
@@ -1456,7 +1498,7 @@ authentication.updateUserStatus = async (req, res, next) => {
     await createNotification(user._id, 'email_update', {
       ...notificationPresets.emailUpdate(
         'Account Status Updated',
-        `Your ${user.role} account has been ${actionLabel} by admin.`
+        `Your ${user.role} account has been ${actionLabel} by an admin.`
       ),
       actionUrl: userStatusActionUrl,
       icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
@@ -1467,7 +1509,7 @@ authentication.updateUserStatus = async (req, res, next) => {
     await createNotification(req.user.id, 'email_update', {
       ...notificationPresets.emailUpdate(
         'User Status Updated',
-        `${actorRoleLabel} ${actorName} ${actionLabel} ${user.name} (${user.role}).`
+        `${actorRoleLabel} ${actorName} has ${actionLabel} ${user.name} (${user.role}).`
       ),
       actionUrl:
         req.user.role === 'superadmin'
@@ -1491,7 +1533,7 @@ authentication.updateUserStatus = async (req, res, next) => {
             createNotification(admin._id, 'email_update', {
               ...notificationPresets.emailUpdate(
                 'User Status Changed',
-                `${actorRoleLabel} ${actorName} ${actionLabel} ${user.name} (${user.role}).`
+                `${actorRoleLabel} ${actorName} has ${actionLabel} ${user.name} (${user.role}).`
               ),
               actionUrl: '/super-admin-dashboard/user-status',
               icon: status === 'approved' ? 'la-check-circle' : 'la-times-circle',
