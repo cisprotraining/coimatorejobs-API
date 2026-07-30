@@ -1163,11 +1163,9 @@ jobsController.getJobPost = async (req, res, next) => {
     const jobPost = await JobPost.findOne(query)
       .populate({
         path: 'companyProfile',
-        select: 'companyName logo website industry',
+        select: 'companyName logo publicPhone phone website industry',
         populate: { path: 'industry', select: 'name slug' },
       })
-    const jobPost = await JobPost.findById(jobPostId)
-      .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
       .populate('role', 'name slug defaultCollarCategory')
