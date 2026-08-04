@@ -999,7 +999,7 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
       status: 'pending',
     })
       .populate('employer', 'name email')
-      .select('companyName email phone status createdAt')
+      .select('companyName email phone publicPhone internalPhone landlineNumber phoneNumber hrPhoneNumber status createdAt')
       .sort({ createdAt: -1 })
       .limit(10);
 

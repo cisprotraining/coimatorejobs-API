@@ -97,21 +97,28 @@ const attachDemandCandidateCounts = async (profiles = []) => {
 };
 
 const normalizeCompanyProfilePhones = (profileData = {}) => {
-  const publicPhone = normalizePhoneValue(profileData.publicPhone || profileData.phone);
-  const internalPhone = normalizePhoneValue(profileData.internalPhone);
+  const landlineNumber = normalizePhoneValue(profileData.landlineNumber);
+  const phoneNumber = normalizePhoneValue(profileData.phoneNumber || profileData.publicPhone || profileData.phone);
+  const hrPhoneNumber = normalizePhoneValue(profileData.hrPhoneNumber || profileData.internalPhone);
 
   return {
-    publicPhone,
-    internalPhone,
-    phone: publicPhone,
+    landlineNumber,
+    phoneNumber,
+    hrPhoneNumber,
+    publicPhone: phoneNumber,
+    internalPhone: hrPhoneNumber,
+    phone: phoneNumber,
   };
 };
 
 const hideInternalCompanyPhone = (profile) => {
   const data = typeof profile?.toObject === 'function' ? profile.toObject() : { ...profile };
-  data.publicPhone = data.publicPhone || data.phone || "";
+  data.phoneNumber = data.phoneNumber || data.publicPhone || data.phone || "";
+  data.publicPhone = data.phoneNumber;
   data.phone = data.publicPhone;
   delete data.internalPhone;
+  delete data.hrPhoneNumber;
+  delete data.landlineNumber;
   return data;
 };
 
@@ -314,7 +321,10 @@ employerController.getAllCompanyProfiles = async (req, res, next) => {
 
     await ensureCompanyIdsForProfiles(profiles);
     const profilesWithDemandCounts = await attachDemandCandidateCounts(profiles);
-    const publicProfiles = profilesWithDemandCounts.map(hideInternalCompanyPhone);
+    const isAdminViewer = ['hr-admin', 'superadmin'].includes(req.user?.role);
+    const publicProfiles = isAdminViewer
+      ? profilesWithDemandCounts
+      : profilesWithDemandCounts.map(hideInternalCompanyPhone);
 
     return res.status(200).json({
       success: true,
@@ -429,11 +439,11 @@ employerController.createCompanyProfile = async (req, res, next) => {
     // const requiredFields = ['companyName', 'email', 'phone', 'establishedSince', 
     //                        'teamSize', 'categories', 'description', 'industry', 'companyType'];
 
-    const requiredFields = ['companyName', 'publicPhone', 'establishedSince', 
+    const requiredFields = ['companyName', 'landlineNumber', 'phoneNumber', 'hrPhoneNumber', 'establishedSince', 
     'teamSize', 'description'];
     
     const missingFields = requiredFields.filter(field => {
-      if (field === 'publicPhone') return !phoneValues.publicPhone;
+      if (['landlineNumber', 'phoneNumber', 'hrPhoneNumber'].includes(field)) return !phoneValues[field];
       return !profileData[field];
     });
     if (missingFields.length > 0) {
@@ -470,6 +480,9 @@ employerController.createCompanyProfile = async (req, res, next) => {
       phone: phoneValues.phone,
       publicPhone: phoneValues.publicPhone,
       internalPhone: phoneValues.internalPhone,
+      landlineNumber: phoneValues.landlineNumber,
+      phoneNumber: phoneValues.phoneNumber,
+      hrPhoneNumber: phoneValues.hrPhoneNumber,
       companyGSTIN: normalizedCompanyGSTIN,
       panNo: normalizedPanNo,
       website,
@@ -707,6 +720,9 @@ employerController.updateCompanyProfile = async (req, res, next) => {
     delete updateData.employer;
 
     const hasPhoneUpdate =
+      Object.prototype.hasOwnProperty.call(updateData, 'landlineNumber') ||
+      Object.prototype.hasOwnProperty.call(updateData, 'phoneNumber') ||
+      Object.prototype.hasOwnProperty.call(updateData, 'hrPhoneNumber') ||
       Object.prototype.hasOwnProperty.call(updateData, 'publicPhone') ||
       Object.prototype.hasOwnProperty.call(updateData, 'phone') ||
       Object.prototype.hasOwnProperty.call(updateData, 'internalPhone');
@@ -715,13 +731,19 @@ employerController.updateCompanyProfile = async (req, res, next) => {
         phone: Object.prototype.hasOwnProperty.call(updateData, 'phone') ? updateData.phone : profile.phone,
         publicPhone: Object.prototype.hasOwnProperty.call(updateData, 'publicPhone') ? updateData.publicPhone : (profile.publicPhone || profile.phone),
         internalPhone: Object.prototype.hasOwnProperty.call(updateData, 'internalPhone') ? updateData.internalPhone : profile.internalPhone,
+        landlineNumber: Object.prototype.hasOwnProperty.call(updateData, 'landlineNumber') ? updateData.landlineNumber : profile.landlineNumber,
+        phoneNumber: Object.prototype.hasOwnProperty.call(updateData, 'phoneNumber') ? updateData.phoneNumber : (profile.phoneNumber || profile.publicPhone || profile.phone),
+        hrPhoneNumber: Object.prototype.hasOwnProperty.call(updateData, 'hrPhoneNumber') ? updateData.hrPhoneNumber : (profile.hrPhoneNumber || profile.internalPhone),
       });
-      if (!phoneValues.publicPhone) {
-        throw new BadRequestError('Public Contact Number is required');
+      if (!phoneValues.landlineNumber || !phoneValues.phoneNumber || !phoneValues.hrPhoneNumber) {
+        throw new BadRequestError('Landline Number, Phone Number and HR Phone Number are required');
       }
       updateData.phone = phoneValues.phone;
       updateData.publicPhone = phoneValues.publicPhone;
       updateData.internalPhone = phoneValues.internalPhone;
+      updateData.landlineNumber = phoneValues.landlineNumber;
+      updateData.phoneNumber = phoneValues.phoneNumber;
+      updateData.hrPhoneNumber = phoneValues.hrPhoneNumber;
     }
 
     const shouldRemoveLogo = updateData.removeLogo === true || updateData.removeLogo === 'true';
@@ -900,7 +922,11 @@ employerController.getCompanyProfile = async (req, res, next) => {
     const employerUser = await User.findById(profile.employer).select('isSystemGeneratedEmail');
 
     let profileData = profile.toObject();
-    profileData.publicPhone = profileData.publicPhone || profileData.phone || "";
+    profileData.phoneNumber = profileData.phoneNumber || profileData.publicPhone || profileData.phone || "";
+    profileData.hrPhoneNumber = profileData.hrPhoneNumber || profileData.internalPhone || "";
+    profileData.landlineNumber = profileData.landlineNumber || "";
+    profileData.publicPhone = profileData.phoneNumber;
+    profileData.internalPhone = profileData.hrPhoneNumber;
     profileData.phone = profileData.publicPhone;
 
      /**
@@ -916,7 +942,8 @@ employerController.getCompanyProfile = async (req, res, next) => {
         if (!isPrivilegedViewer) {
           // Mask for candidate + hr-admin
           profileData.email = "info@cisproservices.com";
-          profileData.publicPhone = "9361755131";
+          profileData.phoneNumber = "9361755131";
+          profileData.publicPhone = profileData.phoneNumber;
           profileData.phone = profileData.publicPhone;
         } else {
           // Show real HR contact email to owner or superadmin
@@ -927,6 +954,8 @@ employerController.getCompanyProfile = async (req, res, next) => {
 
     if (!isAdmin && !isOwner) {
       delete profileData.internalPhone;
+      delete profileData.hrPhoneNumber;
+      delete profileData.landlineNumber;
     }
 
     // Count active jobs for this company
@@ -1386,12 +1415,7 @@ employerController.getAssignedCompanyProfiles = async (req, res, next) => {
     // SUPERADMIN → sees all
     // POPULATE industry here as well
     if (loggedInUser.role === 'superadmin') {
-      const adminUsers = await User.find({
-        role: { $in: ['superadmin', 'hr-admin'] }
-      }).select('_id');
-
-      const adminIds = adminUsers.map((user) => user._id);
-      query = { createdBy: { $in: adminIds } };
+      query = {};
     }
 
     const profiles = await CompanyProfile.find(query)

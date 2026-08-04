@@ -39,7 +39,7 @@ employerRouter.delete('/payment-plans/:id', authenticate, authorize(['superadmin
 
 
 // Route to get all company profiles (accessible to admins and superadmins)
-employerRouter.get('/company-profile/fetch-all',  employerController.getAllCompanyProfiles);
+employerRouter.get('/company-profile/fetch-all', optionalAuthenticate, employerController.getAllCompanyProfiles);
 // Route to create a company profile
 // Only authenticated employers can access this route
 // Create company profile (with file upload)

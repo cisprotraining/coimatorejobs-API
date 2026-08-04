@@ -94,6 +94,23 @@ const companyProfileSchema = new mongoose.Schema({
     trim: true,
     maxlength: 20
   },
+  landlineNumber: {
+    type: String,
+    trim: true,
+    maxlength: 20
+  },
+  phoneNumber: {
+    type: String,
+    trim: true,
+    minlength: 8,
+    maxlength: 20
+  },
+  hrPhoneNumber: {
+    type: String,
+    trim: true,
+    minlength: 8,
+    maxlength: 20
+  },
   companyGSTIN: {
     type: String,
     trim: true,
