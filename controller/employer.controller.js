@@ -590,8 +590,8 @@ employerController.createCompanyProfile = async (req, res, next) => {
  * Get all pending company profiles
  * Accessible by HR-Admin and Superadmin
  *
- * HR-Admin:
- *  - Sees only company profiles created by employers assigned to them
+ * HR-Admin / access-management admin roles:
+ *  - Sees all pending company profiles so Profile Status matches dashboard actions
  *
  * Superadmin:
  *  - Sees all pending company profiles
@@ -620,10 +620,6 @@ employerController.getPendingCompanyProfiles = async (req, res, next) => {
     const user = await User.findById(req.user.id).select('role employerIds');
     if (!user) {
       return res.status(401).json({ message: 'User not found' });
-    }
-
-    if (user.role === 'hr-admin') {
-      filter.employer = { $in: user.employerIds || [] };
     }
 
     // Fetch pending company profiles
@@ -1179,13 +1175,6 @@ employerController.approveCompanyProfile = async (req, res, next) => {
     const profile = await CompanyProfile.findById(id);
     if (!profile) {
       throw new NotFoundError('Company profile not found');
-    }
-
-    if (
-      req.user.role === 'hr-admin' &&
-      !(req.user.employerIds || []).some((employerId) => employerId.toString() === profile.employer?.toString())
-    ) {
-      throw new ForbiddenError('You can update only assigned company profiles');
     }
 
      // Fetch employer user from users table
