@@ -33,6 +33,7 @@ import Role from '../models/role.model.js';
 import Skill from '../models/skill.model.js';
 import Location from '../models/location.model.js';
 import CompanyProfile from '../models/companyProfile.model.js';
+import { industryGroupNames, roleGroupNames } from './taxonomyCanonical.js';
 
 // How long the company name->slug index is reused within a process.
 const COMPANY_CACHE_TTL_MS = 60 * 1000;
@@ -69,6 +70,21 @@ const containsInsensitive = (value) => new RegExp(escapeRegex(value), 'i');
 
 const emptyMatch = () => ({ ids: [], items: [], requested: '', matched: false });
 
+const mergeDocs = (docs, extra) => {
+  const seen = new Set(docs.map((doc) => String(doc._id)));
+  return [...docs, ...extra.filter((doc) => !seen.has(String(doc._id)))];
+};
+
+/**
+ * Names whose records must be matched together: the canonical group of the
+ * requested value or of any matched record (utils/taxonomyCanonical.js), else
+ * just the matched records' own names.
+ */
+const expansionNames = (slug, docs, groupNames) => {
+  const group = [slug, ...docs.map((doc) => doc.name)].map(groupNames).find(Boolean);
+  return group || [...new Set(docs.map((doc) => doc.name).filter(Boolean))];
+};
+
 const buildMatch = (requested, docs) => ({
   ids: docs.map((doc) => doc._id),
   items: docs.map((doc) => ({
@@ -95,6 +111,16 @@ const resolveIndustry = async (value) => {
       .lean();
   }
 
+  // Equivalent industries (canonical group) are matched together, so jobs
+  // posted under "IT" appear for it-software without rewriting any job.
+  const group = [slug, ...docs.map((doc) => doc.name)].map(industryGroupNames).find(Boolean);
+  if (group) {
+    const members = await Industry.find({ name: { $in: group.map(exactInsensitive) } })
+      .select('_id name slug')
+      .lean();
+    docs = mergeDocs(docs, members);
+  }
+
   return buildMatch(slug, docs);
 };
 
@@ -111,6 +137,18 @@ const resolveRole = async (value) => {
     docs = await Role.find({ name: exactInsensitive(deSlug(slug)), isActive: true })
       .select('_id name slug')
       .lean();
+  }
+
+  // Same-name roles live under several functional areas with suffixed slugs
+  // ("junior-architect", "junior-architect-1"), and synonymous roles form a
+  // canonical group ("Telecaller" -> "Telecalling Executive"). Both are
+  // matched together; soft-deleted roles stay excluded.
+  const names = expansionNames(slug, docs, roleGroupNames);
+  if (names.length) {
+    const siblings = await Role.find({ name: { $in: names.map(exactInsensitive) }, isActive: true })
+      .select('_id name slug')
+      .lean();
+    docs = mergeDocs(docs, siblings);
   }
 
   return buildMatch(slug, docs);

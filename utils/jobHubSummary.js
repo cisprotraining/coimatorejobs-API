@@ -11,6 +11,8 @@
 // (a single projected query) and hands it in.
 // ---------------------------------------------------------------------------
 
+import { canonicalIndustryName, canonicalRoleName } from './taxonomyCanonical.js';
+
 export const DEFAULT_HUB_CITY = 'Coimbatore';
 export const DEFAULT_LINK_LIMIT = 12;
 export const MAX_LINK_LIMIT = 30;
@@ -80,8 +82,10 @@ export const buildHubSummary = (
     liveOnly: true,
     generatedAt: now.toISOString(),
     total: cityJobs.length,
-    categories: tally(cityJobs, (job) => [toText(job?.industry)], { limit: safeLimit }),
-    roles: tally(cityJobs, (job) => [toText(job?.role)], { limit: safeLimit }),
+    // Equivalent records are counted under their canonical name, so the hub
+    // links the canonical taxonomy page once with the whole group's count.
+    categories: tally(cityJobs, (job) => [canonicalIndustryName(toText(job?.industry))], { limit: safeLimit }),
+    roles: tally(cityJobs, (job) => [canonicalRoleName(toText(job?.role))], { limit: safeLimit }),
     // Other cities with live openings (the hub itself covers the hub city).
     locations: tally(live, jobCities, { exclude: city, limit: safeLimit }),
   };
