@@ -993,10 +993,17 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
     // Keep pending actions platform-wide for both HR Admin and Super Admin
     // so both dashboards show the same values.
     const companyMatch = {};
+    const pendingCompanyStatusMatch = {
+      $or: [
+        { status: 'pending' },
+        { status: { $exists: false } },
+        { status: null },
+      ],
+    };
     // 1. Get pending company profile approvals (CompanyProfile model)
     const pendingCompanies = await CompanyProfile.find({
       ...companyMatch,
-      status: 'pending',
+      ...pendingCompanyStatusMatch,
     })
       .populate('employer', 'name email')
       .select('companyName email phone publicPhone internalPhone landlineNumber phoneNumber hrPhoneNumber status createdAt')
@@ -1016,7 +1023,7 @@ hrAdminDashboardController.getPendingActions = async (req, res, next) => {
     const [pendingCompanyCount, pendingCandidateProfileCount] = await Promise.all([
       CompanyProfile.countDocuments({
         ...companyMatch,
-        status: 'pending',
+        ...pendingCompanyStatusMatch,
       }),
       CandidateProfile.countDocuments({
         status: 'pending',

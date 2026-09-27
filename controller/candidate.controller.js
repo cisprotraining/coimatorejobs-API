@@ -1086,8 +1086,8 @@ candidateController.approveCandidateProfile = async (req, res, next) => {
  * Get all pending candidate profiles
  * Accessible by HR-Admin and Superadmin
  *
- * HR-Admin:
- *  - Sees only candidate profiles created by candidates assigned to them
+ * HR-Admin / access-management admin roles:
+ *  - Sees all pending candidate profiles so Profile Status matches dashboard actions
  *
  * Superadmin:
  *  - Sees all pending candidate profiles
@@ -1099,16 +1099,8 @@ candidateController.getPendingCandidateProfiles = async (req, res, next) => {
     // Base filter: only pending profiles
     const filter = {
       status: 'pending',
+      isActive: true,
     };
-
-    // Optional future: restrict HR-Admin to assigned employers
-    // const user = req.user;
-    // if (user.role === 'hr-admin') {
-    //   if (!user.candidateIds || user.candidateIds.length === 0) {
-    //     return res.status(200).json({ success: true, profiles: [], pagination: { ... } });
-    //   }
-    //   filter.candidate = { $in: user.candidateIds };
-    // }
 
     // Fetch pending candidate profiles
     const profiles = await CandidateProfile.find(filter)
