@@ -32,6 +32,7 @@ import CompanyProfile from '../models/companyProfile.model.js';
 import Industry from '../models/industry.model.js';
 import FunctionalArea from '../models/functionalArea.model.js';
 import Role from '../models/role.model.js';
+import Skill from '../models/skill.model.js';
 import Location from '../models/location.model.js';
 import JobApply from '../models/jobApply.model.js';
 import CandidateProfile from '../models/candidateProfile.model.js';
@@ -67,6 +68,7 @@ const JOB_ID = objectId('0008');
 const CANDIDATE_ID = objectId('0009');
 const APPLICATION_ID = objectId('000a');
 const CANDIDATE_PROFILE_ID = objectId('000b');
+const SKILL_ID = objectId('000c');
 
 const DAY_MS = 86400000;
 const inDays = (days) => new Date(Date.now() + days * DAY_MS);
@@ -201,6 +203,9 @@ const stubJobCreation = ({ failSaveFor = [] } = {}) => {
   mock.method(FunctionalArea, 'findOne', () => query({ _id: FUNCTIONAL_AREA_ID }));
   mock.method(Role, 'findById', () => query(null));
   mock.method(Role, 'findOne', () => query({ _id: ROLE_ID }));
+  mock.method(Skill, 'findById', () => query({ _id: SKILL_ID }));
+  mock.method(Skill, 'findOne', () => query({ _id: SKILL_ID }));
+  mock.method(Skill, 'create', async () => ({ _id: SKILL_ID }));
   mock.method(Location, 'findOne', async () => null);
   mock.method(JobPost, 'exists', () => query(null));
   mock.method(JobPost, 'findById', () => query(null));
@@ -230,6 +235,7 @@ const createBody = (overrides = {}) => ({
   functionalAreas: [FUNCTIONAL_AREA_ID],
   industry: INDUSTRY_ID,
   collarCategory: 'White Collar',
+  skills: [SKILL_ID],
   ...overrides,
 });
 
@@ -360,7 +366,7 @@ const BULK_COLUMNS = [
   ['title', 'Role / Job Title (Mandatory)'],
   ['collarCategory', 'Collar Category (Mandatory)'],
   ['description', 'Job Description (Mandatory)'],
-  ['skills', 'Required Skills'],
+  ['skills', 'Required Skills (Mandatory)'],
   ['contactEmail', 'Contact Email (Mandatory)'],
   ['contactUsername', 'Contact Username'],
   ['salaryMin', 'Minimum Salary (Mandatory)'],
@@ -388,7 +394,7 @@ const bulkRow = (overrides = {}) => ({
   title: 'Bulk Test Engineer',
   collarCategory: 'White Collar',
   description: 'Build and test things.',
-  skills: '',
+  skills: 'React, Node.js',
   contactEmail: 'hr@example.com',
   contactUsername: 'HR Team',
   salaryMin: '3',

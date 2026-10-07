@@ -44,7 +44,7 @@ const BULK_JOB_TEMPLATE_COLUMNS = [
   { header: 'Role / Job Title (Mandatory)', key: 'title', width: 28 },
   { header: 'Collar Category (Mandatory)', key: 'collarCategory', width: 24 },
   { header: 'Job Description (Mandatory)', key: 'description', width: 44 },
-  { header: 'Required Skills', key: 'skills', width: 30 },
+  { header: 'Required Skills (Mandatory)', key: 'skills', width: 30 },
   { header: 'Contact Email (Mandatory)', key: 'contactEmail', width: 30 },
   { header: 'Contact Username', key: 'contactUsername', width: 24 },
   { header: 'Minimum Salary (Mandatory)', key: 'salaryMin', width: 22 },
@@ -907,7 +907,7 @@ const createJobPostFromPayload = async ({ payload, employerId, userRole, actorId
 
   const requiredFields = [
     'title', 'description', 'contactEmail', 'jobType',
-    'offeredSalary', 'careerLevel', 'experience', 'qualification',
+    'offeredSalary', 'careerLevel', 'experience', 'skills', 'qualification',
     'applicationDeadline', 'positions', 'location', 'functionalAreas', 'collarCategory'
   ];
   const missingFields = requiredFields.filter(field => !payload[field]);
@@ -927,6 +927,10 @@ const createJobPostFromPayload = async ({ payload, employerId, userRole, actorId
     throw new BadRequestError('At least one qualification is required');
   }
 
+  if (!Array.isArray(skills) || skills.length === 0) {
+    throw new BadRequestError('At least one required skill is required');
+  }
+
   if (!location || !location.country || !Array.isArray(location.city) || location.city.length === 0 || !location.completeAddress) {
     throw new BadRequestError('Complete location details are required (country, at least one city, completeAddress)');
   }
@@ -935,6 +939,9 @@ const createJobPostFromPayload = async ({ payload, employerId, userRole, actorId
   const resolvedFunctionalAreaIds = await resolveFunctionalAreaIds(functionalAreas, resolvedIndustryId);
   const resolvedRoleId = await resolveRoleId(role, resolvedFunctionalAreaIds, actorId, collarCategory);
   const resolvedSkillIds = await resolveSkillIds(skills);
+  if (resolvedSkillIds.length === 0) {
+    throw new BadRequestError('At least one required skill is required');
+  }
 
   if (!positions || !positions.total || Number(positions.total) < 1) {
     throw new BadRequestError('Positions must be at least 1');
@@ -1293,7 +1300,7 @@ jobsController.createJobPost = async (req, res, next) => {
     // Validate required fields
     const requiredFields = [
       'title', 'description', 'contactEmail', 'jobType',
-      'offeredSalary', 'careerLevel', 'experience', 'qualification',
+      'offeredSalary', 'careerLevel', 'experience', 'skills', 'qualification',
       'applicationDeadline', 'positions', 'location', 'functionalAreas', 'collarCategory'
     ];
     const missingFields = requiredFields.filter(field => !req.body[field]);
@@ -1317,6 +1324,10 @@ jobsController.createJobPost = async (req, res, next) => {
       throw new BadRequestError('At least one qualification is required (must be an array)');
     }
 
+    if (!Array.isArray(skills) || skills.length === 0) {
+      throw new BadRequestError('At least one required skill is required');
+    }
+
    // Validate location object (Ensuring city is an array and not empty)
     if ( !location || !location.country || !Array.isArray(location.city) || location.city.length === 0 || !location.completeAddress) {
       throw new BadRequestError(
@@ -1334,6 +1345,9 @@ jobsController.createJobPost = async (req, res, next) => {
     const resolvedFunctionalAreaIds = await resolveFunctionalAreaIds(functionalAreas, resolvedIndustryId);
     const resolvedRoleId = await resolveRoleId(role, resolvedFunctionalAreaIds, req.user.id, collarCategory);
     const resolvedSkillIds = await resolveSkillIds(skills);
+    if (resolvedSkillIds.length === 0) {
+      throw new BadRequestError('At least one required skill is required');
+    }
 
     if (!COLLAR_CATEGORIES.includes(collarCategory)) {
       throw new BadRequestError('Invalid collar category');
@@ -2257,13 +2271,15 @@ jobsController.updateJobPost = async (req, res, next) => {
       }
     }
 
-    if (req.body.skills) {
-      for (const id of req.body.skills) {
-        if (!mongoose.Types.ObjectId.isValid(id) || !(await Skill.findById(id))) {
-          throw new BadRequestError(`Invalid skill: ${id}`);
-        }
+    if (Object.prototype.hasOwnProperty.call(req.body, 'skills')) {
+      if (!Array.isArray(req.body.skills) || req.body.skills.length === 0) {
+        throw new BadRequestError('At least one required skill is required');
       }
-      updateData.skills = req.body.skills;
+      const resolvedSkillIds = await resolveSkillIds(req.body.skills);
+      if (resolvedSkillIds.length === 0) {
+        throw new BadRequestError('At least one required skill is required');
+      }
+      updateData.skills = resolvedSkillIds;
     }
 
     if (req.body.industry) {
