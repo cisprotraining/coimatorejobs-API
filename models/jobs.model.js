@@ -185,6 +185,10 @@ const jobPostSchema = new mongoose.Schema({
     type: [mongoose.Schema.Types.ObjectId],
     ref: 'Skill',
     default: [],
+    validate: {
+      validator: (value) => Array.isArray(value) && value.length > 0,
+      message: 'At least one required skill is required',
+    },
   },
   seoKeywords: {
     type: [String],
