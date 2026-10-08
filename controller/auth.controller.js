@@ -25,6 +25,7 @@ import { BadRequestError, ForbiddenError,NotFoundError} from '../utils/errors.js
 import { isValidEmailAddress, normalizeEmail } from "../utils/emailValidation.js";
 import { createNotification, notificationPresets } from "../utils/notificationHelper.js";
 import { isPubliclyIndexable, notifyJobWithdrawal } from "../utils/googleIndexing.js";
+import { isConfiguredTestAccount } from "../utils/testAccounts.js";
 
 import { log } from "console";
 
@@ -1228,6 +1229,40 @@ authentication.signin = async (req, res, next) => {
         await assignDefaultFreePlanIfMissing(user);
         if (user.role === 'employer') {
           await ensureEmployerId(user);
+        }
+
+        if (isConfiguredTestAccount(user)) {
+          user.loginOtpHash = undefined;
+          user.loginOtpExpiresAt = undefined;
+          user.loginOtpAttempts = 0;
+          await user.save({ validateBeforeSave: false });
+
+          const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+
+          return res.status(200).json({
+            success: true,
+            requiresOtp: false,
+            message: "Test account signed in successfully",
+            user: {
+              token,
+              id: user._id,
+              name: user.name,
+              role: user.role,
+              hrAdminRoleName: user.hrAdminRoleName || '',
+              hrAdminRoleRemoved: user.hrAdminRoleRemoved || false,
+              hrAdminAccessTabs: user.hrAdminAccessTabs || [],
+              parentEmployer: user.parentEmployer || null,
+              employerRoleName: user.employerRoleName || '',
+              employerRoleRemoved: user.employerRoleRemoved || false,
+              employerAccessTabs: user.employerAccessTabs || [],
+              status: user.status,
+              loginId: user.loginId || null,
+              employerId: user.employerId || null,
+              email: user.email,
+              isSystemGeneratedEmail: user.isSystemGeneratedEmail,
+              activePaymentPlan: user.activePaymentPlan || null
+            }
+          });
         }
 
         if (['candidate', 'employer'].includes(user.role)) {

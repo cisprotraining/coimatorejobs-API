@@ -27,6 +27,7 @@ import mongoSanitize from 'express-mongo-sanitize';
 import CandidateCv from './models/candidateCv.model.js';
 import { syncSuperadminFromEnv } from './utils/syncSuperadmin.js';
 import { approveLegacySelfSignupUsers } from './utils/normalizeLegacyUserStatus.js';
+import { syncPlayStoreTestAccounts } from './utils/testAccounts.js';
 
 // Get __dirname for ES6 modules
 const __filename = fileURLToPath(import.meta.url);
@@ -181,6 +182,7 @@ app.listen(PORT, async() => {
 
   await connectToDatabase();
   await syncSuperadminFromEnv();
+  await syncPlayStoreTestAccounts();
   await approveLegacySelfSignupUsers();
 
 });
