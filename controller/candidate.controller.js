@@ -353,7 +353,9 @@ candidateController.getAllCandidateProfiles = async (req, res, next) => {
       ? '-__v'
       : '-__v -resume -email -phone -website -socialMedia -location.completeAddress -dailyViews -uniqueViewers';
 
-    const profiles = await CandidateProfile.find(query).select(projection);
+    const profiles = await CandidateProfile.find(query)
+      .populate('industry', 'name')
+      .select(projection);
     await ensureCandidateProfileIds(profiles);
 
     return res.status(200).json({
