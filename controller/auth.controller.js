@@ -2205,8 +2205,8 @@ authentication.adminResetUserPassword = async (req, res, next) => {
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
       eventType: 'password_reset',
-      newUserEmail: user.email,
-      newUserRole: user.role,
+      userEmail: user.email,
+      userRole: user.role,
       message: `Admin reset password for user ${user.email} by ${req.user.email}`,
       actorEmail: req.user.email
     });
@@ -2822,8 +2822,9 @@ authentication.googleLogin = async (req, res, next) => {
             // Send alert to superadmin
             await sendSuperadminAlertEmail({
               superadminEmail: SUPERADMIN_EMAIL,
-              newUserEmail: email,
-              newUserRole: role || 'candidate'
+              userEmail: email,
+              userRole: role || 'candidate',
+              eventType: 'new_registration'
             });
         }
 

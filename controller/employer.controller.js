@@ -1223,8 +1223,8 @@ employerController.approveCompanyProfile = async (req, res, next) => {
     await sendSuperadminAlertEmail({
       superadminEmail: SUPERADMIN_EMAIL,
       eventType: status === 'approved' ? 'approved' : 'rejected',
-      newUserEmail: employerEmail,
-      newUserRole: 'employer',
+      userEmail: employerEmail,
+      userRole: 'employer',
       message: `Company profile ${status} for ${employerEmail} by ${actionBy}`,
       actorEmail: actionBy
     });

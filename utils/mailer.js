@@ -1,5 +1,6 @@
 ﻿import nodemailer from 'nodemailer';
 import ResumeAlert from '../models/resumeAlert.model.js';
+import { cleanRecipients, getAdminAlertRecipients } from './mailRecipients.js';
 import { BadRequestError } from './errors.js';
 
 const isProd = process.env.NODE_ENV === "production";
@@ -7,12 +8,16 @@ const isProd = process.env.NODE_ENV === "production";
 // mail delay helper
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const liveHrMailAddress = process.env.MAIL_HR || 'hr@coimbatorejobs.in';
+// Keep SES feedback (bounce/complaint) traffic separate from the human sender
+// mailbox. Configure this as a monitored mailbox or an SNS/SES feedback route
+// in production (for example: MAIL_BOUNCE=bounces@coimbatorejobs.in).
 const defaultFromAddress = isProd
   ? liveHrMailAddress
   : (process.env.EMAIL_USER || process.env.MAIL_FROM || 'no-reply@coimbatorejobs.in');
 const primaryInboundMailAddress = isProd
   ? liveHrMailAddress
   : (process.env.EMAIL_USER || process.env.SUPERADMIN_EMAIL || process.env.MAIL_GENERAL);
+const bounceMailAddress = process.env.MAIL_BOUNCE || defaultFromAddress;
 
 const escapeHtml = (value = '') =>
   String(value ?? '')
@@ -135,8 +140,6 @@ transporter.verify((error) => {
 
 
 // BASE EMAIL SENDER (DO NOT CHANGE UI)
-const cleanRecipients = (recipients = []) =>
-  (Array.isArray(recipients) ? recipients : [recipients]).filter(Boolean);
 
 const resolveFromAddress = (from) => {
   if (isProd) {
@@ -148,10 +151,16 @@ const resolveFromAddress = (from) => {
 
 const sendMail = async ({ to, subject, html, text = '', cc = [], from, replyTo, attachments = [] }) => {
   try {
+    const recipients = cleanRecipients(to);
+    const copies = cleanRecipients(cc).filter((email) => !recipients.includes(email));
+    if (!recipients.length) throw new Error('No valid primary email recipient');
     const info = await transporter.sendMail({
       from: resolveFromAddress(from),
-      to,
-      cc: cleanRecipients(cc),
+      // Nodemailer uses this envelope sender for the SMTP MAIL FROM value.
+      // SES sends feedback to it when no Return-Path is supplied.
+      envelope: { from: bounceMailAddress, to: [...recipients, ...copies] },
+      to: recipients,
+      cc: copies,
       replyTo,
       subject,
       text,
@@ -439,6 +448,15 @@ const sendSuperadminAlertEmail = async ({
 }) => {
   try {
     if (!superadminEmail) throw new Error('Superadmin email not configured');
+    const recipients = getAdminAlertRecipients(
+      superadminEmail,
+      process.env.MAIL_ALERT_CC === 'true' ? [process.env.MAIL_GENERAL, process.env.MAIL_SECURITY] : [],
+      process.env.MAIL_ADMIN_BLOCKED_RECIPIENTS
+    );
+    if (!recipients.to.length) {
+      console.log(`Admin alert skipped: primary recipient excluded (${eventType})`);
+      return;
+    }
 
     const { color, icon, label } = getStatusStyle(eventType);
     const subjectPrefix = {
@@ -447,6 +465,7 @@ const sendSuperadminAlertEmail = async ({
       rejected: 'User / Profile Rejected',
       deleted: 'User / Profile Deleted',
       password_reset: 'User Password Reset by Admin',
+      create_profile: 'New Profile Created',
       job_posted: 'New Job Posted',
       job_applied: 'New Job Application'
     }[eventType] || 'Platform Alert';
@@ -485,10 +504,13 @@ const sendSuperadminAlertEmail = async ({
 
     await sendMail({
       from: `"System Alert" <${defaultFromAddress}>`,
-      to: superadminEmail,
+      to: recipients.to,
       subject: `${subjectPrefix}: ${userEmail || 'Unknown'} (${userRole || 'User'})`,
       html,
-      cc: [process.env.MAIL_GENERAL, process.env.MAIL_SECURITY].filter(Boolean) // only if set
+      // Do not fan out every admin alert to general/security mailboxes. A
+      // single stale CC address creates a SES bounce even when the main alert
+      // recipient is valid. Opt in only when these are confirmed mailboxes.
+      cc: recipients.cc
     });
 
     console.log(`Superadmin alert sent: ${eventType} for ${userEmail}`);

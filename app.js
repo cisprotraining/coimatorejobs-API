@@ -135,6 +135,10 @@ app.get('/health', (req, res) => {
 
 // Test email route
 app.get("/test-mail", async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ success: false, message: 'Not found' });
+  }
+
   await sendWelcomeEmail({ 
     recipient: "aravindakumar3315@gmail.com", 
     name: "Test User" 
