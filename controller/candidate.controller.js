@@ -1203,11 +1203,13 @@ candidateController.getAllJobPosts = async (req, res, next) => {
     const [total, jobPosts] = await Promise.all([
       JobPost.countDocuments(filter),
       JobPost.find(filter)
-        .populate('companyProfile', 'companyName logo publicPhone phone')
-        .populate('skills', 'name slug keywords')
-        .populate('industry', 'name')
-        .populate('functionalAreas', 'name')
-        .populate('role', 'name defaultCollarCategory')
+        // Old public jobs can contain names in reference fields. Ignore only
+        // uncastable relation IDs while retaining every matching job record.
+        .populate({ path: 'companyProfile', select: 'companyName logo publicPhone phone', skipInvalidIds: true })
+        .populate({ path: 'skills', select: 'name slug keywords', skipInvalidIds: true })
+        .populate({ path: 'industry', select: 'name', skipInvalidIds: true })
+        .populate({ path: 'functionalAreas', select: 'name', skipInvalidIds: true })
+        .populate({ path: 'role', select: 'name defaultCollarCategory', skipInvalidIds: true })
         .select('-__v -applicantCount')
         .sort(sort)
         .skip(parsed.skip)
@@ -1223,10 +1225,9 @@ candidateController.getAllJobPosts = async (req, res, next) => {
       jobPosts: jobPosts.map((job) => applyCurrentRoleCollarCategory(job)),
       pagination: buildPagination(parsed, total),
       appliedFilters: buildAppliedFilters(parsed, resolved),
-      // Tells the frontend the list and `pagination.total` contain only live
-      // jobs (Published + deadline not passed), so the count is safe to show.
-      // An older API without this key must not have its count displayed.
-      scope: { liveOnly: true },
+      // The hub/slug default is live-only. The general job list explicitly
+      // includes closed and expired public jobs with scope=all.
+      scope: { liveOnly: parsed.scope !== 'all' },
     });
   } catch (error) {
     next(error);

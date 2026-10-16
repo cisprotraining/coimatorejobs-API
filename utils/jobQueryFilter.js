@@ -51,6 +51,7 @@ export const TRIGGER_PARAMS = Object.freeze([
   'sort',
   'page',
   'limit',
+  'scope',
   // accepted aliases
   'salaryMin',
   'salaryMax',
@@ -392,6 +393,7 @@ export const parseJobQuery = (query = {}) => {
 
   return {
     q,
+    scope: firstValue(query.scope) === 'all' ? 'all' : 'live',
     industry,
     role,
     company,
@@ -421,14 +423,14 @@ export const parseJobQuery = (query = {}) => {
  * matches no documents. That is intentional: an unknown ?industry= returns an
  * empty result set with HTTP 200, never a 404.
  *
- * `status: 'Published'` is applied LAST and unconditionally so no user input
- * can widen visibility.
+ * Public status visibility is applied last. Draft jobs are never listed.
  *
- * LIVE INVENTORY ONLY: `applicationDeadline >= now` is applied alongside the
+ * LIVE INVENTORY BY DEFAULT: `applicationDeadline >= now` is applied alongside the
  * status gate. Expired jobs are noindex detail pages and are withdrawn from
  * Google by the expiry sweep, so listing (and counting) them on the SEO hub and
  * landing pages contradicted both. This matches the sitemap feed's eligibility
- * rule. The LEGACY path (no trigger parameter) is unchanged and still returns
+ * rule. The general /job-list explicitly requests scope=all to also include
+ * closed and expired public jobs. The LEGACY path is unchanged and still returns
  * every Published job — its consumers depend on the complete list.
  *
  * `now` is injectable so tests can pin the clock.
@@ -514,8 +516,13 @@ export const buildJobFilter = (parsed = {}, resolved = {}, { now = new Date() } 
     filter.createdAt = { $gte: parsed.posted };
   }
 
-  filter.status = 'Published';
-  filter.applicationDeadline = { $gte: now };
+  if (parsed.scope === 'all') {
+    // The general job list includes public job history. Drafts stay unpublished.
+    filter.status = { $in: ['Published', 'Closed'] };
+  } else {
+    filter.status = 'Published';
+    filter.applicationDeadline = { $gte: now };
+  }
 
   return filter;
 };

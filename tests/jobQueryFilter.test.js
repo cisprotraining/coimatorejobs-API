@@ -275,9 +275,45 @@ test('skills use OR semantics and are capped', () => {
 // ===========================================================================
 // FILTER ASSEMBLY INVARIANTS
 // ===========================================================================
-test('status Published is always present', () => {
+test('status Published is the default for hub and slug requests', () => {
   for (const q of [{}, { q: 'dev' }, { industry: 'it' }, { page: '5' }]) {
     assert.equal(buildJobFilter(parseJobQuery(q), { textTargets: {} }).status, 'Published');
+  }
+});
+
+test('general job list scope includes open, expired and closed public jobs', () => {
+  assert.equal(hasQueryTrigger({ scope: 'all' }), true);
+  const now = new Date('2026-10-16T00:00:00Z');
+  const filter = buildJobFilter(parseJobQuery({ scope: 'all' }), {}, { now });
+  assert.deepEqual(filter.status, { $in: ['Published', 'Closed'] });
+  assert.equal(filter.applicationDeadline, undefined);
+  assert.equal(filter['location.city'], undefined);
+  const jobs = [
+    { id: 'open', status: 'Published', applicationDeadline: '2026-12-01' },
+    { id: 'expired', status: 'Published', applicationDeadline: '2026-01-01' },
+    { id: 'closed', status: 'Closed', applicationDeadline: '2026-12-01' },
+    { id: 'draft', status: 'Draft', applicationDeadline: '2026-12-01' },
+  ];
+  assert.deepEqual(jobs.filter((job) => filter.status.$in.includes(job.status)).map((job) => job.id), ['open', 'expired', 'closed']);
+});
+
+test('public history scope retains requested role, industry and location filters', () => {
+  const filter = buildJobFilter(parseJobQuery({ scope: 'all', role: 'developer', industry: 'it', location: 'chennai' }), {
+    role: { ids: [oid(1)] }, industry: { ids: [oid(2)] }, location: { name: 'Chennai' },
+  });
+  assert.deepEqual(filter.role, { $in: [oid(1)] });
+  assert.deepEqual(filter.industry, { $in: [oid(2)] });
+  assert.equal(filter['location.city'].$in[0].test('Chennai'), true);
+  assert.equal(filter['location.city'].$in[0].test('Coimbatore'), false);
+});
+
+test('invalid scope keeps live-only defaults and cannot expose drafts', () => {
+  for (const scope of ['draft', 'All', { $ne: 'live' }]) {
+    const parsed = parseJobQuery({ scope });
+    assert.equal(parsed.scope, 'live');
+    const filter = buildJobFilter(parsed);
+    assert.equal(filter.status, 'Published');
+    assert.ok(filter.applicationDeadline.$gte instanceof Date);
   }
 });
 

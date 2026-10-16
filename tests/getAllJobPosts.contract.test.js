@@ -191,9 +191,11 @@ test('filtered: sort carries the _id tiebreaker', async () => {
   assert.deepEqual(findArg(oldest.record.calls, 'sort'), ['sort', { createdAt: 1, _id: 1 }]);
 });
 
-test('filtered: element shape matches legacy (same populates and select)', async () => {
+test('filtered: relation fields match legacy and tolerate invalid historical IDs', async () => {
   const { record } = await invoke({ page: '1' });
-  const populates = record.calls.filter((c) => c[0] === 'populate').map((c) => [c[1], c[2]]);
+  const populateOptions = record.calls.filter((c) => c[0] === 'populate').map((c) => c[1]);
+  const populates = populateOptions.map((options) => [options.path, options.select]);
+  assert.ok(populateOptions.every((options) => options.skipInvalidIds === true));
 
   assert.deepEqual(populates, [
     ['companyProfile', 'companyName logo publicPhone phone'],

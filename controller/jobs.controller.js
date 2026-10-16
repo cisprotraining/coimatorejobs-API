@@ -2009,6 +2009,7 @@ jobsController.getJobPost = async (req, res, next) => {
     // Public SEO-ready projection: explicit whitelist so no PII or internal
     // analytics fields are ever exposed on this public endpoint.
     const PUBLIC_JOB_FIELDS = [
+      'jobId',
       'title',
       'description',
       'slug',
@@ -2045,20 +2046,19 @@ jobsController.getJobPost = async (req, res, next) => {
     const jobPost = await JobPost.findOne(query)
       .populate({
         path: 'companyProfile',
+        skipInvalidIds: true,
         select: 'companyName logo publicPhone phone website industry',
-        populate: { path: 'industry', select: 'name slug' },
+        populate: { path: 'industry', select: 'name slug', skipInvalidIds: true },
       })
-      .populate('functionalAreas', 'name slug')
-      .populate('industry', 'name slug')
-      .populate('role', 'name slug defaultCollarCategory')
-      .populate('skills', 'name')
+      .populate({ path: 'functionalAreas', select: 'name slug', skipInvalidIds: true })
+      .populate({ path: 'industry', select: 'name slug', skipInvalidIds: true })
+      .populate({ path: 'role', select: 'name slug defaultCollarCategory', skipInvalidIds: true })
+      .populate({ path: 'skills', select: 'name', skipInvalidIds: true })
       .select(`${PUBLIC_JOB_FIELDS} ${PRIVATE_JOB_FIELDS}`);
 
     if (!jobPost) {
       throw new NotFoundError('Job post not found');
     }
-    await ensureJobId(jobPost);
-
     // Check permissions
     // if (user.role !== 'superadmin' && jobPost.employer.toString() !== user.id.toString()) {
     //   throw new ForbiddenError('You do not have permission to access this job post');
