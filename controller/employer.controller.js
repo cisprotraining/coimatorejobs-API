@@ -6,7 +6,11 @@ import DemandCandidate from "../models/demandCandidate.model.js";
 import CandidateEmployerActivity from "../models/candidateEmployerActivity.model.js";
 import ResumeDownloadLog from "../models/resumeDownloadLog.model.js";
 import EmployerResumeDownloadLog from "../models/employerResumeDownloadLog.model.js";
+import SavedJob from "../models/savedJob.model.js";
+import Notification from "../models/notification.model.js";
+import Homepage from "../models/homepage.model.js";
 import JobPost from "../models/jobs.model.js";
+import Application from "../models/jobApply.model.js";
 import User from "../models/user.model.js";
 import { ForbiddenError, BadRequestError, NotFoundError } from "../utils/errors.js";
 import { sendCompanyProfileStatusEmail, sendSuperadminAlertEmail, sendProfileDeletionEmail } from '../utils/mailer.js';
@@ -16,9 +20,11 @@ import Industry from '../models/industry.model.js';
 import FunctionalArea from '../models/functionalArea.model.js';
 import { normalizeEmail } from "../utils/emailValidation.js";
 import { getEffectiveEmployerId } from "../utils/roleHelper.js";
+import { publicJobApprovalFilter } from '../utils/publicJobApproval.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { deleteCompanyProfileRelatedData } from '../utils/companyProfileCascade.js';
 
 const employerController = {};
 const DEFAULT_COMPANY_EMAIL = "hello@coimbatorejobs.in";
@@ -325,11 +331,30 @@ employerController.getAllCompanyProfiles = async (req, res, next) => {
       .select('-__v');
 
     await ensureCompanyIdsForProfiles(profiles);
-    const profilesWithDemandCounts = await attachDemandCandidateCounts(profiles);
+    const [profilesWithDemandCounts, openJobCounts] = await Promise.all([
+      attachDemandCandidateCounts(profiles),
+      JobPost.aggregate([
+        {
+          $match: {
+            companyProfile: { $in: profiles.map((profile) => profile._id) },
+            status: 'Published',
+            applicationDeadline: { $gte: new Date() },
+          },
+        },
+        { $group: { _id: '$companyProfile', count: { $sum: 1 } } },
+      ]),
+    ]);
+    const openJobCountByCompany = new Map(
+      openJobCounts.map((item) => [item._id.toString(), item.count])
+    );
+    const profilesWithJobCounts = profilesWithDemandCounts.map((profile) => ({
+      ...profile,
+      openJobsCount: openJobCountByCompany.get(profile._id.toString()) || 0,
+    }));
     const isAdminViewer = ['hr-admin', 'superadmin'].includes(req.user?.role);
     const publicProfiles = isAdminViewer
-      ? profilesWithDemandCounts
-      : profilesWithDemandCounts.map(hideInternalCompanyPhone);
+      ? profilesWithJobCounts
+      : profilesWithJobCounts.map(hideInternalCompanyPhone);
 
     return res.status(200).json({
       success: true,
@@ -978,11 +1003,11 @@ employerController.getCompanyProfile = async (req, res, next) => {
     }
 
     // Count active jobs for this company
-    const activeJobsCount = await JobPost.countDocuments({
+    const activeJobsCount = await JobPost.countDocuments(publicJobApprovalFilter({
       companyProfile: profileId,
       status: 'Published',
       applicationDeadline: { $gte: new Date() }
-    });
+    }));
 
     return res.status(200).json({
       success: true,
@@ -1092,7 +1117,23 @@ employerController.deleteCompanyProfile = async (req, res, next) => {
       superadminMessage = `Company profile deleted for ${employerEmail} by ${deletedByLabel}`;
     }
 
-    // Delete associated files if they exist
+    // Remove job-linked candidate and employer data first, then delete the
+    // profile. Keeping the profile until the cascade succeeds avoids leaving
+    // orphaned jobs if a dependent collection cannot be cleaned.
+    const { deletedJobCount, deletedApplicationCount } = await deleteCompanyProfileRelatedData({
+      profileId: profile._id,
+      JobPost,
+      Application,
+      SavedJob,
+      Notification,
+      EmployerResumeDownloadLog,
+      DemandCandidate,
+      Homepage,
+    });
+
+    await CompanyProfile.findByIdAndDelete(profileId);
+
+    // Delete the local logo only after the database deletion succeeds.
     if (profile.logo) {
       const logoPath = path.join(process.cwd(), 'public', profile.logo);
       try {
@@ -1103,20 +1144,6 @@ employerController.deleteCompanyProfile = async (req, res, next) => {
         }
       }
     }
-
-    // if (profile.coverImage) {
-    //   const coverPath = path.join(process.cwd(), 'public', profile.coverImage);
-    //   try {
-    //     await fs.unlink(coverPath);
-    //   } catch (err) {
-    //     if (err.code !== 'ENOENT') {
-    //       console.error(`Failed to delete cover image: ${err.message}`);
-    //     }
-    //   }
-    // }
-
-    // Delete the profile from the database
-    await CompanyProfile.findByIdAndDelete(profileId);
 
     await createNotification(employerUser?._id || profile.employer, 'profile_update', {
       ...notificationPresets.profileUpdate(
@@ -1151,7 +1178,9 @@ employerController.deleteCompanyProfile = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Company profile deleted successfully'
+      message: 'Company profile and related jobs deleted successfully',
+      deletedJobCount,
+      deletedApplicationCount,
     });
   } catch (error) {
     next(error);
@@ -1368,21 +1397,18 @@ employerController.getActiveJobsByEmployer = async (req, res, next) => {
 
     const { limit = 10, page = 1 } = req.query;
 
-    const jobs = await JobPost.find({
+    const publicCompanyJobs = publicJobApprovalFilter({
       companyProfile: companyId,
       status: 'Published',
       applicationDeadline: { $gte: new Date() }
-    })
+    });
+    const jobs = await JobPost.find(publicCompanyJobs)
       .select('title location jobType offeredSalary positions remoteWork createdAt')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
 
-    const total = await JobPost.countDocuments({
-      companyProfile: companyId,
-      status: 'Published',
-      applicationDeadline: { $gte: new Date() }
-    });
+    const total = await JobPost.countDocuments(publicCompanyJobs);
 
     res.status(200).json({
       success: true,

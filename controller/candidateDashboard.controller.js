@@ -4,6 +4,7 @@ import JobApply from '../models/jobApply.model.js';
 import SavedJob from '../models/savedJob.model.js';
 import JobAlert from '../models/jobAlert.model.js';
 import CandidateProfile from '../models/candidateProfile.model.js';
+import { publicJobApprovalFilter } from '../utils/publicJobApproval.js';
 
 const candidateDashboardController = {};
 
@@ -57,11 +58,11 @@ candidateDashboardController.getDashboardStats = async (req, res, next) => {
       JobApply.countDocuments({ candidate: candidateId, createdAt: { $gte: startOfMonth } }),
       JobApply.countDocuments({ candidate: candidateId, createdAt: { $gte: startOfLastMonth, $lt: startOfMonth } }),
 
-      JobPost.countDocuments({ status: 'Published' }),
-      JobPost.countDocuments({
+      JobPost.countDocuments(publicJobApprovalFilter({ status: 'Published' })),
+      JobPost.countDocuments(publicJobApprovalFilter({
         status: 'Published',
         createdAt: { $gte: todayStart }
-      })
+      }))
     ]);
 
     // Profile completeness 

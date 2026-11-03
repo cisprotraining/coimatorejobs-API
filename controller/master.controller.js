@@ -8,6 +8,7 @@ import JobPost from '../models/jobs.model.js';
 import User from '../models/user.model.js';
 import { commonRoles, industrySpecificRoles } from '../seeds/categories.seed.js';
 import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/errors.js';
+import { toPublicRoleOptions } from '../utils/publicRoleOptions.js';
 
 const toSafeString = (value) => String(value ?? '').trim();
 const slugifyValue = (value) =>
@@ -241,6 +242,28 @@ getFunctionalAreas: async (req, res) => {
         seedOnly = 'false',
         uniqueByName = 'false',
       } = req.query;
+
+      // The public job-search dropdown needs only unique role names and slugs.
+      // Avoid populating functional areas and aggregating job collar data for
+      // this common request; the full enriched response remains available to
+      // dashboard callers and filtered role lookups.
+      if (
+        uniqueByName === 'true' &&
+        !functionalAreaId &&
+        !industryId &&
+        !search?.trim() &&
+        seedOnly !== 'true'
+      ) {
+        const roles = await Role.find({ isActive: true })
+          .select('name slug')
+          .sort({ name: 1, _id: 1 })
+          .lean();
+
+        return res.json({
+          success: true,
+          data: toPublicRoleOptions(roles),
+        });
+      }
 
       const andConditions = [{ isActive: true }];
 

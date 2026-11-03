@@ -4,6 +4,7 @@ import { requireEmployerPlanFeature } from '../utils/employerPlanAccess.js';
 
 // Import the new model at the top of your controller file
 import Homepage from '../models/homepage.model.js';
+import { isPublicJobApprovalStatus } from '../utils/publicJobApproval.js';
 
 // Admin controller object for admin and superadmin functionality
 const adminController = {};
@@ -147,7 +148,9 @@ adminController.getFeaturedJobs = async (req, res, next) => {
         });
         return res.status(200).json({
             success: true,
-            featuredJobs: homeData ? homeData.featuredJobs : []
+              featuredJobs: (homeData?.featuredJobs || []).filter((job) =>
+                  job?.status === 'Published' && isPublicJobApprovalStatus(job?.jobApprovalStatus)
+              )
         });
     } catch (error) {
         next(error);

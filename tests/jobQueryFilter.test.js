@@ -32,12 +32,13 @@ const oid = (n) => `0000000000000000000000${String(n).padStart(2, '0')}`;
 // ===========================================================================
 // THE GATE — the single most important behaviour in this phase
 // ===========================================================================
-test('gate: no params -> legacy path', () => {
+test('gate helper: no recognized parameters are present on a bare request', () => {
   assert.equal(hasQueryTrigger({}), false);
 });
 
 test('gate: keyword must NEVER trigger (SearchForm6 sends it today)', () => {
   assert.equal(hasQueryTrigger({ keyword: 'developer' }), false);
+  assert.equal(parseJobQuery({ keyword: 'developer' }).q, 'developer');
 });
 
 test('gate: cache-buster and category must never trigger', () => {
@@ -97,6 +98,7 @@ test('buildJobFilter lists live jobs only (deadline not passed)', () => {
   const filter = buildJobFilter(parseJobQuery({ page: '1' }), {}, { now });
   assert.equal(filter.status, 'Published');
   assert.deepEqual(filter.applicationDeadline, { $gte: now });
+  assert.deepEqual(filter.jobApprovalStatus, { $in: ['not_required', 'accepted', null] });
 });
 
 test('buildJobFilter live-only rule cannot be widened by user input', () => {
@@ -210,6 +212,30 @@ test('salary filter omits the open bound', () => {
   const openMax = buildJobFilter(parseJobQuery({ salary: '30000-' }), {});
   assert.equal(openMax['salaryNorm.min'], undefined);
   assert.deepEqual(openMax['salaryNorm.max'], { $gte: 30000 });
+});
+
+test('LPA bands use monthly-normalized bounds and preserve overlap for salary ranges', () => {
+  const bands = ['0-16667', '16667-33333', '33333-50000', '50000-66667', '66667-'];
+  const filters = bands.map((salary) => buildJobFilter(parseJobQuery({ salary }), {}));
+
+  assert.deepEqual(filters[0]['salaryNorm.min'], { $lte: 16667 });
+  assert.deepEqual(filters[1]['salaryNorm.min'], { $lte: 33333 });
+  assert.deepEqual(filters[1]['salaryNorm.max'], { $gte: 16667 });
+  assert.deepEqual(filters[2]['salaryNorm.min'], { $lte: 50000 });
+  assert.deepEqual(filters[2]['salaryNorm.max'], { $gte: 33333 });
+  assert.deepEqual(filters[3]['salaryNorm.min'], { $lte: 66667 });
+  assert.deepEqual(filters[3]['salaryNorm.max'], { $gte: 50000 });
+  assert.equal(filters[4]['salaryNorm.min'], undefined);
+  assert.deepEqual(filters[4]['salaryNorm.max'], { $gte: 66667 });
+
+  // 2–5 LPA is normalized to about 16,667–41,667/month and overlaps both bands.
+  const annualRange = { min: 16667, max: 41667 };
+  const overlaps = (filter) =>
+    annualRange.min <= filter['salaryNorm.min'].$lte &&
+    annualRange.max >= filter['salaryNorm.max']?.$gte;
+  assert.equal(overlaps(filters[1]), true, '2–5 LPA appears in 2–4 LPA');
+  assert.equal(overlaps(filters[2]), true, '2–5 LPA appears in 4–6 LPA');
+  assert.equal(overlaps(filters[3]), false, '2–5 LPA does not appear in 6–8 LPA');
 });
 
 // ===========================================================================

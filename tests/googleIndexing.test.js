@@ -173,6 +173,7 @@ test('url validation: public eligibility follows the sitemap rule', () => {
   assert.equal(isPubliclyIndexable(base), true);
   assert.equal(isPubliclyIndexable({ ...base, status: 'Draft' }), false);
   assert.equal(isPubliclyIndexable({ ...base, status: 'Closed' }), false);
+  assert.equal(isPubliclyIndexable({ ...base, jobApprovalStatus: 'pending' }), false);
   assert.equal(isPubliclyIndexable({ ...base, applicationDeadline: past }), false);
   assert.equal(isPubliclyIndexable({ ...base, slug: '' }), false);
   assert.equal(isPubliclyIndexable({ ...base, applicationDeadline: null }), false);

@@ -31,6 +31,7 @@ import {
   resolveEmployerPlan,
 } from '../utils/employerPlanAccess.js';
 import { getEffectiveEmployerId } from '../utils/roleHelper.js';
+import { isPublicJobApprovalStatus, publicJobApprovalFilter } from '../utils/publicJobApproval.js';
 import crypto from 'crypto';
 
 const jobsController = {};
@@ -1733,6 +1734,10 @@ jobsController.getJobPosts = async (req, res, next) => {
       query.status = status;
     }
 
+    // Candidates may use this authenticated list route, but approval-pending
+    // admin posts remain private until explicitly accepted.
+    if (userRole === 'candidate') query = publicJobApprovalFilter(query);
+
     // Query and populate related company profile (only name and logo)
     const jobPosts = await JobPost.find(query)
       .populate('companyProfile', 'companyName logo email publicPhone phone')
@@ -2041,6 +2046,7 @@ jobsController.getJobPost = async (req, res, next) => {
       'postedBy',
       'contactEmail',
       'contactUsername',
+      'jobApprovalStatus',
     ].join(' ');
 
     const jobPost = await JobPost.findOne(query)
@@ -2074,12 +2080,17 @@ jobsController.getJobPost = async (req, res, next) => {
       )
     );
 
+    if (!canViewPrivateFields && !isPublicJobApprovalStatus(jobPostData.jobApprovalStatus)) {
+      throw new NotFoundError('Job post not found');
+    }
+
     if (!canViewPrivateFields) {
       delete jobPostData.contactEmail;
       delete jobPostData.contactUsername;
     }
     delete jobPostData.employer;
     delete jobPostData.postedBy;
+    delete jobPostData.jobApprovalStatus;
 
     return res.status(200).json({
       success: true,
@@ -2508,11 +2519,11 @@ const paginate = (req) => {
 // No auth, no populate, lean read. Returns all eligible jobs (pagination deferred).
 jobsController.getSitemapJobs = async (req, res, next) => {
   try {
-    const jobs = await JobPost.find({
+    const jobs = await JobPost.find(publicJobApprovalFilter({
       status: 'Published',
       applicationDeadline: { $gte: new Date() },
       slug: { $exists: true, $nin: [null, ''], $regex: /\S/ }, // reject null/empty/whitespace-only
-    })
+    }))
       .select('slug status createdAt updatedAt applicationDeadline -_id')
       .sort({ updatedAt: -1 })
       .lean();
@@ -2529,7 +2540,7 @@ jobsController.getJobsByLocation = async (req, res, next) => {
     const { city } = req.params;
     const { skip, limit } = paginate(req);
 
-    const jobs = await JobPost.find({ status: 'Published', 'location.city': { $regex: new RegExp(`^${city}$`, 'i') } })
+    const jobs = await JobPost.find(publicJobApprovalFilter({ status: 'Published', 'location.city': { $regex: new RegExp(`^${city}$`, 'i') } }))
       .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
@@ -2552,7 +2563,7 @@ jobsController.getJobsByCategory = async (req, res, next) => {
     const { categorySlug } = req.params;
     const functionalArea = await FunctionalArea.findOne({ slug: categorySlug });
     if (!functionalArea) throw new NotFoundError('Category not found');
-    const jobs = await JobPost.find({ status: 'Published', functionalAreas: functionalArea._id })
+    const jobs = await JobPost.find(publicJobApprovalFilter({ status: 'Published', functionalAreas: functionalArea._id }))
       .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
@@ -2571,7 +2582,7 @@ jobsController.getJobsByRole = async (req, res, next) => {
     const { roleSlug } = req.params;
     const role = await Role.findOne({ slug: roleSlug });
     if (!role) throw new NotFoundError('Role not found');
-    const jobs = await JobPost.find({ status: 'Published', role: role._id })
+    const jobs = await JobPost.find(publicJobApprovalFilter({ status: 'Published', role: role._id }))
       .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')
@@ -2593,11 +2604,11 @@ jobsController.getJobsByRoleAndCity = async (req, res, next) => {
     const role = await Role.findOne({ slug: roleSlug });
     if (!role) throw new NotFoundError('Role not found');
 
-    const jobs = await JobPost.find({
+    const jobs = await JobPost.find(publicJobApprovalFilter({
       role: role._id,
       status: 'Published',
       'location.city': { $regex: new RegExp(`^${city}$`, 'i') }
-    })
+    }))
       .populate('companyProfile', 'companyName logo publicPhone phone')
       .populate('functionalAreas', 'name slug')
       .populate('industry', 'name slug')

@@ -17,6 +17,7 @@
 import { JWT } from 'google-auth-library';
 import IndexingLog from '../models/indexingLog.model.js';
 import { buildPublicJobUrl } from './jobSlug.js';
+import { isPublicJobApprovalStatus } from './publicJobApproval.js';
 
 export const INDEXING_SCOPE = 'https://www.googleapis.com/auth/indexing';
 export const PUBLISH_ENDPOINT = 'https://indexing.googleapis.com/v3/urlNotifications:publish';
@@ -156,6 +157,7 @@ export const buildCanonicalJobUrl = (job, config = readIndexingConfig()) => {
  */
 export const isPubliclyIndexable = (job, now = new Date()) => {
   if (!job) return false;
+  if (!isPublicJobApprovalStatus(job.jobApprovalStatus)) return false;
   if (String(job.status) !== 'Published') return false;
   if (!String(job.slug ?? '').trim()) return false;
   const deadline = job.applicationDeadline ? new Date(job.applicationDeadline) : null;

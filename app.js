@@ -63,8 +63,16 @@ app.use(cors({
 
 // const body = bodyParser.json(urlencoded({ extended: true }));
 
-// Security middleware (e.g., XSS protection)
-// app.use(helmet());
+// Security headers. Keep CSP in report-only mode while we identify external
+// scripts, fonts, APIs, and assets used by the site before enforcing a policy.
+app.use(helmet({
+  contentSecurityPolicy: {
+    reportOnly: true,
+  },
+  // The site uses Google OAuth popups and serves public assets cross-origin.
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 // app.use(mongoSanitize());
 app.use(express.json({ limit: '1mb' }));
 

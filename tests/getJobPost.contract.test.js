@@ -37,6 +37,19 @@ test('closed public job detail is readable without generating or saving a jobId'
   assert.ok(result.calls.find(([method]) => method === 'select')[1].split(' ').includes('jobId'));
 });
 
+test('approval-pending job detail is hidden from public requests', async () => {
+  const row = {
+    _id: '695e01c99b4c5858c1a109df',
+    slug: 'assistant-manager-india-695e01c99b4c5858c1a109df',
+    title: 'Assistant Manager',
+    status: 'Published',
+    jobApprovalStatus: 'pending',
+  };
+  const result = await invoke(row);
+  assert.equal(result.res.code, null);
+  assert.equal(result.error?.statusCode, 404);
+});
+
 test('detail populates tolerate invalid legacy IDs including nested company industry', async () => {
   const result = await invoke({ _id: '695e01c99b4c5858c1a109df', status: 'Published', title: 'Developer' });
   assert.equal(result.error, undefined);

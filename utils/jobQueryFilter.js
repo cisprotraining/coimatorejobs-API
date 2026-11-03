@@ -9,27 +9,12 @@
 // buildJobFilter() as the `resolved` argument.
 //
 // ---------------------------------------------------------------------------
-// THE OPT-IN GATE — the single most important thing in this file
+// QUERY PARAMETER GATE
+import { publicJobApprovalFilter } from './publicJobApproval.js';
 // ---------------------------------------------------------------------------
-// GET /candidate-dashboard/jobs has five independent consumers today, and its
-// current response (the entire published collection, unfiltered, unpaginated)
-// is load-bearing for all of them — including the frontend sitemap builder and
-// the legacy job-URL reconciler, which both need the COMPLETE list.
-//
-// So the endpoint keeps two paths. hasQueryTrigger() decides which one runs.
-// When no trigger parameter is present the controller executes the original
-// code verbatim and the response is byte-identical to what it has always been.
-//
-// `keyword` is DELIBERATELY EXCLUDED from the trigger list.
-// components/common/job-search/SearchForm6.jsx already sends ?keyword=<term>
-// to this endpoint today, and the backend has always ignored it (that component
-// filters client-side afterwards). If `keyword` triggered server-side
-// filtering, that component's suggestion pool would silently shrink with no
-// frontend change and no error to notice. `q` is the new canonical name; the
-// frontend will map keyword -> q in a later phase, at which point filtering
-// activates intentionally.
-//
-// `category` and `_t` are excluded for the same class of reason.
+// The controller now always runs this bounded query path. `keyword` is parsed
+// as a backwards-compatible alias for `q`, but remains outside this legacy
+// helper's trigger set. `category` and `_t` do not affect job search.
 // ---------------------------------------------------------------------------
 
 // Canonical parameters (the 15 in scope) plus the server-side aliases that are
@@ -62,7 +47,8 @@ export const TRIGGER_PARAMS = Object.freeze([
   'datePosted',
 ]);
 
-// Present on real requests today; must NEVER trigger the filtered path.
+// Present on older callers; accepted as q by parseJobQuery, but excluded from
+// the helper's trigger set for compatibility with existing consumers.
 export const LEGACY_IGNORED_PARAMS = Object.freeze(['keyword', 'category', '_t']);
 
 export const DEFAULT_LIMIT = 20;
@@ -335,7 +321,8 @@ export const parsePostedQuery = (value, now = Date.now()) => {
 
 /**
  * True when the request carries at least one Query Engine parameter.
- * False -> the controller must run the untouched legacy path.
+ * False -> no canonical query-engine parameter is present. The public jobs
+ * controller still applies its safe paginated default query in this case.
  */
 export const hasQueryTrigger = (query = {}) => {
   if (!query || typeof query !== 'object') return false;
@@ -354,7 +341,7 @@ export const hasQueryTrigger = (query = {}) => {
  * page: page=0 -> 1, limit=9999 -> 50, sort=banana -> latest.
  */
 export const parseJobQuery = (query = {}) => {
-  const q = firstValue(query.q).slice(0, MAX_Q_LENGTH);
+  const q = (firstValue(query.q) || firstValue(query.keyword)).slice(0, MAX_Q_LENGTH);
 
   const industry = toSlug(query.industry);
   const role = toSlug(query.role);
@@ -430,8 +417,7 @@ export const parseJobQuery = (query = {}) => {
  * Google by the expiry sweep, so listing (and counting) them on the SEO hub and
  * landing pages contradicted both. This matches the sitemap feed's eligibility
  * rule. The general /job-list explicitly requests scope=all to also include
- * closed and expired public jobs. The LEGACY path is unchanged and still returns
- * every Published job — its consumers depend on the complete list.
+ * closed and expired public jobs.
  *
  * `now` is injectable so tests can pin the clock.
  */
@@ -524,7 +510,9 @@ export const buildJobFilter = (parsed = {}, resolved = {}, { now = new Date() } 
     filter.applicationDeadline = { $gte: now };
   }
 
-  return filter;
+  // Keep older records whose approval field predates the approval workflow,
+  // while excluding jobs explicitly waiting for approval.
+  return publicJobApprovalFilter(filter);
 };
 
 /**

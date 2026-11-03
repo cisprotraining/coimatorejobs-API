@@ -11,6 +11,7 @@
 // on every request and taxonomy counts change on the scale of minutes.
 // ---------------------------------------------------------------------------
 import JobPost from '../models/jobs.model.js';
+import { publicJobApprovalFilter } from '../utils/publicJobApproval.js';
 import {
   DEFAULT_HUB_CITY,
   DEFAULT_LINK_LIMIT,
@@ -24,7 +25,7 @@ const MAX_CITY_LENGTH = 60;
 
 /** Default loader: every live job, only the fields the summary needs. */
 const loadLiveJobs = (now) =>
-  JobPost.find({ status: 'Published', applicationDeadline: { $gte: now } })
+  JobPost.find(publicJobApprovalFilter({ status: 'Published', applicationDeadline: { $gte: now } }))
     .select('_id status applicationDeadline location industry role')
     .populate('industry', 'name')
     .populate('role', 'name')

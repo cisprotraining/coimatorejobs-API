@@ -29,7 +29,6 @@ import path from 'path';
 import natural from 'natural';  //library (for TF-IDF / cosine similarity)
 import crypto from 'crypto';
 import {
-  hasQueryTrigger,
   parseJobQuery,
   buildJobFilter,
   buildSortSpec,
@@ -37,6 +36,8 @@ import {
   buildAppliedFilters,
 } from '../utils/jobQueryFilter.js';
 import { resolveJobQueryTaxonomy } from '../utils/jobTaxonomyResolver.js';
+import { isPublicJobApprovalStatus, publicJobApprovalFilter } from '../utils/publicJobApproval.js';
+import { toPublicJob } from '../utils/publicJobSerializer.js';
 import {
   isPubliclyIndexable,
   notifyJobPublished,
@@ -1139,24 +1140,9 @@ candidateController.getPendingCandidateProfiles = async (req, res, next) => {
  * @route GET /api/v1/candidate-dashboard/jobs
  * @access Public
  *
- * TWO PATHS — see utils/jobQueryFilter.js for the full rationale.
- *
- *   LEGACY PATH (no Query Engine parameter present)
- *     Executes exactly as it always has: every Published job, fully populated,
- *     unpaginated, sorted { createdAt: -1 }, responding { success, jobPosts }.
- *     This response is byte-identical to the pre-Query-Engine behaviour and
- *     must stay that way — the frontend sitemap builder and the legacy job-URL
- *     reconciler both depend on receiving the COMPLETE list, and the homepage
- *     search box already sends ?keyword= here (which is deliberately NOT a
- *     trigger).
- *
- *   FILTERED PATH (at least one Query Engine parameter present)
- *     Server-side filtering, sorting and pagination. Adds `pagination` and
- *     `appliedFilters` as NEW keys; `jobPosts` keeps the same name and the same
- *     element shape.
- *
- * The employer plan gate stays the first statement in the handler so it is
- * enforced identically on both paths.
+ * Public job browsing stays available to guests. Every request uses the same
+ * server-side filters and bounded pagination, then serializes only fields
+ * intended for public listing and SEO use.
  */
 candidateController.getAllJobPosts = async (req, res, next) => {
   try {
@@ -1170,29 +1156,7 @@ candidateController.getAllJobPosts = async (req, res, next) => {
       if (!access.allowed) return;
     }
 
-    // ---------------------------------------------------------------------
-    // LEGACY PATH — do not refactor, do not optimize, do not add .lean().
-    // Copied verbatim from the pre-Query-Engine implementation.
-    // ---------------------------------------------------------------------
-    if (!hasQueryTrigger(req.query)) {
-      const jobPosts = await JobPost.find({ status: 'Published' })
-        .populate('companyProfile', 'companyName logo publicPhone phone')
-        .populate('skills', 'name slug keywords') // Required Skills matching: name + slug + keywords
-        .populate('industry', 'name')         // Populates industry for FilterJobsBox
-        .populate('functionalAreas', 'name')  // Populates functional areas for FilterJobsBox
-        .populate('role', 'name defaultCollarCategory')             // Populates role for FilterJobsBox
-        .select('-__v -applicantCount')
-        .sort({ createdAt: -1 });
-
-      return res.status(200).json({
-        success: true,
-        jobPosts: jobPosts.map((job) => applyCurrentRoleCollarCategory(job)),
-      });
-    }
-
-    // ---------------------------------------------------------------------
-    // FILTERED PATH
-    // ---------------------------------------------------------------------
+    // An empty query safely defaults to page 1 with the standard page limit.
     const parsed = parseJobQuery(req.query);
     const resolved = await resolveJobQueryTaxonomy(parsed);
     const filter = buildJobFilter(parsed, resolved);
@@ -1205,12 +1169,12 @@ candidateController.getAllJobPosts = async (req, res, next) => {
       JobPost.find(filter)
         // Old public jobs can contain names in reference fields. Ignore only
         // uncastable relation IDs while retaining every matching job record.
-        .populate({ path: 'companyProfile', select: 'companyName logo publicPhone phone', skipInvalidIds: true })
+        .populate({ path: 'companyProfile', select: 'companyName logo slug', skipInvalidIds: true })
         .populate({ path: 'skills', select: 'name slug keywords', skipInvalidIds: true })
         .populate({ path: 'industry', select: 'name', skipInvalidIds: true })
         .populate({ path: 'functionalAreas', select: 'name', skipInvalidIds: true })
         .populate({ path: 'role', select: 'name defaultCollarCategory', skipInvalidIds: true })
-        .select('-__v -applicantCount')
+        .select('jobId slug title companyName jobType offeredSalary salary careerLevel experience experienceMin experienceMax qualification gender collarCategory applicationDeadline remoteWork status createdAt updatedAt seoKeywords positions location industry role skills functionalAreas companyProfile')
         .sort(sort)
         .skip(parsed.skip)
         .limit(parsed.limit)
@@ -1222,7 +1186,7 @@ candidateController.getAllJobPosts = async (req, res, next) => {
     // 404-ing a transiently out-of-range page produces soft-404 churn.
     return res.status(200).json({
       success: true,
-      jobPosts: jobPosts.map((job) => applyCurrentRoleCollarCategory(job)),
+      jobPosts: jobPosts.map(applyCurrentRoleCollarCategory).map(toPublicJob),
       pagination: buildPagination(parsed, total),
       appliedFilters: buildAppliedFilters(parsed, resolved),
       // The hub/slug default is live-only. The general job list explicitly
@@ -1256,7 +1220,7 @@ candidateController.applyToJob = async (req, res, next) => {
 
     // Ensure job post exists and is published
     const jobPost = await JobPost.findById(jobPostId).populate('companyProfile', 'companyName');
-    if (!jobPost || jobPost.status !== 'Published') {
+      if (!jobPost || jobPost.status !== 'Published' || !isPublicJobApprovalStatus(jobPost.jobApprovalStatus)) {
       throw new NotFoundError('Job post not found or not available');
     }
 
@@ -1803,7 +1767,7 @@ candidateController.getRecommendedJobs = async (req, res, next) => {
       .select('description specialisms location experience jobType offeredSalary');
 
     // Build match query (using specialisms as categories)
-    const match = {
+    const match = publicJobApprovalFilter({
       status: 'Published',
       applicationDeadline: { $gte: new Date() },
       $or: [
@@ -1812,7 +1776,7 @@ candidateController.getRecommendedJobs = async (req, res, next) => {
         { experience: profileExp },
         { jobType: { $in: profileJobTypes } },
       ].filter(Boolean) // remove empty conditions
-    };
+    });
 
     // If no strong filters, fallback to all published
     if (Object.keys(match.$or).length === 0) delete match.$or;
@@ -1889,10 +1853,10 @@ candidateController.getTrendingJobs = async (req, res, next) => {
   try {
     const { limit = 10, page = 1 } = req.query;
 
-    const jobs = await JobPost.find({ 
+    const jobs = await JobPost.find(publicJobApprovalFilter({
       status: 'Published',
       applicationDeadline: { $gte: new Date() }
-    })
+    }))
       .populate('companyProfile', 'companyName logo publicPhone phone')
       .sort({ applicantCount: -1, createdAt: -1 }) // Trending: high applies + recent
       .skip((page - 1) * limit)
@@ -1934,12 +1898,20 @@ candidateController.getSimilarJobs = async (req, res, next) => {
     const limit = Math.min(Math.max(requestedLimit, 1), 50);
 
     // 1. Find the reference job
-    const referenceJob = await JobPost.findById(id).select('title role industry location skills jobType');
-    if (!referenceJob) {
+    const referenceJob = await JobPost.findById(id)
+      .select('title role industry functionalAreas location skills jobType experience collarCategory jobApprovalStatus');
+    if (!referenceJob || !isPublicJobApprovalStatus(referenceJob.jobApprovalStatus)) {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
     const normalizeText = (value) => String(value || '').trim().toLowerCase();
+    const normalizeTokens = (value) => normalizeText(value)
+      .split(/[^a-z0-9]+/i)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 1);
+    const toIdSet = (value) => new Set((Array.isArray(value) ? value : [value])
+      .filter(Boolean)
+      .map((item) => item?._id?.toString() || item?.toString()));
     const normalizeCities = (value) => {
       if (Array.isArray(value)) return value.map(normalizeText).filter(Boolean);
       return normalizeText(value) ? [normalizeText(value)] : [];
@@ -1952,49 +1924,76 @@ candidateController.getSimilarJobs = async (req, res, next) => {
 
     const referenceRoleId = referenceJob.role?.toString();
     const referenceTitle = normalizeText(referenceJob.title);
+    const referenceTitleTokens = new Set(normalizeTokens(referenceJob.title));
+    const referenceIndustryId = referenceJob.industry?.toString();
+    const referenceFunctionalAreaIds = toIdSet(referenceJob.functionalAreas);
     const referenceSkills = referenceJob.skills?.map((skill) => skill.toString()) || [];
 
-    const baseQuery = {
+    const baseQuery = publicJobApprovalFilter({
       _id: { $ne: id },
       status: 'Published',
-      applicationDeadline: { $gte: new Date() }
-    };
+      applicationDeadline: { $gte: new Date() },
+      'positions.remaining': { $gt: 0 }
+    });
 
     const availableJobs = await JobPost.find(baseQuery)
       .populate('companyProfile', 'companyName logo publicPhone phone')
+      // Score every eligible public job before applying the display limit;
+      // limiting the newest 200 first can hide an older but highly relevant job.
       .sort({ createdAt: -1 })
-      .limit(200)
       .lean();
 
     const scoreJob = (job) => {
-      const sameRole = Boolean(
-        (referenceRoleId && job.role?.toString() === referenceRoleId) ||
-        (referenceTitle && normalizeText(job.title) === referenceTitle)
-      );
+      const title = normalizeText(job.title);
+      const titleTokens = new Set(normalizeTokens(job.title));
+      const sharedTitleTokens = [...referenceTitleTokens].filter((token) => titleTokens.has(token));
+      const titleOverlap = referenceTitleTokens.size > 0 && sharedTitleTokens.length > 0;
+      const titleExact = Boolean(referenceTitle && title === referenceTitle);
+      const roleMatch = Boolean(referenceRoleId && job.role?.toString() === referenceRoleId);
+      const sameRole = roleMatch || titleExact;
       const sameLocation = hasCityMatch(job);
-      const sameIndustry = referenceJob.industry && job.industry?.toString() === referenceJob.industry?.toString();
-      const sameJobType = job.jobType === referenceJob.jobType;
+      const sameIndustry = Boolean(referenceIndustryId && job.industry?.toString() === referenceIndustryId);
+      const sameFunctionalArea = [...referenceFunctionalAreaIds].some((areaId) =>
+        toIdSet(job.functionalAreas).has(areaId)
+      );
+      const sameJobType = Boolean(referenceJob.jobType && job.jobType === referenceJob.jobType);
+      const sameExperience = Boolean(referenceJob.experience && job.experience === referenceJob.experience);
+      const sameCollar = Boolean(referenceJob.collarCategory && job.collarCategory === referenceJob.collarCategory);
       const jobSkills = job.skills?.map((skill) => skill.toString()) || [];
       const commonSkills = jobSkills.filter((skill) => referenceSkills.includes(skill));
 
       let score = 0;
-      if (sameRole) score += 60;
-      if (sameLocation) score += 30;
-      if (sameIndustry) score += 15;
+      if (titleExact) score += 100;
+      else if (roleMatch) score += 85;
+      else if (titleOverlap) score += 45;
+      if (sameIndustry) score += 30;
+      if (sameFunctionalArea) score += 25;
+      if (sameLocation) score += 20;
       if (sameJobType) score += 10;
-      score += commonSkills.length * 5;
+      if (sameExperience) score += 8;
+      if (sameCollar) score += 5;
+      score += Math.min(commonSkills.length * 5, 25);
 
       return {
         job,
         sameRole,
+        titleExact,
+        roleMatch,
+        titleOverlap,
+        sameIndustry,
+        sameFunctionalArea,
         sameLocation,
+        matchPriority: titleExact ? 4 : roleMatch ? 3 : titleOverlap ? 2 : 1,
         similarityScore: Math.min(score, 100)
       };
     };
 
     const scoredJobs = availableJobs.map(scoreJob);
     const byNewest = (a, b) => new Date(b.job.createdAt || 0) - new Date(a.job.createdAt || 0);
-    const byScoreThenNewest = (a, b) => (b.similarityScore - a.similarityScore) || byNewest(a, b);
+    const byScoreThenNewest = (a, b) =>
+      (b.similarityScore - a.similarityScore) ||
+      (b.matchPriority - a.matchPriority) ||
+      byNewest(a, b);
     const seen = new Set();
     const orderedJobs = [];
 
@@ -2007,19 +2006,39 @@ candidateController.getSimilarJobs = async (req, res, next) => {
       });
     };
 
-    addBucket(scoredJobs.filter((item) => item.sameRole).sort(byScoreThenNewest));
-    addBucket(scoredJobs.filter((item) => !item.sameRole && item.sameLocation).sort(byScoreThenNewest));
+    // Only jobs with at least one meaningful match belong under Related Jobs.
+    // Unrelated newest jobs are intentionally not presented as related.
+    addBucket(scoredJobs.filter((item) => item.similarityScore > 0).sort(byScoreThenNewest));
 
-    if (orderedJobs.length === 0) {
-      addBucket(scoredJobs.map((item) => ({
-        ...item,
-        similarityScore: item.similarityScore || 1
-      })).sort(byNewest));
-    }
+    // Keep the counter tied to the same public, live related-job set shown
+    // below. The site operates in India, so calculate today's boundary in
+    // Asia/Kolkata instead of depending on the API process' local timezone.
+    const istParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const istToday = Object.fromEntries(istParts
+      .filter(({ type }) => ['year', 'month', 'day'].includes(type))
+      .map(({ type, value }) => [type, Number(value)]));
+    const todayStart = new Date(Date.UTC(
+      istToday.year,
+      istToday.month - 1,
+      istToday.day
+    ) - (5.5 * 60 * 60 * 1000));
+    const relatedJobsAddedToday = orderedJobs.filter(({ job }) => {
+      const createdAt = new Date(job?.createdAt || 0);
+      return Number.isFinite(createdAt.getTime()) && createdAt >= todayStart;
+    }).length;
 
     return res.status(200).json({
       success: true,
-      similarJobs: orderedJobs.slice(0, limit)
+      similarJobs: orderedJobs.slice(0, limit),
+      meta: {
+        relatedJobsCount: orderedJobs.length,
+        relatedJobsAddedToday,
+      }
     });
 
   } catch (error) {
