@@ -2053,7 +2053,10 @@ jobsController.getJobPost = async (req, res, next) => {
       .populate({
         path: 'companyProfile',
         skipInvalidIds: true,
-        select: 'companyName logo publicPhone phone website industry',
+        // Public job detail responses may expose only public company-card fields.
+        // Phone numbers and private contact data stay behind the company-profile
+        // authorization endpoint.
+        select: 'companyName logo slug website industry',
         populate: { path: 'industry', select: 'name slug', skipInvalidIds: true },
       })
       .populate({ path: 'functionalAreas', select: 'name slug', skipInvalidIds: true })

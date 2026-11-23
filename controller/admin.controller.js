@@ -5,6 +5,7 @@ import { requireEmployerPlanFeature } from '../utils/employerPlanAccess.js';
 // Import the new model at the top of your controller file
 import Homepage from '../models/homepage.model.js';
 import { isPublicJobApprovalStatus } from '../utils/publicJobApproval.js';
+import { toPublicJob } from '../utils/publicJobSerializer.js';
 
 // Admin controller object for admin and superadmin functionality
 const adminController = {};
@@ -142,15 +143,15 @@ adminController.getFeaturedJobs = async (req, res, next) => {
         const homeData = await Homepage.findOne().populate({
             path: 'featuredJobs',
             populate: [
-                { path: 'companyProfile' }, // Getting the logo/name for the card
+                { path: 'companyProfile', select: 'companyName logo slug' },
                 { path: 'industry', select: 'name slug' }, // Resolve industry ObjectId to readable name
             ]
         });
         return res.status(200).json({
             success: true,
-              featuredJobs: (homeData?.featuredJobs || []).filter((job) =>
-                  job?.status === 'Published' && isPublicJobApprovalStatus(job?.jobApprovalStatus)
-              )
+            featuredJobs: (homeData?.featuredJobs || [])
+                .filter((job) => job?.status === 'Published' && isPublicJobApprovalStatus(job?.jobApprovalStatus))
+                .map(toPublicJob)
         });
     } catch (error) {
         next(error);

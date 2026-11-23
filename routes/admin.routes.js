@@ -5,8 +5,12 @@ import contactController from '../controller/contact.controller.js';
 import RoleSuggestion from '../models/roleSuggestion.model.js';
 import Role from '../models/role.model.js';
 import { authenticate, authorize } from '../middleware/auth.js';
+import feedbackController from '../controller/employerFeedback.controller.js';
 
 const adminRouter = Router();
+adminRouter.get('/employer-feedback', authenticate, authorize(['superadmin']), feedbackController.list);
+adminRouter.patch('/employer-feedback/:id/visibility', authenticate, authorize(['superadmin']), feedbackController.visibility);
+adminRouter.delete('/employer-feedback/:id', authenticate, authorize(['superadmin']), feedbackController.remove);
 
 // userRouter.get('/profile', authenticate, authorize(['candidate', 'admin', 'superadmin']), userController.getProfile);
 
@@ -25,7 +29,7 @@ adminRouter.get('/featured-jobs/fetch-all', adminController.getFeaturedJobs); //
 
 // Featured Companies (Curated Content)
 adminRouter.put('/featured-company', authenticate, authorize(['hr-admin', 'superadmin']), adminController.updateFeaturedCompanies);
-adminRouter.get('/featured-company/fetch-all', adminController.getFeaturedCompanies); // Publicly accessible for Home Page
+adminRouter.get('/featured-company/fetch-all', authenticate, authorize(['hr-admin', 'superadmin']), adminController.getFeaturedCompanies);
 
 
 // for contact us form

@@ -16,8 +16,14 @@ const connectToDatabase = async () => {
         console.log(`Connected to ${NODE_ENV} env MongoDB successfully!!`);
     }catch (error) {
         console.error("Error connecting to MongoDB:", error);
-        process.exit(1); // Exit the process with failure
+        // Keep the HTTP server available for health checks and local UI work
+        // when MongoDB is temporarily unreachable (for example, DNS/VPN outage).
+        // Database-backed routes will surface their normal request errors until
+        // the connection is restored or the process is restarted.
+        return false;
     }
+
+    return true;
 }
 
 export default connectToDatabase;

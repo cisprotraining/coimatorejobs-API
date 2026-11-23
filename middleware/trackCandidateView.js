@@ -3,6 +3,7 @@ import CandidateProfile from '../models/candidateProfile.model.js';
 import CandidateEmployerActivity from '../models/candidateEmployerActivity.model.js';
 
 const trackCandidateView = async (req, res, next) => {
+  if (req.method === 'HEAD') return next();
   try {
     // Only track if viewer is employer
     if (!req.user || req.user.role !== 'employer') return next();

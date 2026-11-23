@@ -13,8 +13,8 @@ import normalizeBody from '../utils/normalizeBody.js';
 
 const candidateRouter = Router();
 
-// Get candidate profiles (public-safe view for guests/candidates, full view for employer/admin roles)
-candidateRouter.get('/profile/fetch-all', optionalAuthenticate, candidateController.getAllCandidateProfiles);
+// Candidate directory is private: only employers with the feature enabled and platform admins may search it.
+candidateRouter.get('/profile/fetch-all', authenticate, authorize(['employer', 'hr-admin', 'superadmin']), candidateController.getAllCandidateProfiles);
 
 // Create candidate profile (with file upload)
 candidateRouter.post('/profile/create', authenticate, authorize(['candidate', 'hr-admin', 'superadmin']), candidateUpload, normalizeBody, candidateController.createCandidateProfile);

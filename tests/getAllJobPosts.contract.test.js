@@ -228,13 +228,16 @@ test('legacy: expired jobs are NOT filtered on the legacy path', async () => {
   assert.equal('applicationDeadline' in record.filter, false);
 });
 
-test('filtered: out-of-range page returns 200 with an empty list, never 404', async () => {
+test('filtered: out-of-range page returns 404; empty page one remains valid', async () => {
   const { res } = await invoke({ page: '999' }, [], 45);
 
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.body.jobPosts, []);
-  assert.equal(res.body.pagination.totalPages, 3);
-  assert.equal(res.body.pagination.hasNext, false);
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.body.success, false);
+  const empty = await invoke({ page: '1' }, [], 0);
+  assert.equal(empty.res.statusCode, 200);
+  assert.deepEqual(empty.res.body.jobPosts, []);
+  const nonexistent = await invoke({ page: '2' }, [], 0);
+  assert.equal(nonexistent.res.statusCode, 404);
 });
 
 test('filtered: malformed values clamp instead of erroring', async () => {

@@ -18,8 +18,13 @@ import FunctionalArea from '../models/functionalArea.model.js';
 import Industry from '../models/industry.model.js';
 import trackView from '../middleware/trackView.js';
 import trackJobView from '../middleware/trackJobView.js';
+import feedbackController from '../controller/employerFeedback.controller.js';
 
 const employerRouter = Router();
+employerRouter.get('/website-feedback', authenticate, authorize(['employer']), feedbackController.mine);
+employerRouter.post('/website-feedback', authenticate, authorize(['employer']), feedbackController.submit);
+employerRouter.patch('/website-feedback', authenticate, authorize(['employer']), feedbackController.updateMine);
+employerRouter.delete('/website-feedback', authenticate, authorize(['employer']), feedbackController.removeMine);
 const bulkJobUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },

@@ -21,6 +21,7 @@ import FunctionalArea from '../models/functionalArea.model.js';
 import { normalizeEmail } from "../utils/emailValidation.js";
 import { getEffectiveEmployerId } from "../utils/roleHelper.js";
 import { publicJobApprovalFilter } from '../utils/publicJobApproval.js';
+import { PUBLIC_COMPANY_PROFILE_SELECT, toPublicCompanyProfile } from '../utils/publicCompanyProfile.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -120,17 +121,6 @@ const normalizeCompanyProfilePhones = (profileData = {}) => {
     internalPhone: hrPhoneNumber,
     phone: phoneNumber,
   };
-};
-
-const hideInternalCompanyPhone = (profile) => {
-  const data = typeof profile?.toObject === 'function' ? profile.toObject() : { ...profile };
-  data.phoneNumber = data.phoneNumber || data.publicPhone || data.phone || "";
-  data.publicPhone = data.phoneNumber;
-  data.phone = data.publicPhone;
-  delete data.internalPhone;
-  delete data.hrPhoneNumber;
-  delete data.landlineNumber;
-  return data;
 };
 
 const getObjectIdString = (value) => {
@@ -325,15 +315,20 @@ const resolveFunctionalAreaIds = async (functionalAreasInput, industryId = null)
 // old get all compnay profile without industry population
 employerController.getAllCompanyProfiles = async (req, res, next) => {
   try {
-    // Fetch all company profiles, excluding the version key, and POPULATE industry
-    const profiles = await CompanyProfile.find()
-      .populate('industry', 'name') // <-- ADD THIS LINE
-      .select('-__v');
+    const isAdminViewer = ['hr-admin', 'superadmin'].includes(req.user?.role);
+    const profileQuery = isAdminViewer
+      ? CompanyProfile.find().select('-__v')
+      : CompanyProfile.find({ status: 'approved', allowInSearch: true })
+        .select(PUBLIC_COMPANY_PROFILE_SELECT);
+    const profiles = await profileQuery
+      .populate('industry', 'name')
+      .populate('functionalAreas', 'name');
 
-    await ensureCompanyIdsForProfiles(profiles);
-    const [profilesWithDemandCounts, openJobCounts] = await Promise.all([
-      attachDemandCandidateCounts(profiles),
-      JobPost.aggregate([
+    if (isAdminViewer) await ensureCompanyIdsForProfiles(profiles);
+    const profileDataList = isAdminViewer
+      ? await attachDemandCandidateCounts(profiles)
+      : profiles.map((profile) => profile.toObject());
+    const openJobCounts = await JobPost.aggregate([
         {
           $match: {
             companyProfile: { $in: profiles.map((profile) => profile._id) },
@@ -342,19 +337,17 @@ employerController.getAllCompanyProfiles = async (req, res, next) => {
           },
         },
         { $group: { _id: '$companyProfile', count: { $sum: 1 } } },
-      ]),
-    ]);
+      ]);
     const openJobCountByCompany = new Map(
       openJobCounts.map((item) => [item._id.toString(), item.count])
     );
-    const profilesWithJobCounts = profilesWithDemandCounts.map((profile) => ({
+    const profilesWithJobCounts = profileDataList.map((profile) => ({
       ...profile,
       openJobsCount: openJobCountByCompany.get(profile._id.toString()) || 0,
     }));
-    const isAdminViewer = ['hr-admin', 'superadmin'].includes(req.user?.role);
     const publicProfiles = isAdminViewer
       ? profilesWithJobCounts
-      : profilesWithJobCounts.map(hideInternalCompanyPhone);
+      : profilesWithJobCounts.map(toPublicCompanyProfile);
 
     return res.status(200).json({
       success: true,
@@ -997,9 +990,7 @@ employerController.getCompanyProfile = async (req, res, next) => {
     }
 
     if (!isAdmin && !isOwner) {
-      delete profileData.internalPhone;
-      delete profileData.hrPhoneNumber;
-      delete profileData.landlineNumber;
+      profileData = toPublicCompanyProfile(profileData);
     }
 
     // Count active jobs for this company

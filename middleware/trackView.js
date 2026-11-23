@@ -8,6 +8,7 @@
 import CompanyProfile from '../models/companyProfile.model.js';
 
 const trackView = async (req, res, next) => {
+  if (req.method === 'HEAD') return next();
   try {
     if (!req.user || req.user.role !== 'candidate') return next();
 

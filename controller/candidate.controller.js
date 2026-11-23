@@ -333,7 +333,7 @@ const getAdminAlertRecipients = async () => {
 candidateController.getAllCandidateProfiles = async (req, res, next) => {
   try {
     const requesterRole = req.user?.role || 'guest';
-    const isPrivilegedViewer = ['employer', 'hr-admin', 'superadmin'].includes(requesterRole);
+    const isPlatformAdmin = ['hr-admin', 'superadmin'].includes(requesterRole);
 
     if (requesterRole === 'employer') {
       const access = await requireEmployerPlanFeature({
@@ -345,23 +345,71 @@ candidateController.getAllCandidateProfiles = async (req, res, next) => {
       if (!access.allowed) return;
     }
 
-    // Guests/candidates should only see searchable approved profiles with sensitive fields removed.
-    const query = isPrivilegedViewer
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 12));
+    const skip = (page - 1) * limit;
+    const search = String(req.query.search || '').trim();
+
+    // Employers may search only profiles that the candidate approved for discovery.
+    // Platform admins can inspect all profiles, but the response still uses an explicit
+    // allowlist so internal user IDs and private contact/demographic data never leak.
+    const query = isPlatformAdmin
       ? {}
       : { status: 'approved', isActive: true, allowInSearch: true };
 
-    const projection = isPrivilegedViewer
-      ? '-__v'
-      : '-__v -resume -email -phone -website -socialMedia -location.completeAddress -dailyViews -uniqueViewers';
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(escaped, 'i');
+      query.$or = [
+        { fullName: pattern },
+        { jobTitle: pattern },
+        { 'location.city': pattern },
+      ];
+    }
 
-    const profiles = await CandidateProfile.find(query)
+    const publicProjection = [
+      '_id', 'fullName', 'jobTitle', 'experience', 'educationLevels',
+      'languages', 'functionalAreas', 'industry', 'role', 'skills',
+      'profilePhoto', 'description', 'categories', 'allowInSearch',
+      'location.city', 'location.country', 'status', 'createdAt', 'updatedAt',
+    ].join(' ');
+    const adminProjection = [
+      '_id', 'candidateId', 'candidate', 'createdBy', 'fullName', 'jobTitle',
+      'phone', 'email', 'website', 'currentSalary', 'expectedSalary',
+      'experience', 'dateOfBirth', 'age', 'gender', 'educationLevels',
+      'languages', 'functionalAreas', 'industry', 'role', 'skills',
+      'allowInSearch', 'status', 'approvedBy', 'approvedAt',
+      'rejectionReason', 'description', 'jobType', 'savedCount',
+      'profileViews', 'dailyViews', 'uniqueViewers', 'socialMedia',
+      'location', 'profilePhoto', 'resume', 'isActive', 'createdAt', 'updatedAt',
+    ].join(' ');
+
+    const [profiles, total] = await Promise.all([
+      CandidateProfile.find(query)
       .populate('industry', 'name')
-      .select(projection);
-    await ensureCandidateProfileIds(profiles);
+      .populate('role', 'name')
+      .populate('functionalAreas', 'name')
+      .populate('skills', 'name')
+      .select(isPlatformAdmin ? adminProjection : publicProjection)
+      .sort({ updatedAt: -1, _id: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+      CandidateProfile.countDocuments(query),
+    ]);
 
+    if (page > Math.max(1, Math.ceil(total / limit))) {
+      return res.status(404).json({ success: false, message: 'Page not found' });
+    }
     return res.status(200).json({
       success: true,
-      profiles
+      profiles,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     next(error);
@@ -880,6 +928,33 @@ candidateController.getCandidateProfile = async (req, res, next) => {
         featureLabel: 'Candidate profile view access',
       });
       if (!access.allowed) return;
+
+      if (profile.status !== 'approved' || profile.allowInSearch !== true) {
+        throw new NotFoundError('Candidate profile not found');
+      }
+
+      const safeProfile = {
+        _id: profile._id,
+        fullName: profile.fullName,
+        jobTitle: profile.jobTitle,
+        experience: profile.experience,
+        educationLevels: profile.educationLevels,
+        languages: profile.languages,
+        functionalAreas: profile.functionalAreas,
+        industry: profile.industry,
+        role: profile.role,
+        skills: profile.skills,
+        profilePhoto: profile.profilePhoto,
+        description: profile.description,
+        categories: profile.categories,
+        status: profile.status,
+        allowInSearch: profile.allowInSearch,
+      };
+
+      return res.status(200).json({
+        success: true,
+        profile: safeProfile,
+      });
     }
 
     return res.status(200).json({
@@ -1181,9 +1256,10 @@ candidateController.getAllJobPosts = async (req, res, next) => {
         .lean(),
     ]);
 
-    // A page beyond the end returns an empty array with HTTP 200 and correct
-    // pagination metadata — never a 404. Job data shifts constantly, and
-    // 404-ing a transiently out-of-range page produces soft-404 churn.
+    // Page one remains a valid empty search; subsequent nonexistent pages do not.
+    if (parsed.page > Math.max(1, Math.ceil(total / parsed.limit))) {
+      return res.status(404).json({ success: false, message: 'Page not found' });
+    }
     return res.status(200).json({
       success: true,
       jobPosts: jobPosts.map(applyCurrentRoleCollarCategory).map(toPublicJob),

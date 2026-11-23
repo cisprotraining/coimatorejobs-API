@@ -1,5 +1,5 @@
 import express, { urlencoded } from 'express';
-import cors from 'cors';
+import corsMiddleware from './middleware/cors.js';
 // import cookieParser from 'cookie-parser';
 import { PORT } from './config/env.js';
 import connectToDatabase from './database/mongodb.js';
@@ -17,6 +17,7 @@ import jobAlertRouter from './routes/jobAlert.routes.js';
 import masterRoutes from './routes/master.routes.js';
 import pushNotificationRouter from './routes/pushNotification.routes.js';
 import indexingRouter from './routes/indexing.routes.js';
+import publicRouter from './routes/public.routes.js';
 
 import { sendPasswordResetEmail, sendWelcomeEmail, sendSuperadminAlertEmail } from './utils/mailer.js';
 
@@ -39,27 +40,7 @@ const app = express();
 // using express-rate-limit or other IP-dependent middleware**
 app.set('trust proxy', 1);  // tells Express to trust the first proxy (Render)
 
-// CORS configuration for frontend and backend communication
-// Allow requests from specific origins
-const allowedOrigins = [
-  'http://localhost:3000',                      // Local frontend
-  'https://coimbatorejobs.in',         // versal frontend
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    } else {
-      return callback(new Error('CORS not allowed from this origin'), false);
-    }
-  },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true, // If you're using tokens or cookies
-}));
+app.use(corsMiddleware);
 
 // const body = bodyParser.json(urlencoded({ extended: true }));
 
@@ -125,6 +106,7 @@ app.use('/api/v1/notification', jobAlertRouter);
 app.use('/api/v1/push-notifications', pushNotificationRouter);
 app.use('/api/v1/master', masterRoutes);
 app.use('/api/v1/indexing', indexingRouter);
+app.use('/api/v1/public', publicRouter);
 
 
 // Health check
@@ -192,7 +174,12 @@ app.use((req, res, next) => {
 app.listen(PORT, async() => {
   console.log(`Server is running on port http://localhost:${PORT}`);
 
-  await connectToDatabase();
+  const databaseConnected = await connectToDatabase();
+  if (!databaseConnected) {
+    console.warn('MongoDB is unavailable; startup sync jobs were skipped.');
+    return;
+  }
+
   await syncSuperadminFromEnv();
   await syncPlayStoreTestAccounts();
   await approveLegacySelfSignupUsers();
