@@ -65,18 +65,25 @@ candidateDashboardController.getDashboardStats = async (req, res, next) => {
       }))
     ]);
 
-    // Profile completeness 
+    // Match the candidate form's required fields. Attachments and the retired
+    // categories field are optional and must not prevent a complete profile.
     const requiredFields = [
-      'fullName', 'jobTitle', 'phone', 'email', 'description',
-      'educationLevels', 'languages', 'categories', 'location.city',
-      'profilePhoto', 'resume'
+      'fullName', 'jobTitle', 'phone', 'email', 'description', 'age',
+      'gender', 'jobType', 'experience', 'dateOfBirth', 'educationLevels',
+      'languages', 'industry', 'functionalAreas', 'role', 'location.city',
+      'location.completeAddress', 'expectedSalary'
     ];
+    if (profile.experience && profile.experience !== 'Fresher') {
+      requiredFields.push('currentSalary');
+    }
+    const hasValue = value => {
+      if (Array.isArray(value)) return value.some(hasValue);
+      if (typeof value === 'string') return value.trim().length > 0;
+      return value !== null && value !== undefined && value !== false;
+    };
     const filled = requiredFields.filter(field => {
-      if (field.includes('.')) {
-        const [parent, child] = field.split('.');
-        return profile[parent]?.[child];
-      }
-      return profile[field];
+      const value = field.split('.').reduce((parent, key) => parent?.[key], profile);
+      return hasValue(value);
     }).length;
 
     // Profile completeness calculation

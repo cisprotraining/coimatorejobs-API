@@ -791,10 +791,14 @@ candidateController.updateCandidateProfile = async (req, res, next) => {
      */
     if (files.profilePhoto) {
       profile.profilePhoto = files.profilePhoto[0].location;
+    } else if (profileData.removePhoto === true || profileData.removePhoto === 'true') {
+      profile.profilePhoto = '';
     }
 
     if (files.resume) {
       profile.resume = files.resume[0].location;
+    } else if (profileData.removeResume === true || profileData.removeResume === 'true') {
+      profile.resume = '';
     }
 
 
@@ -916,7 +920,8 @@ candidateController.getCandidateProfile = async (req, res, next) => {
     }
 
     // Check permissions
-    if (req.user.role !== 'superadmin' && req.user.role !== 'employer' && req.user.role !== 'hr-admin'  && profile.candidate.toString() !== req.user.id.toString()) {
+    const viewerId = req.user._id || req.user.id;
+    if (req.user.role !== 'superadmin' && req.user.role !== 'employer' && req.user.role !== 'hr-admin' && String(profile.candidate) !== String(viewerId)) {
       throw new ForbiddenError('You do not have permission to access this profile');
     }
 
